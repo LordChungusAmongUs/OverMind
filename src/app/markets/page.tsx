@@ -1,11 +1,11 @@
 import Sidebar from "@/components/layout/Sidebar";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { TrendingUp, TrendingDown, ExternalLink } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ExternalLink } from "lucide-react";
 
 const watchlist = [
-  { symbol: "BTC", name: "Bitcoin", type: "Crypto", tvSymbol: "BINANCE:BTCUSDT" },
-  { symbol: "MSTR", name: "MicroStrategy", type: "Stock", tvSymbol: "NASDAQ:MSTR" },
-  { symbol: "COIN", name: "Coinbase", type: "Stock", tvSymbol: "NASDAQ:COIN" },
+  { symbol: "BTC", name: "Bitcoin", tvSymbol: "BINANCE:BTCUSDT" },
+  { symbol: "MSTR", name: "MicroStrategy", tvSymbol: "NASDAQ:MSTR" },
+  { symbol: "COIN", name: "Coinbase", tvSymbol: "NASDAQ:COIN" },
 ];
 
 export default function MarketsPage() {
@@ -30,22 +30,16 @@ export default function MarketsPage() {
 
         {/* Watchlist */}
         <div className="grid grid-cols-3 gap-4 mb-6">
-          {watchlist.map(({ symbol, name, type, tvSymbol }) => (
+          {watchlist.map(({ symbol, name, tvSymbol }) => (
             <Card key={symbol}>
               <CardContent className="p-5">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-4">
                   <div>
                     <p className="font-bold text-lg">{symbol}</p>
                     <p className="text-sm text-muted-foreground">{name}</p>
                   </div>
-                  <span className="text-xs px-2 py-1 rounded-full bg-secondary text-muted-foreground">
-                    {type}
-                  </span>
                 </div>
                 <p className="text-2xl font-bold text-muted-foreground">—</p>
-                <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" /> Live data not connected
-                </p>
                 <a
                   href={`https://www.tradingview.com/chart/?symbol=${tvSymbol}`}
                   target="_blank"
@@ -59,15 +53,15 @@ export default function MarketsPage() {
           ))}
         </div>
 
-        {/* TradingView Embed */}
+        {/* TradingView Chart */}
         <Card>
           <CardHeader>
-            <CardTitle>TradingView — BTC/USD</CardTitle>
+            <CardTitle>BTC/USD — Live Chart</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="rounded-lg overflow-hidden" style={{ height: 500 }}>
               <iframe
-                src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_chart&symbol=BINANCE%3ABTCUSDT&interval=D&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=1e1e2e&studies=[]&theme=dark&style=1&timezone=America%2FNew_York&withdateranges=1&showpopupbutton=1&studies_overrides={}&overrides={}&enabled_features=[]&disabled_features=[]&locale=en&utm_source=overmind"
+                src="https://www.tradingview.com/widgetembed/?frameElementId=tradingview_chart&symbol=BINANCE%3ABTCUSDT&interval=D&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=1e1e2e&studies=[]&theme=dark&style=1&timezone=America%2FNew_York&withdateranges=1&showpopupbutton=1&locale=en"
                 style={{ width: "100%", height: "100%", border: "none" }}
                 allowTransparency
                 allowFullScreen
