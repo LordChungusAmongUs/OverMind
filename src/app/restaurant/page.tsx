@@ -66,8 +66,18 @@ export default function RestaurantPage() {
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-bold">~15</p>
-              <p className="text-sm text-muted-foreground mt-1">employees</p>
-              <p className="text-xs text-muted-foreground mt-3">Including manager (you)</p>
+              <p className="text-sm text-muted-foreground mt-1">employees total</p>
+              <div className="mt-3 space-y-1">
+                {[
+                  "2 Waitresses",
+                  "2 Grill Cooks",
+                  "2 Line Cooks",
+                  "1 Biscuit Maker",
+                  "1 Drive-Thru",
+                ].map((role) => (
+                  <p key={role} className="text-xs text-muted-foreground">· {role}</p>
+                ))}
+              </div>
             </CardContent>
           </Card>
 
