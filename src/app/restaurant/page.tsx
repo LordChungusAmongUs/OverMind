@@ -24,8 +24,8 @@ export default function RestaurantPage() {
       <Sidebar />
       <main className="ml-56 flex-1 p-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold">Restaurant</h1>
-          <p className="text-muted-foreground mt-1">Figure POS — not yet connected</p>
+          <h1 className="text-3xl font-bold">King&apos;s BBQ, Burgers, & More</h1>
+          <p className="text-muted-foreground mt-1">Archdale, NC · Lexington BBQ · Smash Burgers · Fried Chicken · Quesadillas · Breakfast Biscuits</p>
         </div>
 
         <div className="grid grid-cols-3 gap-4">

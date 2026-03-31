@@ -28,7 +28,7 @@ export default function BriefingPage() {
           <h1 className="text-3xl font-bold mt-1">
             {greeting}, <span className="text-primary">DJ Thirsty</span>
           </h1>
-          <p className="text-muted-foreground mt-1">Your command center</p>
+          <p className="text-muted-foreground mt-1">King&apos;s BBQ, Burgers, & More · Archdale, NC</p>
         </div>
 
         {/* Status Cards */}
