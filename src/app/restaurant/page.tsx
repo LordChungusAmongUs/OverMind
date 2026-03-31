@@ -37,7 +37,7 @@ export default function RestaurantPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-3 gap-6 mb-6">
+        <div className="grid grid-cols-4 gap-6 mb-6">
           {/* Hours */}
           <Card>
             <CardHeader>
@@ -68,6 +68,29 @@ export default function RestaurantPage() {
               <p className="text-3xl font-bold">~15</p>
               <p className="text-sm text-muted-foreground mt-1">employees</p>
               <p className="text-xs text-muted-foreground mt-3">Including manager (you)</p>
+            </CardContent>
+          </Card>
+
+          {/* Top Sellers */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BarChart2 className="w-4 h-4 text-primary" /> Top Sellers
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {[
+                  { rank: 1, item: "Tenderloin Biscuit" },
+                  { rank: 2, item: "Cheeseburger" },
+                ].map(({ rank, item }) => (
+                  <div key={item} className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-primary w-4">#{rank}</span>
+                    <span className="text-sm font-medium">{item}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-3">More data once Figure POS connected</p>
             </CardContent>
           </Card>
 
