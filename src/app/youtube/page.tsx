@@ -143,7 +143,7 @@ export default function YouTubePage() {
       ]);
 
       const data = await ffmpeg.readFile("output.mp4");
-      const blob = new Blob([data], { type: "video/mp4" });
+      const blob = new Blob([data as unknown as BlobPart], { type: "video/mp4" });
       setVideoUrl(URL.createObjectURL(blob));
     } catch (err) {
       console.error(err);
