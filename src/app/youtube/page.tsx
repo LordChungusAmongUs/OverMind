@@ -64,6 +64,8 @@ export default function YouTubePage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLInputElement>(null);
   const artRef = useRef<HTMLInputElement>(null);
 
@@ -390,7 +392,34 @@ export default function YouTubePage() {
           </div>
         );
 
-      case "publish":
+      case "publish": {
+        const publishTrack = async () => {
+          if (!videoUrl || !title) return;
+          setPublishing(true);
+          try {
+            const videoBlob = await fetch(videoUrl).then(r => r.blob());
+            const form = new FormData();
+            form.append("video", videoBlob, "track.mp4");
+            form.append("title", title);
+            form.append("description", description);
+            const res = await fetch("/api/youtube/upload", { method: "POST", body: form });
+            const data = await res.json();
+            if (data.url) setPublishedUrl(data.url);
+            else alert("Upload failed: " + data.error);
+          } catch (e) {
+            alert("Upload failed. Check console.");
+          }
+          setPublishing(false);
+        };
+
+        const resetPipeline = () => {
+          setCurrentStep("concept");
+          setStyleTag(""); setTrackTheme(""); setLyrics("");
+          setArtFile(null); setArtPreview(null); setAudioFile(null);
+          setVideoUrl(null); setTitle(""); setDescription("");
+          setPublishedUrl(null);
+        };
+
         return (
           <div className="space-y-4">
             <div className="space-y-2 text-sm">
@@ -405,29 +434,44 @@ export default function YouTubePage() {
                 </div>
               ))}
             </div>
-            <div className="p-4 rounded-lg border border-yellow-500/30 bg-yellow-500/5">
-              <p className="text-sm text-yellow-400 font-medium mb-1">YouTube OAuth Required</p>
-              <p className="text-sm text-muted-foreground">
-                One-click publishing requires Google OAuth setup. In the meantime, use YouTube Studio to upload manually.
-              </p>
-              <a href="https://studio.youtube.com" target="_blank" rel="noopener noreferrer"
-                className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                Open YouTube Studio <ChevronRight className="w-3.5 h-3.5" />
-              </a>
-            </div>
-            <button
-              onClick={() => {
-                setCurrentStep("concept");
-                setStyleTag(""); setTrackTheme(""); setLyrics("");
-                setArtFile(null); setArtPreview(null); setAudioFile(null);
-                setVideoUrl(null); setTitle(""); setDescription("");
-              }}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
-            >
-              <RefreshCw className="w-4 h-4" /> Start Next Track
-            </button>
+
+            {publishedUrl ? (
+              <div className="space-y-3">
+                <div className="p-4 rounded-lg border border-green-500/30 bg-green-500/5">
+                  <p className="text-sm text-green-400 font-medium">✓ Published to YouTube!</p>
+                  <a href={publishedUrl} target="_blank" rel="noopener noreferrer"
+                    className="mt-1 text-sm text-primary hover:underline block">{publishedUrl}</a>
+                </div>
+                <button onClick={resetPipeline}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90">
+                  <RefreshCw className="w-4 h-4" /> Start Next Track
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <a href="/api/auth/youtube"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+                  Connect YouTube Account <ChevronRight className="w-4 h-4" />
+                </a>
+                <button
+                  onClick={publishTrack}
+                  disabled={!videoUrl || !title || publishing}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500 text-white text-sm font-medium hover:bg-red-600 disabled:opacity-50"
+                >
+                  {publishing
+                    ? <><RefreshCw className="w-4 h-4 animate-spin" /> Uploading...</>
+                    : <><Upload className="w-4 h-4" /> Publish to YouTube</>}
+                </button>
+                {publishing && <p className="text-sm text-muted-foreground">Uploading — this may take a minute...</p>}
+                <button onClick={resetPipeline}
+                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+                  <RefreshCw className="w-3.5 h-3.5" /> Start new track without publishing
+                </button>
+              </div>
+            )}
           </div>
         );
+      }
     }
   };
 
