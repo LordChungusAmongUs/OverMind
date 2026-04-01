@@ -1,76 +1,537 @@
+"use client";
+
+import { useState, useRef } from "react";
 import Sidebar from "@/components/layout/Sidebar";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Youtube,
-  Eye,
-  Users,
-  ThumbsUp,
-  Upload,
-  Calendar,
-  MessageSquare,
-  BarChart2,
+  Youtube, Music, Wand2, ImageIcon, Video,
+  FileText, Upload, RefreshCw, Copy, Check,
+  ChevronRight, Calendar, BarChart2,
 } from "lucide-react";
 
-const automations = [
-  { icon: Upload, title: "Upload & Scheduling", description: "Schedule uploads, auto-set titles, descriptions, and tags" },
-  { icon: BarChart2, title: "Analytics", description: "Views, watch time, subscribers, and revenue" },
-  { icon: MessageSquare, title: "Comments", description: "Auto-moderate, flag spam, draft replies" },
-  { icon: Calendar, title: "Content Calendar", description: "Plan your upload schedule and track video pipeline" },
+// ── STYLE DATA ───────────────────────────────────────────────
+const DNB_SUBGENRES = [
+  "darkstep", "dubstep", "techstep", "jump up",
+  "liquid", "jungle", "hardstep", "drum n bass",
 ];
 
+const MOODS = [
+  "simple", "rhythmic", "melodic", "cinematic", "epic", "dark",
+  "psychedelic", "funky", "tribal", "industrial", "ska", "jazz",
+  "ragga", "90s", "2000s", "southern rap", "hip hop", "metal",
+  "fantasy", "pop", "deep", "emotional", "romantic", "paranoid",
+  "suburban", "caribbean", "sci-fi", "mystery",
+];
+
+function pickRandom<T>(arr: T[], n: number): T[] {
+  const shuffled = [...arr].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, n);
+}
+
+function generateStyleTag(): string {
+  const subgenre = pickRandom(DNB_SUBGENRES, 1)[0];
+  const moodCount = Math.floor(Math.random() * 3) + 2; // 2–4
+  const moods = pickRandom(MOODS, moodCount);
+  return [subgenre, ...moods].join(", ");
+}
+
+// ── STEP CONFIG ──────────────────────────────────────────────
+const STEPS = [
+  { key: "concept",   label: "Track Concept",   icon: Wand2,      desc: "Generate style tags and track theme" },
+  { key: "lyrics",    label: "Lyrics",           icon: Music,       desc: "Generate lyrics in ChatGPT" },
+  { key: "art",       label: "Cover Art",        icon: ImageIcon,   desc: "Generate artwork in ChatGPT" },
+  { key: "audio",     label: "Audio (Suno)",     icon: Music,       desc: "Generate audio in Suno, download & upload here" },
+  { key: "video",     label: "Create Video",     icon: Video,       desc: "Combine art + audio with chromatic aberration" },
+  { key: "metadata",  label: "Title & Description", icon: FileText, desc: "Generate SEO-optimized metadata" },
+  { key: "publish",   label: "Publish",          icon: Upload,      desc: "Upload to YouTube" },
+];
+
+type StepKey = "concept" | "lyrics" | "art" | "audio" | "video" | "metadata" | "publish";
+
 export default function YouTubePage() {
+  const [activeTab, setActiveTab] = useState<"pipeline" | "calendar" | "analytics">("pipeline");
+  const [currentStep, setCurrentStep] = useState<StepKey>("concept");
+  const [styleTag, setStyleTag] = useState("");
+  const [trackTheme, setTrackTheme] = useState("");
+  const [lyricsPrompt, setLyricsPrompt] = useState("");
+  const [artPrompt, setArtPrompt] = useState("");
+  const [lyrics, setLyrics] = useState("");
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [artFile, setArtFile] = useState<File | null>(null);
+  const [artPreview, setArtPreview] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoProcessing, setVideoProcessing] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
+  const artRef = useRef<HTMLInputElement>(null);
+
+  const stepIndex = STEPS.findIndex(s => s.key === currentStep);
+
+  // ── HELPERS ──────────────────────────────────────────────────
+  const copy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const generateConcept = () => {
+    const tag = generateStyleTag();
+    setStyleTag(tag);
+    const theme = trackTheme.trim();
+    setLyricsPrompt(
+      `Write lyrics for a ${tag} track${theme ? ` about "${theme}"` : ""}. ` +
+      `The lyrics should match the mood and energy of the style. Include a title at the top formatted as "TITLE: [track name]". ` +
+      `Keep it 2 verses and a chorus.`
+    );
+    setArtPrompt(
+      `Create album cover art for a ${tag} music track${theme ? ` themed around "${theme}"` : ""}. ` +
+      `Dark, atmospheric, high quality, digital art style. No text on the image.`
+    );
+  };
+
+  const handleArtUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setArtFile(file);
+    setArtPreview(URL.createObjectURL(file));
+  };
+
+  const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setAudioFile(file);
+  };
+
+  const createVideo = async () => {
+    if (!audioFile || !artFile) return;
+    setVideoProcessing(true);
+    try {
+      const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+      const { fetchFile, toBlobURL } = await import("@ffmpeg/util");
+      const ffmpeg = new FFmpeg();
+      const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+      });
+      await ffmpeg.writeFile("art.jpg", await fetchFile(artFile));
+      await ffmpeg.writeFile("audio.mp3", await fetchFile(audioFile));
+
+      // Static image + chromatic aberration + audio
+      await ffmpeg.exec([
+        "-loop", "1",
+        "-i", "art.jpg",
+        "-i", "audio.mp3",
+        "-filter_complex",
+        // Chromatic aberration: split RGB channels, offset R right, B left, blend
+        "[0:v]split=3[rv][gv][bv];" +
+        "[rv]lutrgb=r=val:g=0:b=0,pad=iw+6:ih:3:0[r];" +
+        "[gv]lutrgb=r=0:g=val:b=0,pad=iw+6:ih:3:0[g];" +
+        "[bv]lutrgb=r=0:g=0:b=val,pad=iw+6:ih:0:0[b];" +
+        "[r][g]blend=all_mode=screen[rg];" +
+        "[rg][b]blend=all_mode=screen,crop=iw-6:ih:3:0[out]",
+        "-map", "[out]",
+        "-map", "1:a",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-shortest",
+        "-pix_fmt", "yuv420p",
+        "output.mp4",
+      ]);
+
+      const data = await ffmpeg.readFile("output.mp4");
+      const blob = new Blob([data], { type: "video/mp4" });
+      setVideoUrl(URL.createObjectURL(blob));
+    } catch (err) {
+      console.error(err);
+      alert("Video creation failed. Check console for details.");
+    }
+    setVideoProcessing(false);
+  };
+
+  const generateMetadataPrompt = () => {
+    return (
+      `I have a ${styleTag} music track. The lyrics are:\n\n${lyrics}\n\n` +
+      `Generate:\n1. An engaging YouTube title (max 60 chars, no clickbait)\n` +
+      `2. A 3-paragraph YouTube description with relevant hashtags at the end.\n` +
+      `Format as:\nTITLE: [title here]\nDESCRIPTION:\n[description here]`
+    );
+  };
+
+  const advance = () => {
+    const next = STEPS[stepIndex + 1];
+    if (next) setCurrentStep(next.key as StepKey);
+  };
+
+  // ── RENDER STEP CONTENT ──────────────────────────────────────
+  const renderStep = () => {
+    switch (currentStep) {
+      case "concept":
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-muted-foreground mb-1 block">Track theme (optional)</label>
+              <input
+                value={trackTheme}
+                onChange={e => setTrackTheme(e.target.value)}
+                placeholder="e.g. lost in the city, space travel, midnight rain..."
+                className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            <button
+              onClick={generateConcept}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+            >
+              <RefreshCw className="w-4 h-4" /> Generate Style
+            </button>
+            {styleTag && (
+              <div className="space-y-3">
+                <div className="p-3 rounded-lg bg-secondary border border-border">
+                  <p className="text-xs text-muted-foreground mb-1">Style tags</p>
+                  <p className="text-sm font-medium text-primary">{styleTag}</p>
+                </div>
+                <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
+                  Next: Lyrics <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        );
+
+      case "lyrics":
+        return (
+          <div className="space-y-4">
+            <div className="p-3 rounded-lg bg-secondary border border-border">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-muted-foreground">Copy this prompt into ChatGPT</p>
+                <button onClick={() => copy(lyricsPrompt, "lyrics-prompt")} className="text-xs text-primary flex items-center gap-1">
+                  {copiedKey === "lyrics-prompt" ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                </button>
+              </div>
+              <p className="text-sm text-foreground">{lyricsPrompt}</p>
+            </div>
+            <a href="https://chat.openai.com" target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+              Open ChatGPT <ChevronRight className="w-4 h-4" />
+            </a>
+            <div>
+              <label className="text-sm text-muted-foreground mb-1 block">Paste lyrics here after generating</label>
+              <textarea
+                value={lyrics}
+                onChange={e => setLyrics(e.target.value)}
+                rows={10}
+                placeholder="Paste ChatGPT lyrics output here..."
+                className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+              />
+            </div>
+            {lyrics && (
+              <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
+                Next: Cover Art <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        );
+
+      case "art":
+        return (
+          <div className="space-y-4">
+            <div className="p-3 rounded-lg bg-secondary border border-border">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-muted-foreground">Copy this prompt into ChatGPT (DALL-E)</p>
+                <button onClick={() => copy(artPrompt, "art-prompt")} className="text-xs text-primary flex items-center gap-1">
+                  {copiedKey === "art-prompt" ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                </button>
+              </div>
+              <p className="text-sm text-foreground">{artPrompt}</p>
+            </div>
+            <a href="https://chat.openai.com" target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+              Open ChatGPT <ChevronRight className="w-4 h-4" />
+            </a>
+            <div>
+              <label className="text-sm text-muted-foreground mb-2 block">Upload generated artwork</label>
+              <input ref={artRef} type="file" accept="image/*" onChange={handleArtUpload} className="hidden" />
+              <button onClick={() => artRef.current?.click()}
+                className="px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+                Choose Image
+              </button>
+              {artPreview && (
+                <img src={artPreview} alt="Cover art preview" className="mt-3 w-48 h-48 object-cover rounded-lg border border-border" />
+              )}
+            </div>
+            {artFile && (
+              <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
+                Next: Audio <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        );
+
+      case "audio":
+        return (
+          <div className="space-y-4">
+            <div className="p-3 rounded-lg bg-secondary border border-border">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-muted-foreground">Copy lyrics for Suno</p>
+                <button onClick={() => copy(lyrics, "suno-lyrics")} className="text-xs text-primary flex items-center gap-1">
+                  {copiedKey === "suno-lyrics" ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Style tags: <span className="text-primary">{styleTag}</span></p>
+            </div>
+            <a href="https://suno.com" target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+              Open Suno <ChevronRight className="w-4 h-4" />
+            </a>
+            <p className="text-sm text-muted-foreground">Generate your track in Suno, download the audio, then upload it here.</p>
+            <div>
+              <input ref={audioRef} type="file" accept="audio/*" onChange={handleAudioUpload} className="hidden" />
+              <button onClick={() => audioRef.current?.click()}
+                className="px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+                Upload Audio from Suno
+              </button>
+              {audioFile && <p className="mt-2 text-sm text-green-400">✓ {audioFile.name}</p>}
+            </div>
+            {audioFile && (
+              <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
+                Next: Create Video <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        );
+
+      case "video":
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className={`p-3 rounded-lg border ${artFile ? "border-green-500/30 bg-green-500/5" : "border-border bg-secondary"}`}>
+                <p className="text-muted-foreground">Cover Art</p>
+                <p className={artFile ? "text-green-400" : "text-muted-foreground"}>{artFile ? `✓ ${artFile.name}` : "Not uploaded"}</p>
+              </div>
+              <div className={`p-3 rounded-lg border ${audioFile ? "border-green-500/30 bg-green-500/5" : "border-border bg-secondary"}`}>
+                <p className="text-muted-foreground">Audio</p>
+                <p className={audioFile ? "text-green-400" : "text-muted-foreground"}>{audioFile ? `✓ ${audioFile.name}` : "Not uploaded"}</p>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">Effect: static image with chromatic aberration</p>
+            <button
+              onClick={createVideo}
+              disabled={!audioFile || !artFile || videoProcessing}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            >
+              {videoProcessing ? <><RefreshCw className="w-4 h-4 animate-spin" /> Processing...</> : <><Video className="w-4 h-4" /> Create Video</>}
+            </button>
+            {videoProcessing && (
+              <p className="text-sm text-muted-foreground">This may take 1–2 minutes depending on audio length...</p>
+            )}
+            {videoUrl && (
+              <div className="space-y-3">
+                <video src={videoUrl} controls className="w-full rounded-lg border border-border" style={{ maxHeight: 300 }} />
+                <div className="flex gap-2">
+                  <a href={videoUrl} download="track.mp4"
+                    className="px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+                    Download MP4
+                  </a>
+                  <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline mt-2">
+                    Next: Metadata <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+
+      case "metadata":
+        return (
+          <div className="space-y-4">
+            <div className="p-3 rounded-lg bg-secondary border border-border">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-muted-foreground">Copy this prompt into ChatGPT</p>
+                <button onClick={() => copy(generateMetadataPrompt(), "meta-prompt")} className="text-xs text-primary flex items-center gap-1">
+                  {copiedKey === "meta-prompt" ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                </button>
+              </div>
+              <p className="text-sm text-foreground whitespace-pre-wrap">{generateMetadataPrompt()}</p>
+            </div>
+            <a href="https://chat.openai.com" target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+              Open ChatGPT <ChevronRight className="w-4 h-4" />
+            </a>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-muted-foreground mb-1 block">Video Title</label>
+                <input
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  placeholder="Paste title from ChatGPT..."
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <p className="text-xs text-muted-foreground mt-1">{title.length}/60 chars</p>
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground mb-1 block">Description</label>
+                <textarea
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  rows={6}
+                  placeholder="Paste description from ChatGPT..."
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                />
+              </div>
+            </div>
+            {title && description && (
+              <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
+                Next: Publish <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        );
+
+      case "publish":
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2 text-sm">
+              {[
+                { label: "Style", value: styleTag },
+                { label: "Title", value: title },
+                { label: "Video", value: videoUrl ? "✓ Ready" : "Not created" },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex gap-2 p-3 rounded-lg bg-secondary border border-border">
+                  <span className="text-muted-foreground w-16">{label}</span>
+                  <span className={`text-sm ${value?.startsWith("✓") ? "text-green-400" : ""}`}>{value || "—"}</span>
+                </div>
+              ))}
+            </div>
+            <div className="p-4 rounded-lg border border-yellow-500/30 bg-yellow-500/5">
+              <p className="text-sm text-yellow-400 font-medium mb-1">YouTube OAuth Required</p>
+              <p className="text-sm text-muted-foreground">
+                One-click publishing requires Google OAuth setup. In the meantime, use YouTube Studio to upload manually.
+              </p>
+              <a href="https://studio.youtube.com" target="_blank" rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                Open YouTube Studio <ChevronRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+            <button
+              onClick={() => {
+                setCurrentStep("concept");
+                setStyleTag(""); setTrackTheme(""); setLyrics("");
+                setArtFile(null); setArtPreview(null); setAudioFile(null);
+                setVideoUrl(null); setTitle(""); setDescription("");
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+            >
+              <RefreshCw className="w-4 h-4" /> Start Next Track
+            </button>
+          </div>
+        );
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
       <main className="ml-56 flex-1 p-8">
-        <div className="mb-8 flex items-center gap-3">
+        <div className="mb-6 flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center">
             <Youtube className="w-5 h-5 text-red-400" />
           </div>
           <div>
             <h1 className="text-3xl font-bold">YouTube</h1>
-            <p className="text-muted-foreground">@djthirstyboy</p>
+            <p className="text-muted-foreground">@djthirstyboy · Drum & Bass</p>
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-4 mb-8">
+        {/* Tabs */}
+        <div className="flex gap-1 mb-6 bg-secondary rounded-lg p-1 w-fit">
           {[
-            { icon: Eye, label: "Total Views" },
-            { icon: Users, label: "Subscribers" },
-            { icon: ThumbsUp, label: "Total Likes" },
-            { icon: Youtube, label: "Videos" },
-          ].map(({ icon: Icon, label }) => (
-            <Card key={label}>
-              <CardContent className="p-4 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-red-400/10 flex items-center justify-center">
-                  <Icon className="w-4 h-4 text-red-400" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">{label}</p>
-                  <p className="text-lg font-bold text-muted-foreground">—</p>
-                </div>
-              </CardContent>
-            </Card>
+            { key: "pipeline", label: "Track Pipeline", icon: Music },
+            { key: "calendar", label: "Content Calendar", icon: Calendar },
+            { key: "analytics", label: "Analytics", icon: BarChart2 },
+          ].map(({ key, label, icon: Icon }) => (
+            <button key={key} onClick={() => setActiveTab(key as any)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                activeTab === key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}>
+              <Icon className="w-3.5 h-3.5" /> {label}
+            </button>
           ))}
         </div>
 
-        {/* Modules */}
-        <div className="grid grid-cols-2 gap-4">
-          {automations.map(({ icon: Icon, title, description }) => (
-            <Card key={title} className="opacity-60">
-              <CardContent className="p-5 flex gap-4">
-                <div className="w-10 h-10 rounded-lg bg-red-400/10 flex items-center justify-center flex-shrink-0">
-                  <Icon className="w-5 h-5 text-red-400" />
-                </div>
-                <div>
-                  <h3 className="font-semibold mb-1">{title}</h3>
-                  <p className="text-sm text-muted-foreground">{description}</p>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        {/* PIPELINE TAB */}
+        {activeTab === "pipeline" && (
+          <div className="grid grid-cols-3 gap-6">
+            {/* Step list */}
+            <div className="col-span-1">
+              <Card>
+                <CardContent className="p-3">
+                  {STEPS.map((step, i) => {
+                    const Icon = step.icon;
+                    const isActive = step.key === currentStep;
+                    const isDone = i < stepIndex;
+                    return (
+                      <button
+                        key={step.key}
+                        onClick={() => setCurrentStep(step.key as StepKey)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors mb-1 ${
+                          isActive ? "bg-primary/10 text-primary" : isDone ? "text-muted-foreground" : "text-muted-foreground hover:bg-secondary"
+                        }`}
+                      >
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                          isDone ? "bg-green-500/20 text-green-400" : isActive ? "bg-primary/20 text-primary" : "bg-secondary text-muted-foreground"
+                        }`}>
+                          {isDone ? "✓" : i + 1}
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">{step.label}</p>
+                          <p className="text-xs text-muted-foreground">{step.desc}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Step content */}
+            <div className="col-span-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    {(() => { const Icon = STEPS[stepIndex].icon; return <Icon className="w-4 h-4 text-primary" />; })()}
+                    {STEPS[stepIndex].label}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>{renderStep()}</CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {/* CALENDAR TAB */}
+        {activeTab === "calendar" && (
+          <Card>
+            <CardContent className="p-8 text-center">
+              <Calendar className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
+              <p className="font-medium">Content Calendar</p>
+              <p className="text-sm text-muted-foreground mt-1">Track history will appear here as you publish videos. Target: 1 video/day.</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ANALYTICS TAB */}
+        {activeTab === "analytics" && (
+          <Card>
+            <CardContent className="p-8 text-center">
+              <BarChart2 className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
+              <p className="font-medium">Channel Analytics</p>
+              <p className="text-sm text-muted-foreground mt-1">Connect YouTube OAuth to see live stats for @djthirstyboy.</p>
+            </CardContent>
+          </Card>
+        )}
       </main>
     </div>
   );
