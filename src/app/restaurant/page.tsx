@@ -1,5 +1,6 @@
 import Sidebar from "@/components/layout/Sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Link from "next/link";
 import {
   Package,
   Users,
@@ -17,12 +18,12 @@ const hours = [
 ];
 
 const modules = [
-  { icon: Package, title: "Inventory", description: "Track stock levels and get low-stock alerts" },
-  { icon: ShoppingCart, title: "Ordering", description: "Purchase orders and vendor price comparisons" },
-  { icon: Users, title: "Scheduling", description: "Staff schedules and labor cost tracking" },
-  { icon: ClipboardList, title: "Prep Lists", description: "Daily prep tasks based on sales projections" },
-  { icon: DollarSign, title: "P&L Reports", description: "Daily, weekly, and monthly profit & loss" },
-  { icon: BarChart2, title: "Price Comparison", description: "Compare ingredient costs across vendors" },
+  { icon: Package, title: "Inventory", description: "Track stock levels, counts, and auto-generate orders", href: "/restaurant/inventory", active: true },
+  { icon: ShoppingCart, title: "Ordering", description: "Purchase orders and vendor price comparisons", href: null, active: false },
+  { icon: Users, title: "Scheduling", description: "Staff schedules and labor cost tracking", href: null, active: false },
+  { icon: ClipboardList, title: "Prep Lists", description: "Daily prep tasks based on sales projections", href: null, active: false },
+  { icon: DollarSign, title: "P&L Reports", description: "Daily, weekly, and monthly profit & loss", href: null, active: false },
+  { icon: BarChart2, title: "Price Comparison", description: "Compare ingredient costs across vendors", href: null, active: false },
 ];
 
 export default function RestaurantPage() {
@@ -124,17 +125,25 @@ export default function RestaurantPage() {
 
         {/* Modules */}
         <div className="grid grid-cols-3 gap-4">
-          {modules.map(({ icon: Icon, title, description }) => (
-            <Card key={title} className="opacity-60">
+          {modules.map(({ icon: Icon, title, description, href, active }) => {
+            const inner = (
               <CardContent className="p-5">
-                <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center mb-4">
-                  <Icon className="w-5 h-5 text-muted-foreground" />
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center mb-4 ${active ? "bg-primary/10" : "bg-secondary"}`}>
+                  <Icon className={`w-5 h-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
                 </div>
                 <h3 className="font-semibold mb-1">{title}</h3>
                 <p className="text-sm text-muted-foreground">{description}</p>
+                {active && <span className="mt-2 inline-block text-xs text-primary font-medium">Open →</span>}
               </CardContent>
-            </Card>
-          ))}
+            );
+            return href ? (
+              <Link key={title} href={href}>
+                <Card className="hover:border-primary/40 transition-colors cursor-pointer">{inner}</Card>
+              </Link>
+            ) : (
+              <Card key={title} className="opacity-50">{inner}</Card>
+            );
+          })}
         </div>
       </main>
     </div>
