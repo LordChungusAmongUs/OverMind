@@ -230,11 +230,12 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(1000);
 
-  // Fill style — "synths and organs..." placeholder = the Styles field
+  // Fill style — 2nd visible textarea (lyrics=1st, styles=2nd, title=3rd)
   await injectAndRun(tabId, (style) => {
-    const input = Array.from(document.querySelectorAll("textarea, input[type='text']")).find(
-      el => (el.placeholder || "").toLowerCase().includes("synths and organs")
-    );
+    const visible = Array.from(document.querySelectorAll("textarea"))
+      .filter(t => t.offsetHeight > 0 && t.offsetParent !== null)
+      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    const input = visible[1]; // styles field is always 2nd
     if (!input) return false;
     input.focus();
     document.execCommand("selectAll", false, null);
