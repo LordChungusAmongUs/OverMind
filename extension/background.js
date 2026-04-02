@@ -170,7 +170,16 @@ async function runChatGPTImage(prompt) {
 async function runSuno(lyrics, styleTags) {
   const tabId = await openTab("https://suno.com/create");
   await waitForTab(tabId);
-  await sleep(6000);
+  await sleep(4000);
+
+  // Dismiss cookie consent if present
+  await injectAndRun(tabId, () => {
+    const btns = Array.from(document.querySelectorAll("button"));
+    const allow = btns.find(b => b.textContent.trim() === "Allow All" || b.textContent.trim() === "Reject All");
+    if (allow) allow.click();
+  });
+
+  await sleep(2000);
 
   // Click "Advanced" and wait until the lyrics field appears
   let lyricsFieldVisible = false;
