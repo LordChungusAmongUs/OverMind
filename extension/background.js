@@ -25,6 +25,25 @@ async function updateJob(id, fields) {
   });
 }
 
+// ── SUPABASE STORAGE UPLOAD ──────────────────────────────────────
+async function uploadToStorage(path, blob, contentType) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/pipeline-assets/${path}`, {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": contentType,
+      },
+      body: blob,
+    });
+    if (!res.ok) return null;
+    return `${SUPABASE_URL}/storage/v1/object/public/pipeline-assets/${path}`;
+  } catch {
+    return null;
+  }
+}
+
 // ── INJECT & RUN SCRIPT IN TAB ───────────────────────────────────
 function injectAndRun(tabId, func, args = []) {
   return new Promise((resolve, reject) => {
@@ -175,8 +194,16 @@ async function runChatGPTImage(prompt) {
     }
   }
 
-  // Don't close the tab — leave it open so user can save the art manually
-  // (don't call chrome.tabs.remove here)
+  // Upload art to Supabase Storage so dashboard can fetch it without CORS issues
+  if (imageUrl) {
+    try {
+      const res = await fetch(imageUrl);
+      const blob = await res.blob();
+      const path = `art/${Date.now()}.jpg`;
+      const storageUrl = await uploadToStorage(path, blob, "image/jpeg");
+      if (storageUrl) return storageUrl;
+    } catch { /* fall through to raw URL */ }
+  }
   return imageUrl;
 }
 
@@ -288,8 +315,20 @@ async function runSuno(lyrics, styleTags) {
     }
   }
 
-  // Store both URLs as JSON; leave tab open for manual review
-  return JSON.stringify(audioUrls);
+  // Upload both tracks to Supabase Storage for CORS-free access on dashboard
+  const storageUrls = [];
+  for (const url of audioUrls) {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const path = `audio/${Date.now()}-${storageUrls.length}.mp3`;
+      const storageUrl = await uploadToStorage(path, blob, "audio/mpeg");
+      storageUrls.push(storageUrl || url);
+    } catch {
+      storageUrls.push(url);
+    }
+  }
+  return JSON.stringify(storageUrls.length > 0 ? storageUrls : audioUrls);
 }
 
 // ── MAIN PIPELINE ────────────────────────────────────────────────

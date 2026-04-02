@@ -78,7 +78,6 @@ export default function YouTubePage() {
   const [autoPublishStep, setAutoPublishStep] = useState<string | null>(null);
   const audioRef = useRef<HTMLInputElement>(null);
   const artRef = useRef<HTMLInputElement>(null);
-  const approvalArtRef = useRef<HTMLInputElement>(null);
 
   // ── POLL JOB STATUS ─────────────────────────────────────────
   useEffect(() => {
@@ -164,19 +163,17 @@ export default function YouTubePage() {
       const audioFileObj = new File([audioBlob], "track.mp3", { type: "audio/mpeg" });
       setAudioFile(audioFileObj);
 
-      // Fetch art if available
+      // Fetch art from Supabase Storage (uploaded by extension)
       let artFileObj = artFile;
       if (!artFileObj && approvalArtUrl) {
-        try {
-          const artRes = await fetch(approvalArtUrl);
-          const artBlob = await artRes.blob();
-          artFileObj = new File([artBlob], "art.jpg", { type: "image/jpeg" });
-          setArtFile(artFileObj);
-          setArtPreview(URL.createObjectURL(artFileObj));
-        } catch { /* art URL may be inaccessible */ }
+        const artRes = await fetch(approvalArtUrl);
+        const artBlob = await artRes.blob();
+        artFileObj = new File([artBlob], "art.jpg", { type: "image/jpeg" });
+        setArtFile(artFileObj);
+        setArtPreview(URL.createObjectURL(artFileObj));
       }
       if (!artFileObj) {
-        alert("Upload cover art first using the 'Upload Art' button in the approval card.");
+        alert("Cover art not available — the extension couldn't capture it. Save the image from the ChatGPT tab and upload it on the Art step, then try approving again.");
         setAutoPublishing(false);
         return;
       }
@@ -692,32 +689,11 @@ export default function YouTubePage() {
         {/* APPROVAL CARD */}
         {activeTab === "pipeline" && pendingApproval && (
           <div className="mb-5 p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-4">
-            <input ref={approvalArtRef} type="file" accept="image/*" className="hidden"
-              onChange={e => {
-                const f = e.target.files?.[0];
-                if (!f) return;
-                setArtFile(f);
-                setArtPreview(URL.createObjectURL(f));
-              }} />
             <div>
               <p className="text-base font-semibold text-yellow-400">Tracks Ready for Approval</p>
               {title && <p className="text-sm text-muted-foreground mt-0.5">Title: <span className="text-foreground font-medium">{title}</span></p>}
+              <p className="text-xs text-muted-foreground mt-1">Listen in the Suno tab. Approve the track you want — video will be created and uploaded to YouTube automatically.</p>
             </div>
-            {!artFile && (
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary border border-border">
-                <span className="text-sm text-muted-foreground flex-1">Cover art required to publish</span>
-                <button onClick={() => approvalArtRef.current?.click()}
-                  className="px-3 py-1.5 rounded-lg bg-primary/20 text-primary text-sm font-medium hover:bg-primary/30">
-                  Upload Art
-                </button>
-              </div>
-            )}
-            {artFile && (
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                <span className="text-sm text-green-400 flex-1">✓ {artFile.name}</span>
-                <button onClick={() => approvalArtRef.current?.click()} className="text-xs text-muted-foreground hover:text-foreground">Change</button>
-              </div>
-            )}
             {autoPublishing ? (
               <div className="flex items-center gap-2 text-sm text-primary">
                 <RefreshCw className="w-4 h-4 animate-spin" /> {autoPublishStep}
