@@ -330,14 +330,14 @@ async function runPipeline(job) {
       // Parse title and description from result
       const titleMatch = metaResult.match(/TITLE:\s*(.+)/i);
       const descMatch = metaResult.match(/DESCRIPTION:\s*([\s\S]+)/i);
+      // Pause for user approval — dashboard handles video creation + upload
       await updateJob(id, {
         title: titleMatch?.[1]?.trim() ?? "",
         description: descMatch?.[1]?.trim() ?? metaResult,
-        step: "complete",
-        status: "complete",
+        step: "approval",
       });
     } else {
-      await updateJob(id, { status: "complete", step: "complete" });
+      await updateJob(id, { step: "approval" });
     }
 
   } catch (err) {

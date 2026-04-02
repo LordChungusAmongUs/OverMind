@@ -70,6 +70,12 @@ export default function YouTubePage() {
   const [automating, setAutomating] = useState(false);
   const [automationStep, setAutomationStep] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [pendingApproval, setPendingApproval] = useState(false);
+  const [approvalJobId, setApprovalJobId] = useState<string | null>(null);
+  const [approvalAudioUrl, setApprovalAudioUrl] = useState<string | null>(null);
+  const [approvalArtUrl, setApprovalArtUrl] = useState<string | null>(null);
+  const [autoPublishing, setAutoPublishing] = useState(false);
+  const [autoPublishStep, setAutoPublishStep] = useState<string | null>(null);
   const audioRef = useRef<HTMLInputElement>(null);
   const artRef = useRef<HTMLInputElement>(null);
 
@@ -84,25 +90,17 @@ export default function YouTubePage() {
         .single();
       if (!data) return;
       setAutomationStep(data.step);
-      if (data.status === "complete") {
+      if (data.step === "approval") {
         clearInterval(interval);
         setAutomating(false);
         setJobId(null);
-        // Auto-fill pipeline fields
         if (data.lyrics) setLyrics(data.lyrics);
         if (data.title) setTitle(data.title);
         if (data.description) setDescription(data.description);
-        if (data.audio_url) {
-          // Fetch audio as file
-          try {
-            const res = await fetch(data.audio_url);
-            const blob = await res.blob();
-            const file = new File([blob], "track.mp3", { type: "audio/mpeg" });
-            setAudioFile(file);
-          } catch { /* audio url might need manual download */ }
-        }
-        setCurrentStep("video");
-        alert("Automation complete! Review the results and create your video.");
+        setApprovalJobId(data.id);
+        setApprovalAudioUrl(data.audio_url ?? null);
+        setApprovalArtUrl(data.art_url ?? null);
+        setPendingApproval(true);
       } else if (data.status === "error") {
         clearInterval(interval);
         setAutomating(false);
@@ -140,6 +138,99 @@ export default function YouTubePage() {
       return;
     }
     setJobId(data.id);
+  };
+
+  const handleDisapprove = async () => {
+    if (approvalJobId) {
+      await supabase.from("pipeline_jobs").update({ status: "error", error_message: "Disapproved by user" }).eq("id", approvalJobId);
+    }
+    setPendingApproval(false);
+    setApprovalJobId(null);
+    setApprovalAudioUrl(null);
+    setApprovalArtUrl(null);
+    setAutomationStep(null);
+  };
+
+  const handleApprove = async () => {
+    if (!approvalAudioUrl) { alert("No audio URL found. Cannot auto-publish."); return; }
+    setAutoPublishing(true);
+
+    try {
+      // Fetch audio
+      setAutoPublishStep("Fetching audio...");
+      const audioRes = await fetch(approvalAudioUrl);
+      const audioBlob = await audioRes.blob();
+      const audioFileObj = new File([audioBlob], "track.mp3", { type: "audio/mpeg" });
+      setAudioFile(audioFileObj);
+
+      // Fetch art if available
+      let artFileObj = artFile;
+      if (!artFileObj && approvalArtUrl) {
+        try {
+          const artRes = await fetch(approvalArtUrl);
+          const artBlob = await artRes.blob();
+          artFileObj = new File([artBlob], "art.jpg", { type: "image/jpeg" });
+          setArtFile(artFileObj);
+          setArtPreview(URL.createObjectURL(artFileObj));
+        } catch { /* art URL may be inaccessible */ }
+      }
+      if (!artFileObj) {
+        alert("No cover art available. Upload art manually on the Art step, then approve again.");
+        setAutoPublishing(false);
+        return;
+      }
+
+      // Create video with FFmpeg
+      setAutoPublishStep("Creating video...");
+      const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+      const { fetchFile, toBlobURL } = await import("@ffmpeg/util");
+      const ffmpeg = new FFmpeg();
+      const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+      });
+      await ffmpeg.writeFile("art.jpg", await fetchFile(artFileObj));
+      await ffmpeg.writeFile("audio.mp3", await fetchFile(audioFileObj));
+      await ffmpeg.exec([
+        "-loop", "1", "-i", "art.jpg", "-i", "audio.mp3",
+        "-filter_complex",
+        "[0:v]split=3[rv][gv][bv];" +
+        "[rv]lutrgb=r=val:g=0:b=0,pad=iw+6:ih:3:0[r];" +
+        "[gv]lutrgb=r=0:g=val:b=0,pad=iw+6:ih:3:0[g];" +
+        "[bv]lutrgb=r=0:g=0:b=val,pad=iw+6:ih:0:0[b];" +
+        "[r][g]blend=all_mode=screen[rg];" +
+        "[rg][b]blend=all_mode=screen,crop=iw-6:ih:3:0[out]",
+        "-map", "[out]", "-map", "1:a",
+        "-c:v", "libx264", "-preset", "fast", "-c:a", "aac", "-b:a", "192k",
+        "-shortest", "-pix_fmt", "yuv420p", "output.mp4",
+      ]);
+      const vidData = await ffmpeg.readFile("output.mp4");
+      const vidBlob = new Blob([vidData as unknown as BlobPart], { type: "video/mp4" });
+      const vidUrl = URL.createObjectURL(vidBlob);
+      setVideoUrl(vidUrl);
+
+      // Upload to YouTube
+      setAutoPublishStep("Uploading to YouTube...");
+      const form = new FormData();
+      form.append("video", vidBlob, "track.mp4");
+      form.append("title", title || "New Track");
+      form.append("description", description || "");
+      const res = await fetch("/api/youtube/upload", { method: "POST", body: form });
+      const uploadData = await res.json();
+      if (uploadData.url) {
+        setPublishedUrl(uploadData.url);
+        await supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", approvalJobId);
+        setPendingApproval(false);
+        setCurrentStep("publish");
+      } else {
+        throw new Error(uploadData.error || "Upload failed");
+      }
+    } catch (err: unknown) {
+      alert("Auto-publish failed: " + (err instanceof Error ? err.message : "Unknown error"));
+    }
+    setAutoPublishing(false);
+    setAutoPublishStep(null);
   };
 
   const generateConcept = () => {
@@ -259,6 +350,37 @@ export default function YouTubePage() {
                   <p className="text-xs text-muted-foreground mb-1">Style tags</p>
                   <p className="text-sm font-medium text-primary">{styleTag}</p>
                 </div>
+
+                {/* Approval card */}
+                {pendingApproval && (
+                  <div className="p-4 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-3">
+                    <p className="text-sm font-semibold text-yellow-400">Track Ready for Approval</p>
+                    <p className="text-xs text-muted-foreground">Listen to the generated track. Approve to auto-create video and upload to YouTube, or disapprove to discard.</p>
+                    {approvalAudioUrl && (
+                      <audio controls src={approvalAudioUrl} className="w-full h-10" />
+                    )}
+                    {!approvalAudioUrl && (
+                      <p className="text-xs text-muted-foreground italic">Audio URL not captured — download from Suno tab manually.</p>
+                    )}
+                    {autoPublishing ? (
+                      <div className="flex items-center gap-2 text-sm text-primary">
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        {autoPublishStep}
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button onClick={handleApprove}
+                          className="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">
+                          Approve & Publish
+                        </button>
+                        <button onClick={handleDisapprove}
+                          className="flex-1 px-4 py-2 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">
+                          Disapprove
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Automation button */}
                 <div className="p-4 rounded-xl border border-primary/20 bg-primary/5">
@@ -570,19 +692,19 @@ export default function YouTubePage() {
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
-      <main className="ml-56 flex-1 p-8">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center">
-            <Youtube className="w-5 h-5 text-red-400" />
+      <main className="flex-1 px-4 pt-16 pb-20 md:ml-56 md:p-8">
+        <div className="mb-5 md:mb-6 flex items-center gap-3">
+          <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-red-500/20 flex items-center justify-center">
+            <Youtube className="w-4 h-4 md:w-5 md:h-5 text-red-400" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold">YouTube</h1>
-            <p className="text-muted-foreground">@djthirstyboy · Drum & Bass</p>
+            <h1 className="text-2xl md:text-3xl font-bold">YouTube</h1>
+            <p className="text-muted-foreground text-sm">@djthirstyboy · Drum & Bass</p>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 bg-secondary rounded-lg p-1 w-fit">
+        <div className="flex gap-1 mb-5 md:mb-6 bg-secondary rounded-lg p-1 overflow-x-auto">
           {[
             { key: "pipeline", label: "Track Pipeline", icon: Music },
             { key: "calendar", label: "Content Calendar", icon: Calendar },
@@ -599,9 +721,9 @@ export default function YouTubePage() {
 
         {/* PIPELINE TAB */}
         {activeTab === "pipeline" && (
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
             {/* Step list */}
-            <div className="col-span-1">
+            <div className="md:col-span-1">
               <Card>
                 <CardContent className="p-3">
                   {STEPS.map((step, i) => {
@@ -633,7 +755,7 @@ export default function YouTubePage() {
             </div>
 
             {/* Step content */}
-            <div className="col-span-2">
+            <div className="md:col-span-2">
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
