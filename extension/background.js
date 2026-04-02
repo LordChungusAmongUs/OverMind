@@ -40,6 +40,20 @@ function injectAndRun(tabId, func, args = []) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Reuse an existing tab matching the URL pattern, or open a new one
+async function getOrOpenTab(urlPattern, navigateTo) {
+  return new Promise((resolve) => {
+    chrome.tabs.query({}, (tabs) => {
+      const existing = tabs.find(t => t.url && t.url.includes(urlPattern));
+      if (existing) {
+        chrome.tabs.update(existing.id, { url: navigateTo, active: true }, () => resolve(existing.id));
+      } else {
+        chrome.tabs.create({ url: navigateTo, active: true }, (tab) => resolve(tab.id));
+      }
+    });
+  });
+}
+
 async function openTab(url) {
   return new Promise((resolve) => {
     chrome.tabs.create({ url, active: true }, (tab) => resolve(tab.id));
@@ -60,7 +74,7 @@ async function waitForTab(tabId) {
 
 // ── CHATGPT AUTOMATION ───────────────────────────────────────────
 async function runChatGPT(prompt) {
-  const tabId = await openTab("https://chatgpt.com/");
+  const tabId = await getOrOpenTab("chatgpt.com", "https://chatgpt.com/");
   await waitForTab(tabId);
   await sleep(3000);
 
@@ -118,7 +132,7 @@ async function runChatGPT(prompt) {
 
 // ── CHATGPT IMAGE GENERATION ─────────────────────────────────────
 async function runChatGPTImage(prompt) {
-  const tabId = await openTab("https://chatgpt.com/");
+  const tabId = await getOrOpenTab("chatgpt.com", "https://chatgpt.com/");
   await waitForTab(tabId);
   await sleep(3000);
 
@@ -168,7 +182,7 @@ async function runChatGPTImage(prompt) {
 
 // ── SUNO AUTOMATION ──────────────────────────────────────────────
 async function runSuno(lyrics, styleTags) {
-  const tabId = await openTab("https://suno.com/create");
+  const tabId = await getOrOpenTab("suno.com", "https://suno.com/create");
   await waitForTab(tabId);
   await sleep(4000);
 
@@ -216,10 +230,10 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(1000);
 
-  // Fill style — "Describe the sound you want" field
+  // Fill style — "synths and organs..." placeholder = the Styles field
   await injectAndRun(tabId, (style) => {
     const input = Array.from(document.querySelectorAll("textarea, input[type='text']")).find(
-      el => (el.placeholder || "").toLowerCase().includes("describe the sound")
+      el => (el.placeholder || "").toLowerCase().includes("synths and organs")
     );
     if (!input) return false;
     input.focus();
