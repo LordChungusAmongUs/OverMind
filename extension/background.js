@@ -175,36 +175,54 @@ async function runChatGPTImage(prompt) {
   // Wait for image to appear — ChatGPT image gen usually takes 15-45s
   await sleep(10000);
   let attempts = 0;
-  let imageUrl = null;
-  while (attempts < 40 && !imageUrl) {
-    imageUrl = await injectAndRun(tabId, () => {
-      // Check all images in assistant messages
+  let artData = null; // base64 data URL or fallback src
+  while (attempts < 40 && !artData) {
+    artData = await injectAndRun(tabId, () => {
       const imgs = document.querySelectorAll('[data-message-author-role="assistant"] img');
       for (const img of imgs) {
-        const src = img.src || img.getAttribute("src") || "";
-        if (src && !src.startsWith("data:") && src.length > 50) {
-          return src;
-        }
+        const src = img.currentSrc || img.src || img.getAttribute("src") || "";
+        if (!src || src.length < 20) continue;
+        // Try to capture as base64 via canvas (works when image is loaded in-page)
+        try {
+          const c = document.createElement("canvas");
+          c.width = img.naturalWidth || 512;
+          c.height = img.naturalHeight || 512;
+          c.getContext("2d").drawImage(img, 0, 0);
+          const dataUrl = c.toDataURL("image/jpeg", 0.9);
+          if (dataUrl && dataUrl.length > 100) return dataUrl;
+        } catch { /* CORS blocked canvas — fall through to src */ }
+        return src;
       }
       return null;
     });
-    if (!imageUrl) {
+    if (!artData) {
       await sleep(3000);
       attempts++;
     }
   }
 
-  // Upload art to Supabase Storage so dashboard can fetch it without CORS issues
-  if (imageUrl) {
+  // Upload to Supabase Storage
+  if (artData) {
     try {
-      const res = await fetch(imageUrl);
-      const blob = await res.blob();
+      let blob;
+      if (artData.startsWith("data:")) {
+        // Convert base64 to blob
+        const base64 = artData.split(",")[1];
+        const binary = atob(base64);
+        const arr = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+        blob = new Blob([arr], { type: "image/jpeg" });
+      } else {
+        // Fetch the URL from background (no CORS restriction for extensions)
+        const res = await fetch(artData);
+        blob = await res.blob();
+      }
       const path = `art/${Date.now()}.jpg`;
       const storageUrl = await uploadToStorage(path, blob, "image/jpeg");
       if (storageUrl) return storageUrl;
-    } catch { /* fall through to raw URL */ }
+    } catch { /* fall through */ }
   }
-  return imageUrl;
+  return artData;
 }
 
 // ── SUNO AUTOMATION ──────────────────────────────────────────────
