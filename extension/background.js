@@ -170,29 +170,52 @@ async function runChatGPTImage(prompt) {
 async function runSuno(lyrics, styleTags) {
   const tabId = await openTab("https://suno.com/create");
   await waitForTab(tabId);
-  await sleep(4000);
+  await sleep(5000);
 
-  // Enable Custom mode
+  // Click "Advanced" button to enable lyrics input mode
   await injectAndRun(tabId, () => {
-    const customBtn = Array.from(document.querySelectorAll("button")).find(
-      b => b.textContent.toLowerCase().includes("custom")
+    const btn = Array.from(document.querySelectorAll("button, [role='tab'], [role='button']")).find(
+      b => b.textContent.trim().toLowerCase() === "advanced" ||
+           b.textContent.trim().toLowerCase().includes("advanced")
     );
-    if (customBtn) customBtn.click();
+    if (btn) btn.click();
   });
 
-  await sleep(1500);
+  await sleep(2000);
 
-  // Fill style tags
+  // Fill lyrics textarea — target the largest visible textarea
+  await injectAndRun(tabId, (lyricsText) => {
+    const textareas = Array.from(document.querySelectorAll("textarea"));
+    // Sort by size — lyrics field is usually the tallest
+    const sorted = textareas.sort((a, b) => b.offsetHeight - a.offsetHeight);
+    for (const ta of sorted) {
+      if (ta.offsetParent === null) continue; // skip hidden
+      ta.focus();
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
+      setter.set.call(ta, lyricsText);
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      ta.dispatchEvent(new Event("change", { bubbles: true }));
+      break;
+    }
+  }, [lyrics]);
+
+  await sleep(1000);
+
+  // Fill style/genre field — smaller input above or below lyrics
   await injectAndRun(tabId, (style) => {
-    const inputs = document.querySelectorAll("input, textarea");
+    const inputs = Array.from(document.querySelectorAll("input[type='text'], textarea"));
     for (const input of inputs) {
+      if (input.offsetParent === null) continue; // skip hidden
       const placeholder = (input.placeholder || "").toLowerCase();
       const label = (input.getAttribute("aria-label") || "").toLowerCase();
       if (placeholder.includes("style") || placeholder.includes("genre") ||
-          label.includes("style") || placeholder.includes("describe")) {
+          label.includes("style") || label.includes("genre") ||
+          placeholder.includes("musical") || placeholder.includes("sound")) {
         input.focus();
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value") ||
-          Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value");
+        const proto = input.tagName === "TEXTAREA"
+          ? window.HTMLTextAreaElement.prototype
+          : window.HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, "value");
         setter.set.call(input, style);
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -203,27 +226,7 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(1000);
 
-  // Fill lyrics
-  await injectAndRun(tabId, (lyricsText) => {
-    const textareas = document.querySelectorAll("textarea");
-    for (const ta of textareas) {
-      const placeholder = (ta.placeholder || "").toLowerCase();
-      const label = (ta.getAttribute("aria-label") || "").toLowerCase();
-      if (placeholder.includes("lyric") || label.includes("lyric") ||
-          placeholder.includes("lyrics") || ta.rows > 4) {
-        ta.focus();
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
-        setter.set.call(ta, lyricsText);
-        ta.dispatchEvent(new Event("input", { bubbles: true }));
-        ta.dispatchEvent(new Event("change", { bubbles: true }));
-        break;
-      }
-    }
-  }, [lyrics]);
-
-  await sleep(1000);
-
-  // Click Create
+  // Click Create / Generate button
   await injectAndRun(tabId, () => {
     const createBtn = Array.from(document.querySelectorAll("button")).find(
       b => b.textContent.trim().toLowerCase() === "create" ||
@@ -256,7 +259,7 @@ async function runSuno(lyrics, styleTags) {
     }
   }
 
-  chrome.tabs.remove(tabId);
+  // Leave tab open so you can verify/download manually if needed
   return audioUrl;
 }
 
