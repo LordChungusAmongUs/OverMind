@@ -139,31 +139,30 @@ async function runChatGPTImage(prompt) {
     if (btn) btn.click();
   });
 
-  // Wait for image to appear (longer timeout for image gen)
-  await sleep(8000);
+  // Wait for image to appear — ChatGPT image gen usually takes 15-45s
+  await sleep(10000);
   let attempts = 0;
   let imageUrl = null;
-  while (attempts < 90 && !imageUrl) {
+  while (attempts < 40 && !imageUrl) {
     imageUrl = await injectAndRun(tabId, () => {
+      // Check all images in assistant messages
       const imgs = document.querySelectorAll('[data-message-author-role="assistant"] img');
       for (const img of imgs) {
-        if (img.src && img.src.includes("oaiusercontent") || img.src.includes("openai")) {
-          return img.src;
+        const src = img.src || img.getAttribute("src") || "";
+        if (src && !src.startsWith("data:") && src.length > 50) {
+          return src;
         }
       }
-      // Also check for any generated image
-      const lastMsg = document.querySelectorAll('[data-message-author-role="assistant"]');
-      const last = lastMsg[lastMsg.length - 1];
-      const img = last?.querySelector("img");
-      return img?.src ?? null;
+      return null;
     });
     if (!imageUrl) {
-      await sleep(2000);
+      await sleep(3000);
       attempts++;
     }
   }
 
-  chrome.tabs.remove(tabId);
+  // Don't close the tab — leave it open so user can save the art manually
+  // (don't call chrome.tabs.remove here)
   return imageUrl;
 }
 
@@ -273,11 +272,16 @@ async function runPipeline(job) {
     if (!lyrics && lyrics_prompt) {
       const lyricsResult = await runChatGPT(lyrics_prompt);
       lyrics = lyricsResult;
-      await updateJob(id, { lyrics: lyrics, step: "audio" });
+      await updateJob(id, { lyrics: lyrics, step: "art" });
     }
 
-    // Step 2: Art — skipped (no DALL-E; user uploads art manually)
-    await updateJob(id, { step: "audio" });
+    // Step 2: Generate art via ChatGPT image generation
+    let artUrl = null;
+    if (art_prompt) {
+      await updateJob(id, { step: "art" });
+      artUrl = await runChatGPTImage(art_prompt);
+      await updateJob(id, { art_url: artUrl, step: "audio" });
+    }
 
     // Step 3: Generate audio in Suno
     await updateJob(id, { step: "audio" });
