@@ -172,15 +172,25 @@ async function runSuno(lyrics, styleTags) {
   await waitForTab(tabId);
   await sleep(6000);
 
-  // Click "Advanced" button
-  await injectAndRun(tabId, () => {
-    const all = Array.from(document.querySelectorAll("button, [role='tab'], label, span"));
-    const btn = all.find(el => el.textContent.trim() === "Advanced");
-    if (btn) { btn.click(); return true; }
-    return false;
-  });
+  // Click "Advanced" and wait until the lyrics field appears
+  let lyricsFieldVisible = false;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await injectAndRun(tabId, () => {
+      const all = Array.from(document.querySelectorAll("button, [role='tab'], label, span"));
+      const btn = all.find(el => el.textContent.trim() === "Advanced");
+      if (btn) btn.click();
+    });
+    await sleep(1500);
+    lyricsFieldVisible = await injectAndRun(tabId, () => {
+      const ta = Array.from(document.querySelectorAll("textarea")).find(
+        t => (t.placeholder || "").toLowerCase().includes("leave blank for instrumental")
+      );
+      return !!ta;
+    });
+    if (lyricsFieldVisible) break;
+  }
 
-  await sleep(2500);
+  await sleep(1000);
 
   // Fill lyrics — exact placeholder match
   await injectAndRun(tabId, (lyricsText) => {
@@ -210,12 +220,12 @@ async function runSuno(lyrics, styleTags) {
     return true;
   }, [styleTags]);
 
-  await sleep(1000);
+  await sleep(2000);
 
-  // Click Create / Generate
+  // Click Create
   await injectAndRun(tabId, () => {
     const btn = Array.from(document.querySelectorAll("button")).find(
-      b => /^(create|generate)$/i.test(b.textContent.trim())
+      b => b.textContent.trim() === "Create"
     );
     if (btn) { btn.click(); return true; }
     return false;
