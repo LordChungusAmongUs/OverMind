@@ -273,16 +273,11 @@ async function runPipeline(job) {
     if (!lyrics && lyrics_prompt) {
       const lyricsResult = await runChatGPT(lyrics_prompt);
       lyrics = lyricsResult;
-      await updateJob(id, { lyrics: lyrics, step: "art" });
+      await updateJob(id, { lyrics: lyrics, step: "audio" });
     }
 
-    // Step 2: Generate art
-    let artUrl = null;
-    if (art_prompt) {
-      await updateJob(id, { step: "art" });
-      artUrl = await runChatGPTImage(art_prompt);
-      await updateJob(id, { art_url: artUrl, step: "audio" });
-    }
+    // Step 2: Art — skipped (no DALL-E; user uploads art manually)
+    await updateJob(id, { step: "audio" });
 
     // Step 3: Generate audio in Suno
     await updateJob(id, { step: "audio" });
