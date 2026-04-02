@@ -215,32 +215,44 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(1000);
 
+  // Helper: set a React-controlled textarea value reliably
+  function setReactTextarea(el, value) {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+    setter.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
   // Fill lyrics — exact placeholder match
   await injectAndRun(tabId, (lyricsText) => {
     const ta = Array.from(document.querySelectorAll("textarea")).find(
       t => (t.placeholder || "").toLowerCase().includes("leave blank for instrumental")
     );
     if (!ta) return false;
-    ta.focus();
-    document.execCommand("selectAll", false, null);
-    document.execCommand("insertText", false, lyricsText);
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+    setter.call(ta, lyricsText);
     ta.dispatchEvent(new Event("input", { bubbles: true }));
+    ta.dispatchEvent(new Event("change", { bubbles: true }));
     return true;
   }, [lyrics]);
 
   await sleep(1000);
 
-  // Fill style — 2nd visible textarea (lyrics=1st, styles=2nd, title=3rd)
+  // Fill style — exclude lyrics, title (tallest), and "describe the sound" fields
   await injectAndRun(tabId, (style) => {
-    const visible = Array.from(document.querySelectorAll("textarea"))
-      .filter(t => t.offsetHeight > 0 && t.offsetParent !== null)
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-    const input = visible[1]; // styles field is always 2nd
+    const all = Array.from(document.querySelectorAll("textarea"))
+      .filter(t => t.offsetHeight > 0 && t.offsetParent !== null);
+    const input = all.find(t => {
+      const ph = (t.placeholder || "").toLowerCase();
+      return !ph.includes("leave blank for instrumental") &&
+             !ph.includes("describe the sound") &&
+             t.offsetHeight < 108; // exclude title field (tallest)
+    });
     if (!input) return false;
-    input.focus();
-    document.execCommand("selectAll", false, null);
-    document.execCommand("insertText", false, style);
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+    setter.call(input, style);
     input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
     return true;
   }, [styleTags]);
 
