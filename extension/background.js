@@ -170,69 +170,64 @@ async function runChatGPTImage(prompt) {
 async function runSuno(lyrics, styleTags) {
   const tabId = await openTab("https://suno.com/create");
   await waitForTab(tabId);
-  await sleep(5000);
+  await sleep(6000);
 
-  // Click "Advanced" button to enable lyrics input mode
-  await injectAndRun(tabId, () => {
-    const btn = Array.from(document.querySelectorAll("button, [role='tab'], [role='button']")).find(
-      b => b.textContent.trim().toLowerCase() === "advanced" ||
-           b.textContent.trim().toLowerCase().includes("advanced")
-    );
-    if (btn) btn.click();
+  // Click "Advanced" tab/button
+  const clickedAdvanced = await injectAndRun(tabId, () => {
+    const all = Array.from(document.querySelectorAll("button, [role='tab'], [role='switch'], label, span"));
+    const btn = all.find(el => /advanced/i.test(el.textContent.trim()));
+    if (btn) { btn.click(); return true; }
+    return false;
   });
 
-  await sleep(2000);
+  await sleep(2500);
 
-  // Fill lyrics textarea — target the largest visible textarea
+  // Fill lyrics — use execCommand like ChatGPT (works with React)
   await injectAndRun(tabId, (lyricsText) => {
-    const textareas = Array.from(document.querySelectorAll("textarea"));
-    // Sort by size — lyrics field is usually the tallest
-    const sorted = textareas.sort((a, b) => b.offsetHeight - a.offsetHeight);
-    for (const ta of sorted) {
-      if (ta.offsetParent === null) continue; // skip hidden
-      ta.focus();
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value");
-      setter.set.call(ta, lyricsText);
-      ta.dispatchEvent(new Event("input", { bubbles: true }));
-      ta.dispatchEvent(new Event("change", { bubbles: true }));
-      break;
-    }
+    // Find the biggest visible textarea (lyrics field)
+    const textareas = Array.from(document.querySelectorAll("textarea"))
+      .filter(t => t.offsetParent !== null)
+      .sort((a, b) => b.offsetHeight - a.offsetHeight);
+    if (!textareas.length) return false;
+    const ta = textareas[0];
+    ta.focus();
+    ta.select();
+    document.execCommand("selectAll", false, null);
+    document.execCommand("insertText", false, lyricsText);
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
   }, [lyrics]);
 
   await sleep(1000);
 
-  // Fill style/genre field — smaller input above or below lyrics
+  // Fill style tags — find visible input that isn't the lyrics textarea
   await injectAndRun(tabId, (style) => {
-    const inputs = Array.from(document.querySelectorAll("input[type='text'], textarea"));
+    const inputs = Array.from(document.querySelectorAll("input[type='text'], textarea"))
+      .filter(el => el.offsetParent !== null);
     for (const input of inputs) {
-      if (input.offsetParent === null) continue; // skip hidden
-      const placeholder = (input.placeholder || "").toLowerCase();
+      const ph = (input.placeholder || "").toLowerCase();
       const label = (input.getAttribute("aria-label") || "").toLowerCase();
-      if (placeholder.includes("style") || placeholder.includes("genre") ||
-          label.includes("style") || label.includes("genre") ||
-          placeholder.includes("musical") || placeholder.includes("sound")) {
+      if (ph.includes("style") || ph.includes("genre") || ph.includes("musical") ||
+          label.includes("style") || label.includes("genre")) {
         input.focus();
-        const proto = input.tagName === "TEXTAREA"
-          ? window.HTMLTextAreaElement.prototype
-          : window.HTMLInputElement.prototype;
-        const setter = Object.getOwnPropertyDescriptor(proto, "value");
-        setter.set.call(input, style);
+        document.execCommand("selectAll", false, null);
+        document.execCommand("insertText", false, style);
         input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-        break;
+        return true;
       }
     }
+    return false;
   }, [styleTags]);
 
   await sleep(1000);
 
-  // Click Create / Generate button
+  // Click Create / Generate
   await injectAndRun(tabId, () => {
-    const createBtn = Array.from(document.querySelectorAll("button")).find(
-      b => b.textContent.trim().toLowerCase() === "create" ||
-           b.textContent.trim().toLowerCase() === "generate"
+    const btn = Array.from(document.querySelectorAll("button")).find(
+      b => /^(create|generate)$/i.test(b.textContent.trim())
     );
-    if (createBtn) createBtn.click();
+    if (btn) { btn.click(); return true; }
+    return false;
   });
 
   // Wait for generation — Suno Pro is fast, usually 30-60s
