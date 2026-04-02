@@ -326,7 +326,7 @@ async function runPipeline(job) {
     // Step 4: Generate metadata
     if (metadata_prompt) {
       await updateJob(id, { step: "metadata" });
-      const metaResult = await runChatGPT(metadata_prompt);
+      const metaResult = await runChatGPT(metadata_prompt) || "";
       // Parse title and description from result
       const titleMatch = metaResult.match(/TITLE:\s*(.+)/i);
       const descMatch = metaResult.match(/DESCRIPTION:\s*([\s\S]+)/i);
