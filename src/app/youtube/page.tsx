@@ -72,7 +72,7 @@ export default function YouTubePage() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState(false);
   const [approvalJobId, setApprovalJobId] = useState<string | null>(null);
-  const [approvalAudioUrl, setApprovalAudioUrl] = useState<string | null>(null);
+  const [approvalAudioUrls, setApprovalAudioUrls] = useState<string[]>([]);
   const [approvalArtUrl, setApprovalArtUrl] = useState<string | null>(null);
   const [autoPublishing, setAutoPublishing] = useState(false);
   const [autoPublishStep, setAutoPublishStep] = useState<string | null>(null);
@@ -98,7 +98,7 @@ export default function YouTubePage() {
         if (data.title) setTitle(data.title);
         if (data.description) setDescription(data.description);
         setApprovalJobId(data.id);
-        setApprovalAudioUrl(data.audio_url ?? null);
+        try { setApprovalAudioUrls(JSON.parse(data.audio_url ?? "[]")); } catch { setApprovalAudioUrls([]); }
         setApprovalArtUrl(data.art_url ?? null);
         setPendingApproval(true);
       } else if (data.status === "error") {
@@ -146,19 +146,19 @@ export default function YouTubePage() {
     }
     setPendingApproval(false);
     setApprovalJobId(null);
-    setApprovalAudioUrl(null);
+    setApprovalAudioUrls([]);
     setApprovalArtUrl(null);
     setAutomationStep(null);
   };
 
-  const handleApprove = async () => {
-    if (!approvalAudioUrl) { alert("No audio URL found. Cannot auto-publish."); return; }
+  const handleApprove = async (audioUrl: string) => {
+    if (!audioUrl) { alert("No audio URL found. Cannot auto-publish."); return; }
     setAutoPublishing(true);
 
     try {
       // Fetch audio
       setAutoPublishStep("Fetching audio...");
-      const audioRes = await fetch(approvalAudioUrl);
+      const audioRes = await fetch(audioUrl);
       const audioBlob = await audioRes.blob();
       const audioFileObj = new File([audioBlob], "track.mp3", { type: "audio/mpeg" });
       setAudioFile(audioFileObj);
@@ -688,31 +688,46 @@ export default function YouTubePage() {
           ))}
         </div>
 
-        {/* APPROVAL CARD — shown above everything when pipeline pauses for review */}
+        {/* APPROVAL CARD */}
         {activeTab === "pipeline" && pendingApproval && (
-          <div className="mb-5 p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-3">
-            <p className="text-base font-semibold text-yellow-400">Track Ready for Approval</p>
-            <p className="text-sm text-muted-foreground">Listen to the generated track. Approve to auto-create the video and upload to YouTube, or disapprove to discard.</p>
-            {approvalAudioUrl
-              ? <audio controls src={approvalAudioUrl} className="w-full" />
-              : <p className="text-xs text-muted-foreground italic">Audio URL not captured — download from the Suno tab manually, then upload on the Audio step.</p>
-            }
-            {title && <p className="text-sm"><span className="text-muted-foreground">Title: </span><span className="font-medium">{title}</span></p>}
+          <div className="mb-5 p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-4">
+            <div>
+              <p className="text-base font-semibold text-yellow-400">Tracks Ready for Approval</p>
+              {title && <p className="text-sm text-muted-foreground mt-0.5">Title: <span className="text-foreground font-medium">{title}</span></p>}
+            </div>
             {autoPublishing ? (
               <div className="flex items-center gap-2 text-sm text-primary">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                {autoPublishStep}
+                <RefreshCw className="w-4 h-4 animate-spin" /> {autoPublishStep}
+              </div>
+            ) : approvalAudioUrls.length > 0 ? (
+              <div className="space-y-2">
+                {approvalAudioUrls.map((url, i) => (
+                  <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-secondary border border-border">
+                    <span className="text-sm text-muted-foreground w-16 flex-shrink-0">Track {i + 1}</span>
+                    <button onClick={() => handleApprove(url)}
+                      className="px-4 py-1.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">
+                      Approve
+                    </button>
+                    <button onClick={handleDisapprove}
+                      className="px-4 py-1.5 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">
+                      Disapprove
+                    </button>
+                  </div>
+                ))}
               </div>
             ) : (
-              <div className="flex gap-3">
-                <button onClick={handleApprove}
-                  className="flex-1 px-4 py-2.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">
-                  Approve &amp; Publish to YouTube
-                </button>
-                <button onClick={handleDisapprove}
-                  className="px-4 py-2.5 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">
-                  Disapprove
-                </button>
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground italic">Audio URLs not captured — download from Suno tab, upload manually on the Audio step, then approve below.</p>
+                <div className="flex gap-3">
+                  <button onClick={() => handleApprove("")}
+                    className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">
+                    Approve Track
+                  </button>
+                  <button onClick={handleDisapprove}
+                    className="px-4 py-2 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">
+                    Disapprove
+                  </button>
+                </div>
               </div>
             )}
           </div>

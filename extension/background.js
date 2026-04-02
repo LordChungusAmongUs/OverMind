@@ -267,32 +267,29 @@ async function runSuno(lyrics, styleTags) {
     return false;
   });
 
-  // Wait for generation — Suno Pro is fast, usually 30-60s
-  await sleep(10000);
+  // Wait for both tracks to generate — Suno produces 2 tracks
+  await sleep(15000);
   let attempts = 0;
-  let audioUrl = null;
+  let audioUrls = [];
 
-  while (attempts < 60 && !audioUrl) {
-    audioUrl = await injectAndRun(tabId, () => {
-      // Look for audio elements or download links that appear after generation
-      const audioEl = document.querySelector("audio[src]");
-      if (audioEl?.src) return audioEl.src;
-
-      // Look for download button href
-      const links = document.querySelectorAll("a[href*='.mp3'], a[href*='audio'], a[download]");
-      if (links.length > 0) return links[0].href;
-
-      return null;
+  while (attempts < 60 && audioUrls.length < 2) {
+    audioUrls = await injectAndRun(tabId, () => {
+      const urls = new Set();
+      // Grab all audio elements with src
+      document.querySelectorAll("audio[src]").forEach(a => { if (a.src) urls.add(a.src); });
+      // Grab MP3 download links
+      document.querySelectorAll("a[href*='.mp3'], a[download]").forEach(a => { if (a.href) urls.add(a.href); });
+      return Array.from(urls).slice(0, 2);
     });
 
-    if (!audioUrl) {
+    if (audioUrls.length < 2) {
       await sleep(3000);
       attempts++;
     }
   }
 
-  // Leave tab open so you can verify/download manually if needed
-  return audioUrl;
+  // Store both URLs as JSON; leave tab open for manual review
+  return JSON.stringify(audioUrls);
 }
 
 // ── MAIN PIPELINE ────────────────────────────────────────────────
