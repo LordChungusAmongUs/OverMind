@@ -351,37 +351,6 @@ export default function YouTubePage() {
                   <p className="text-sm font-medium text-primary">{styleTag}</p>
                 </div>
 
-                {/* Approval card */}
-                {pendingApproval && (
-                  <div className="p-4 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-3">
-                    <p className="text-sm font-semibold text-yellow-400">Track Ready for Approval</p>
-                    <p className="text-xs text-muted-foreground">Listen to the generated track. Approve to auto-create video and upload to YouTube, or disapprove to discard.</p>
-                    {approvalAudioUrl && (
-                      <audio controls src={approvalAudioUrl} className="w-full h-10" />
-                    )}
-                    {!approvalAudioUrl && (
-                      <p className="text-xs text-muted-foreground italic">Audio URL not captured — download from Suno tab manually.</p>
-                    )}
-                    {autoPublishing ? (
-                      <div className="flex items-center gap-2 text-sm text-primary">
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        {autoPublishStep}
-                      </div>
-                    ) : (
-                      <div className="flex gap-2">
-                        <button onClick={handleApprove}
-                          className="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">
-                          Approve & Publish
-                        </button>
-                        <button onClick={handleDisapprove}
-                          className="flex-1 px-4 py-2 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">
-                          Disapprove
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {/* Automation button */}
                 <div className="p-4 rounded-xl border border-primary/20 bg-primary/5">
                   <p className="text-sm font-semibold mb-1">Run Full Automation</p>
@@ -718,6 +687,36 @@ export default function YouTubePage() {
             </button>
           ))}
         </div>
+
+        {/* APPROVAL CARD — shown above everything when pipeline pauses for review */}
+        {activeTab === "pipeline" && pendingApproval && (
+          <div className="mb-5 p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-3">
+            <p className="text-base font-semibold text-yellow-400">Track Ready for Approval</p>
+            <p className="text-sm text-muted-foreground">Listen to the generated track. Approve to auto-create the video and upload to YouTube, or disapprove to discard.</p>
+            {approvalAudioUrl
+              ? <audio controls src={approvalAudioUrl} className="w-full" />
+              : <p className="text-xs text-muted-foreground italic">Audio URL not captured — download from the Suno tab manually, then upload on the Audio step.</p>
+            }
+            {title && <p className="text-sm"><span className="text-muted-foreground">Title: </span><span className="font-medium">{title}</span></p>}
+            {autoPublishing ? (
+              <div className="flex items-center gap-2 text-sm text-primary">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                {autoPublishStep}
+              </div>
+            ) : (
+              <div className="flex gap-3">
+                <button onClick={handleApprove}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">
+                  Approve &amp; Publish to YouTube
+                </button>
+                <button onClick={handleDisapprove}
+                  className="px-4 py-2.5 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">
+                  Disapprove
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* PIPELINE TAB */}
         {activeTab === "pipeline" && (
