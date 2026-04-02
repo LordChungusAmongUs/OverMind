@@ -172,26 +172,23 @@ async function runSuno(lyrics, styleTags) {
   await waitForTab(tabId);
   await sleep(6000);
 
-  // Click "Advanced" tab/button
-  const clickedAdvanced = await injectAndRun(tabId, () => {
-    const all = Array.from(document.querySelectorAll("button, [role='tab'], [role='switch'], label, span"));
-    const btn = all.find(el => /advanced/i.test(el.textContent.trim()));
+  // Click "Advanced" button
+  await injectAndRun(tabId, () => {
+    const all = Array.from(document.querySelectorAll("button, [role='tab'], label, span"));
+    const btn = all.find(el => el.textContent.trim() === "Advanced");
     if (btn) { btn.click(); return true; }
     return false;
   });
 
   await sleep(2500);
 
-  // Fill lyrics — use execCommand like ChatGPT (works with React)
+  // Fill lyrics — exact placeholder match
   await injectAndRun(tabId, (lyricsText) => {
-    // Find the biggest visible textarea (lyrics field)
-    const textareas = Array.from(document.querySelectorAll("textarea"))
-      .filter(t => t.offsetParent !== null)
-      .sort((a, b) => b.offsetHeight - a.offsetHeight);
-    if (!textareas.length) return false;
-    const ta = textareas[0];
+    const ta = Array.from(document.querySelectorAll("textarea")).find(
+      t => (t.placeholder || "").toLowerCase().includes("leave blank for instrumental")
+    );
+    if (!ta) return false;
     ta.focus();
-    ta.select();
     document.execCommand("selectAll", false, null);
     document.execCommand("insertText", false, lyricsText);
     ta.dispatchEvent(new Event("input", { bubbles: true }));
@@ -200,23 +197,17 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(1000);
 
-  // Fill style tags — find visible input that isn't the lyrics textarea
+  // Fill style — "Describe the sound you want" field
   await injectAndRun(tabId, (style) => {
-    const inputs = Array.from(document.querySelectorAll("input[type='text'], textarea"))
-      .filter(el => el.offsetParent !== null);
-    for (const input of inputs) {
-      const ph = (input.placeholder || "").toLowerCase();
-      const label = (input.getAttribute("aria-label") || "").toLowerCase();
-      if (ph.includes("style") || ph.includes("genre") || ph.includes("musical") ||
-          label.includes("style") || label.includes("genre")) {
-        input.focus();
-        document.execCommand("selectAll", false, null);
-        document.execCommand("insertText", false, style);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        return true;
-      }
-    }
-    return false;
+    const input = Array.from(document.querySelectorAll("textarea, input[type='text']")).find(
+      el => (el.placeholder || "").toLowerCase().includes("describe the sound")
+    );
+    if (!input) return false;
+    input.focus();
+    document.execCommand("selectAll", false, null);
+    document.execCommand("insertText", false, style);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
   }, [styleTags]);
 
   await sleep(1000);
