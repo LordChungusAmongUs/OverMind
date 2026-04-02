@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
 import Sidebar from "@/components/layout/Sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -66,8 +67,51 @@ export default function YouTubePage() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  const [automating, setAutomating] = useState(false);
+  const [automationStep, setAutomationStep] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
   const audioRef = useRef<HTMLInputElement>(null);
   const artRef = useRef<HTMLInputElement>(null);
+
+  // ── POLL JOB STATUS ─────────────────────────────────────────
+  useEffect(() => {
+    if (!jobId) return;
+    const interval = setInterval(async () => {
+      const { data } = await supabase
+        .from("pipeline_jobs")
+        .select("*")
+        .eq("id", jobId)
+        .single();
+      if (!data) return;
+      setAutomationStep(data.step);
+      if (data.status === "complete") {
+        clearInterval(interval);
+        setAutomating(false);
+        setJobId(null);
+        // Auto-fill pipeline fields
+        if (data.lyrics) setLyrics(data.lyrics);
+        if (data.title) setTitle(data.title);
+        if (data.description) setDescription(data.description);
+        if (data.audio_url) {
+          // Fetch audio as file
+          try {
+            const res = await fetch(data.audio_url);
+            const blob = await res.blob();
+            const file = new File([blob], "track.mp3", { type: "audio/mpeg" });
+            setAudioFile(file);
+          } catch { /* audio url might need manual download */ }
+        }
+        setCurrentStep("video");
+        alert("Automation complete! Review the results and create your video.");
+      } else if (data.status === "error") {
+        clearInterval(interval);
+        setAutomating(false);
+        setJobId(null);
+        alert("Automation error: " + data.error_message);
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [jobId]);
 
   const stepIndex = STEPS.findIndex(s => s.key === currentStep);
 
@@ -76,6 +120,26 @@ export default function YouTubePage() {
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const runAutomation = async () => {
+    if (!styleTag) { alert("Generate a style first."); return; }
+    setAutomating(true);
+    setAutomationStep("queued");
+    const { data, error } = await supabase.from("pipeline_jobs").insert({
+      status: "pending",
+      style_tags: styleTag,
+      track_theme: trackTheme,
+      lyrics_prompt: lyricsPrompt,
+      art_prompt: artPrompt,
+      metadata_prompt: generateMetadataPrompt(),
+    }).select().single();
+    if (error || !data) {
+      alert("Failed to create job: " + (error?.message ?? "unknown"));
+      setAutomating(false);
+      return;
+    }
+    setJobId(data.id);
   };
 
   const generateConcept = () => {
@@ -195,8 +259,36 @@ export default function YouTubePage() {
                   <p className="text-xs text-muted-foreground mb-1">Style tags</p>
                   <p className="text-sm font-medium text-primary">{styleTag}</p>
                 </div>
+
+                {/* Automation button */}
+                <div className="p-4 rounded-xl border border-primary/20 bg-primary/5">
+                  <p className="text-sm font-semibold mb-1">Run Full Automation</p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    The Overmind extension will handle ChatGPT + Suno automatically. Make sure the extension is installed and you are signed into ChatGPT and Suno.
+                  </p>
+                  {automating ? (
+                    <div className="flex items-center gap-2 text-sm text-primary">
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      {automationStep === "queued" ? "Queued — extension picking up job..." :
+                       automationStep === "lyrics" ? "Generating lyrics in ChatGPT..." :
+                       automationStep === "art" ? "Generating cover art in DALL-E..." :
+                       automationStep === "audio" ? "Generating audio in Suno..." :
+                       automationStep === "metadata" ? "Writing title & description..." :
+                       `Running: ${automationStep}...`}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={runAutomation}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+                    >
+                      <Wand2 className="w-4 h-4" /> Run Full Pipeline Automatically
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-xs text-muted-foreground">— or go step by step manually —</p>
                 <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
-                  Next: Lyrics <ChevronRight className="w-4 h-4" />
+                  Next: Lyrics manually <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
             )}
