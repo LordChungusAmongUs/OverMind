@@ -170,7 +170,7 @@ export default function YouTubePage() {
     const hookPatterns = [
       "8 original lines, then repeat lines 5–8, then repeat lines 7–8 (8+4+2 structure)",
       "4 lines where lines 3–4 repeat twice after the initial delivery (A B C D C D C D)",
-      "4 lines where lines 1–2 repeat at the end (A B C D A B)",
+      "lines 1–2 repeat three times then close with 2 new lines (A B A B A B C D)",
     ];
     const hookPattern = hookPatterns[Math.floor(Math.random() * hookPatterns.length)];
     const extras: string[] = [];
