@@ -371,7 +371,7 @@ async function runSuno(lyrics, styleTags) {
   let attempts = 0;
   let audioUrls = [];
 
-  while (attempts < 25 && audioUrls.length < 2) {
+  while (attempts < 60 && audioUrls.length < 2) {
     audioUrls = await injectAndRun(tabId, () => {
       const urls = new Set();
       // Grab all audio elements with src
@@ -452,6 +452,8 @@ async function runPipeline(job) {
     await updateJob(id, { step: "audio" });
     let run1 = [], run2 = [];
     try { run1 = JSON.parse(await runSuno(lyrics, style_tags) || "[]"); } catch { run1 = []; }
+    // Save run1 immediately so we never lose those tracks if run2 fails
+    if (run1.length > 0) await updateJob(id, { audio_url: JSON.stringify(run1) });
     if (await isCancelled(id)) return;
     try { run2 = JSON.parse(await runSuno(lyrics, style_tags) || "[]"); } catch { run2 = []; }
     const allAudioUrls = [...run1, ...run2];

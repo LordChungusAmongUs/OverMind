@@ -305,7 +305,9 @@ export default function YouTubePage() {
       } catch (e) {
         throw new Error(`Audio fetch failed (${audioUrl.slice(0, 60)}...): ${e}`);
       }
+      if (!audioRes.ok) throw new Error(`Audio HTTP ${audioRes.status} from ${audioUrl.slice(0, 60)}`);
       const audioBlob = await audioRes.blob();
+      if (audioBlob.size < 10000) throw new Error(`Audio file too small (${audioBlob.size} bytes) — may be expired or invalid`);
       const audioFileObj = new File([audioBlob], "track.mp3", { type: "audio/mpeg" });
       setAudioFile(audioFileObj);
 
@@ -357,15 +359,19 @@ export default function YouTubePage() {
       await ffmpeg.writeFile("audio.mp3", await fetchFile(audioFileObj));
       setAutoPublishStep("Encoding video... 0:00:00");
       await ffmpeg.exec([
-        "-loop", "1", "-i", "art.jpg", "-i", "audio.mp3",
+        "-loop", "1", "-i", "art.jpg",
+        "-i", "audio.mp3",
+        "-c:v", "libx264", "-preset", "veryfast",
+        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+        "-pix_fmt", "yuv420p",
         "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-        "-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage",
-        "-c:a", "aac", "-b:a", "192k",
-        "-pix_fmt", "yuv420p", "-shortest", "output.mp4",
+        "-movflags", "+faststart",
+        "-shortest", "output.mp4",
       ]);
       setAutoPublishStep("Finalizing video...");
       const vidData = await ffmpeg.readFile("output.mp4");
       const vidBlob = new Blob([vidData as unknown as BlobPart], { type: "video/mp4" });
+      if (vidBlob.size < 50000) throw new Error(`Encoded video is too small (${vidBlob.size} bytes) — FFmpeg may have failed`);
       const vidUrl = URL.createObjectURL(vidBlob);
       setVideoUrl(vidUrl);
 
@@ -415,7 +421,7 @@ export default function YouTubePage() {
         method: "PUT",
         headers: {
           "Content-Type": "video/mp4",
-          "Content-Length": String(vidBlob.size),
+          "Content-Range": `bytes 0-${vidBlob.size - 1}/${vidBlob.size}`,
         },
         body: vidBlob,
       });
