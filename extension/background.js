@@ -410,19 +410,19 @@ async function runSuno(lyrics, styleTags) {
   // Wait for track generation to start
   await sleep(15000);
 
-  // Click play on the first 2 track cards to trigger audio loading.
-  // Retry up to 40 times (80s) to handle slow generation.
-  for (let playAttempt = 0; playAttempt < 40; playAttempt++) {
-    const played = await injectAndRun(tabId, () => {
-      const playBtns = Array.from(document.querySelectorAll(
-        'button[aria-label*="Play"], button[title*="Play"], [data-testid*="play"], button[class*="play"]'
-      ));
-      if (playBtns.length === 0) return 0;
-      playBtns.slice(0, 2).forEach(btn => btn.click());
-      return playBtns.length;
-    }).catch(() => 0);
-    if (played >= 2) break;
-    await sleep(2000);
+  // Safe play-button selector: aria-label only — avoids broad class/testid matches
+  // that could accidentally click the Create button after generation completes.
+  const clickPlay = () => injectAndRun(tabId, () => {
+    const btns = Array.from(document.querySelectorAll('button[aria-label="Play"], button[aria-label="play"]'));
+    btns.slice(0, 2).forEach(b => b.click());
+    return btns.length;
+  }).catch(() => 0);
+
+  // Try clicking play a few times (not 40 — that was re-clicking Create)
+  for (let i = 0; i < 5; i++) {
+    const n = await clickPlay();
+    if (n >= 2) break;
+    await sleep(3000);
   }
 
   await sleep(3000);
@@ -431,10 +431,10 @@ async function runSuno(lyrics, styleTags) {
   let audioUrls = [];
 
   while (attempts < 60 && audioUrls.length < 2) {
-    // Primary: read from the MAIN world interceptor (captures src assignments immediately)
+    // Primary: MAIN world interceptor captures src assignments the instant Suno sets them
     const intercepted = await injectAndRun(tabId, () => window.__sunoAudio ? [...window.__sunoAudio] : [], [], "MAIN").catch(() => []);
 
-    // Fallback: scan the DOM directly for audio elements and download links
+    // Fallback: direct DOM scan
     const domUrls = await injectAndRun(tabId, () => {
       const urls = new Set();
       document.querySelectorAll("audio").forEach(a => {
@@ -445,21 +445,12 @@ async function runSuno(lyrics, styleTags) {
       return Array.from(urls);
     }).catch(() => []);
 
-    // Merge and keep up to 2
     const combined = [...new Set([...(intercepted || []), ...(domUrls || [])])].slice(0, 2);
     if (combined.length > audioUrls.length) audioUrls = combined;
-
     if (audioUrls.length >= 2) break;
 
-    // Re-click play every 5 attempts in case generation just finished
-    if (attempts % 5 === 0) {
-      await injectAndRun(tabId, () => {
-        const playBtns = Array.from(document.querySelectorAll(
-          'button[aria-label*="Play"], button[title*="Play"], [data-testid*="play"], button[class*="play"]'
-        ));
-        playBtns.slice(0, 2).forEach(btn => btn.click());
-      }).catch(() => {});
-    }
+    // Every 10 attempts (~30s) try play again — safe selector only
+    if (attempts % 10 === 0) await clickPlay();
 
     await sleep(3000);
     attempts++;
