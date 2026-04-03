@@ -159,15 +159,26 @@ export default function YouTubePage() {
     try {
       // Fetch audio
       setAutoPublishStep("Fetching audio...");
-      const audioRes = await fetch(audioUrl);
+      let audioRes: Response;
+      try {
+        audioRes = await fetch(audioUrl);
+      } catch (e) {
+        throw new Error(`Audio fetch failed (${audioUrl.slice(0, 60)}...): ${e}`);
+      }
       const audioBlob = await audioRes.blob();
       const audioFileObj = new File([audioBlob], "track.mp3", { type: "audio/mpeg" });
       setAudioFile(audioFileObj);
 
       // Fetch art from Supabase Storage (uploaded by extension)
+      setAutoPublishStep("Fetching art...");
       let artFileObj = artFile;
       if (!artFileObj && approvalArtUrl) {
-        const artRes = await fetch(approvalArtUrl);
+        let artRes: Response;
+        try {
+          artRes = await fetch(approvalArtUrl);
+        } catch (e) {
+          throw new Error(`Art fetch failed (${approvalArtUrl.slice(0, 60)}...): ${e}`);
+        }
         const artBlob = await artRes.blob();
         artFileObj = new File([artBlob], "art.jpg", { type: "image/jpeg" });
         setArtFile(artFileObj);
