@@ -385,12 +385,13 @@ async function runSuno(lyrics, styleTags) {
         });
       }
     } catch (e) {}
-    // Also patch fetch to catch CDN audio requests (e.g. audiopipe, cdn1.suno.ai)
+    // Patch fetch to catch CDN audio requests — UUID pattern only, avoids API status calls
     try {
       const origFetch = window.fetch;
+      const audioPattern = /https:\/\/cdn\d*\.suno\.ai\/[a-f0-9\-]{20,}\.mp3|https:\/\/audiopipe\.suno\.ai\//;
       window.fetch = function(resource, ...args) {
         const url = typeof resource === "string" ? resource : (resource && resource.url) || "";
-        if (url && (url.includes(".mp3") || url.includes("audiopipe") || url.includes("cdn1.suno") || url.includes("cdn2.suno"))) {
+        if (url && audioPattern.test(url)) {
           if (!window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
         }
         return origFetch.apply(this, [resource, ...args]);
@@ -460,20 +461,22 @@ async function runSuno(lyrics, styleTags) {
   // so the next runSuno call doesn't find and reuse this tab.
   await new Promise(resolve => chrome.tabs.remove(tabId, () => resolve()));
 
-  // Upload both tracks to Supabase Storage for CORS-free access on dashboard
+  // Upload tracks to Supabase Storage. Skip any URL that doesn't return real audio
+  // (API status calls, error pages, or short previews come back as tiny responses).
   const storageUrls = [];
   for (const url of audioUrls) {
     try {
       const res = await fetch(url);
+      if (!res.ok) continue;
       const blob = await res.blob();
+      if (blob.size < 100000) continue; // < 100 KB is not a real MP3 track
       const path = `audio/${Date.now()}-${storageUrls.length}.mp3`;
       const storageUrl = await uploadToStorage(path, blob, "audio/mpeg");
-      storageUrls.push(storageUrl || url);
-    } catch {
-      storageUrls.push(url);
-    }
+      if (storageUrl) storageUrls.push(storageUrl);
+      else storageUrls.push(url); // Supabase upload failed — keep original as fallback
+    } catch { /* skip unfetchable URLs */ }
   }
-  return JSON.stringify(storageUrls.length > 0 ? storageUrls : audioUrls);
+  return JSON.stringify(storageUrls);
 }
 
 // ── CANCELLATION CHECK ───────────────────────────────────────────
