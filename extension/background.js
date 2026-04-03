@@ -547,9 +547,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   // Watchdog: clear stuck running flag
   const { running, currentJob, runningStarted } = await chrome.storage.local.get(["running", "currentJob", "runningStarted"]);
   if (running) {
-    // If no job ID or no start time recorded — clearly a bad state, clear it
     if (!currentJob || !runningStarted) {
-      await chrome.storage.local.set({ running: false, currentJob: null, step: null, runningStarted: null });
+      // No job attached yet — if it's been more than 30s, something went wrong, clear it
+      if (Date.now() - (runningStarted || 0) > 30000) {
+        await chrome.storage.local.set({ running: false, currentJob: null, step: null, runningStarted: null });
+      } else {
+        return; // still claiming the lock, leave it alone
+      }
     } else {
       const timedOut = Date.now() - runningStarted > 45 * 60 * 1000;
       let cancelled = false;
@@ -566,10 +570,19 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
   }
 
-  const job = await getJob();
-  if (!job) return;
+  // Claim the running lock BEFORE any async work to prevent race conditions.
+  // Without this, two alarm firings in quick succession can both read running=false
+  // and both start a pipeline on the same job, causing duplicate Suno runs.
+  await chrome.storage.local.set({ running: true, currentJob: null, step: null, runningStarted: Date.now() });
 
-  await chrome.storage.local.set({ running: true, currentJob: job.id, step: job.step ?? "starting", runningStarted: Date.now() });
+  const job = await getJob();
+  if (!job) {
+    // Nothing to do — release the lock
+    await chrome.storage.local.set({ running: false, runningStarted: null });
+    return;
+  }
+
+  await chrome.storage.local.set({ currentJob: job.id, step: job.step ?? "starting" });
   await runPipeline(job);
   await chrome.storage.local.set({ running: false, currentJob: null, step: null });
 });
