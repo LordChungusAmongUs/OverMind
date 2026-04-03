@@ -359,12 +359,13 @@ export default function YouTubePage() {
       await ffmpeg.exec([
         "-loop", "1", "-i", "art.jpg", "-i", "audio.mp3",
         "-filter_complex",
-        "[0:v]split=3[rv][gv][bv];" +
+        "[0:v]scale=trunc(iw/2)*2:trunc(ih/2)*2[scaled];" +
+        "[scaled]split=3[rv][gv][bv];" +
         "[rv]lutrgb=r=val:g=0:b=0,pad=iw+6:ih:3:0[r];" +
         "[gv]lutrgb=r=0:g=val:b=0,pad=iw+6:ih:3:0[g];" +
         "[bv]lutrgb=r=0:g=0:b=val,pad=iw+6:ih:0:0[b];" +
         "[r][g]blend=all_mode=screen[rg];" +
-        "[rg][b]blend=all_mode=screen,crop=iw-6:ih:3:0[out]",
+        "[rg][b]blend=all_mode=screen,crop=iw-6:ih:3:0,scale=trunc(iw/2)*2:trunc(ih/2)*2[out]",
         "-map", "[out]", "-map", "1:a",
         "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-b:a", "192k",
         "-shortest", "-pix_fmt", "yuv420p", "output.mp4",
@@ -419,12 +420,15 @@ export default function YouTubePage() {
       setAutoPublishStep(`Uploading to YouTube (${(vidBlob.size / 1024 / 1024).toFixed(0)} MB)...`);
       const uploadRes = await fetch(uploadUrl, {
         method: "PUT",
-        headers: { "Content-Type": "video/mp4" },
+        headers: {
+          "Content-Type": "video/mp4",
+          "Content-Length": String(vidBlob.size),
+        },
         body: vidBlob,
       });
       if (!uploadRes.ok) {
         const errText = await uploadRes.text();
-        throw new Error(`YouTube upload failed — HTTP ${uploadRes.status}: ${errText.slice(0, 120)}`);
+        throw new Error(`YouTube upload failed — HTTP ${uploadRes.status}: ${errText.slice(0, 200)}`);
       }
       const uploadData = await safeJson(uploadRes, "Upload response");
       const videoId = uploadData.id;
