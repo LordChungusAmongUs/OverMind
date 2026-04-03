@@ -175,7 +175,9 @@ export default function YouTubePage() {
     const rhyme = rhymeSchemes[Math.floor(Math.random() * rhymeSchemes.length)];
     const verseBars = [8, 12, 16][Math.floor(Math.random() * 3)];
     const hookPatterns = [
-      "8 original lines, then repeat lines 5–8, then repeat lines 7–8 (8+4+2 structure)",
+      "8 completely unique lines, no repeats (A B C D E F G H)",
+      "4 lines repeated twice in full (A B C D A B C D)",
+      "2 lines repeated four times (A B A B A B A B)",
       "4 lines where lines 3–4 repeat twice after the initial delivery (A B C D C D C D)",
       "lines 1–2 repeat three times then close with 2 new lines (A B A B A B C D)",
     ];
