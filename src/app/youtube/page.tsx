@@ -245,9 +245,15 @@ export default function YouTubePage() {
       setVideoUrl(vidUrl);
 
       // Upload directly to YouTube from the browser (bypasses Vercel body size limit)
+      const safeJson = async (res: Response, label: string) => {
+        const text = await res.text();
+        try { return JSON.parse(text); }
+        catch { throw new Error(`${label} — HTTP ${res.status}: ${text.slice(0, 120)}`); }
+      };
+
       setAutoPublishStep("Connecting to YouTube...");
       const tokenRes = await fetch("/api/youtube/token");
-      const tokenData = await tokenRes.json();
+      const tokenData = await safeJson(tokenRes, "Token fetch");
       if (!tokenData.access_token) throw new Error(tokenData.error || "No YouTube token");
 
       setAutoPublishStep("Starting YouTube upload...");
@@ -273,9 +279,12 @@ export default function YouTubePage() {
           }),
         }
       );
-      if (!initRes.ok) throw new Error(`YouTube session failed: ${initRes.status}`);
+      if (!initRes.ok) {
+        const errText = await initRes.text();
+        throw new Error(`YouTube session init failed — HTTP ${initRes.status}: ${errText.slice(0, 120)}`);
+      }
       const uploadUrl = initRes.headers.get("Location");
-      if (!uploadUrl) throw new Error("No upload URL from YouTube");
+      if (!uploadUrl) throw new Error("No upload URL from YouTube (Location header missing)");
 
       // Step 2: Upload video blob directly to YouTube
       setAutoPublishStep(`Uploading to YouTube (${(vidBlob.size / 1024 / 1024).toFixed(0)} MB)...`);
@@ -284,10 +293,13 @@ export default function YouTubePage() {
         headers: { "Content-Type": "video/mp4" },
         body: vidBlob,
       });
-      if (!uploadRes.ok) throw new Error(`YouTube upload failed: ${uploadRes.status}`);
-      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text();
+        throw new Error(`YouTube upload failed — HTTP ${uploadRes.status}: ${errText.slice(0, 120)}`);
+      }
+      const uploadData = await safeJson(uploadRes, "Upload response");
       const videoId = uploadData.id;
-      if (!videoId) throw new Error("No video ID returned from YouTube");
+      if (!videoId) throw new Error(`No video ID in response: ${JSON.stringify(uploadData).slice(0, 120)}`);
 
       setPublishedUrl(`https://www.youtube.com/watch?v=${videoId}`);
       await supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", approvalJobId);
