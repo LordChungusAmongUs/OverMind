@@ -172,25 +172,31 @@ async function runChatGPTImage(prompt) {
     if (btn) btn.click();
   });
 
-  // Wait for image to appear — ChatGPT image gen usually takes 15-45s
+  // Snapshot existing large images BEFORE the prompt is sent so we only pick up the NEW one
+  const existingImgSrcs = await injectAndRun(tabId, () => {
+    return [...document.querySelectorAll("img")]
+      .map(img => img.currentSrc || img.src || "")
+      .filter(src => src && !src.startsWith("data:") && src.length > 20);
+  });
+
+  // Wait for a NEW image to appear — ChatGPT image gen usually takes 15-45s
   await sleep(10000);
   let attempts = 0;
   let imgSrc = null;
   while (attempts < 40 && !imgSrc) {
-    imgSrc = await injectAndRun(tabId, () => {
-      // Check all images on the page — broaden beyond just assistant messages
+    imgSrc = await injectAndRun(tabId, (knownSrcs) => {
       const allImgs = [...document.querySelectorAll("img")];
       for (const img of allImgs) {
         const src = img.currentSrc || img.src || "";
         if (!src || src.length < 20) continue;
         if (src.startsWith("data:")) continue;
-        // Filter out small icons/avatars
+        if (knownSrcs.includes(src)) continue; // skip pre-existing images
         const w = img.naturalWidth || img.width;
         const h = img.naturalHeight || img.height;
         if (w > 200 && h > 200) return src;
       }
       return null;
-    });
+    }, [existingImgSrcs]);
     if (!imgSrc) {
       await sleep(3000);
       attempts++;
@@ -344,8 +350,24 @@ async function runSuno(lyrics, styleTags) {
     return false;
   });
 
-  // Wait for both tracks to generate — Suno produces 2 tracks
+  // Wait for track cards to appear, then click play on each to trigger full generation
   await sleep(15000);
+
+  // Click play on up to 2 generated track cards so Suno streams them (required to populate audio src)
+  for (let playAttempt = 0; playAttempt < 10; playAttempt++) {
+    const played = await injectAndRun(tabId, () => {
+      // Suno play buttons: look for buttons with aria-label containing "Play" inside track cards
+      const playBtns = Array.from(document.querySelectorAll('button[aria-label*="Play"], button[title*="Play"]'));
+      if (playBtns.length === 0) return 0;
+      playBtns.slice(0, 2).forEach(btn => btn.click());
+      return playBtns.length;
+    });
+    if (played >= 2) break;
+    await sleep(2000);
+  }
+
+  await sleep(3000); // let audio elements populate after play clicks
+
   let attempts = 0;
   let audioUrls = [];
 
@@ -360,6 +382,13 @@ async function runSuno(lyrics, styleTags) {
     });
 
     if (audioUrls.length < 2) {
+      // Re-click play in case the first click didn't stick
+      if (attempts % 5 === 0) {
+        await injectAndRun(tabId, () => {
+          const playBtns = Array.from(document.querySelectorAll('button[aria-label*="Play"], button[title*="Play"]'));
+          playBtns.slice(0, 2).forEach(btn => btn.click());
+        });
+      }
       await sleep(3000);
       attempts++;
     }

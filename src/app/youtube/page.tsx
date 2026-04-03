@@ -277,7 +277,7 @@ export default function YouTubePage() {
               tags: ["drum and bass", "dnb", "djthirstyboy", "music"],
               categoryId: "10",
             },
-            status: { privacyStatus: "public" },
+            status: { privacyStatus: "public", madeForKids: false },
           }),
         }
       );
