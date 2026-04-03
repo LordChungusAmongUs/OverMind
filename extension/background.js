@@ -413,6 +413,15 @@ async function runSuno(lyrics, styleTags) {
   return JSON.stringify(storageUrls.length > 0 ? storageUrls : audioUrls);
 }
 
+// ── CANCELLATION CHECK ───────────────────────────────────────────
+async function isCancelled(id) {
+  try {
+    const res = await fetch(`${db("pipeline_jobs")}?id=eq.${id}&select=status`, { headers });
+    const rows = await res.json();
+    return rows?.[0]?.status === "error";
+  } catch { return false; }
+}
+
 // ── MAIN PIPELINE ────────────────────────────────────────────────
 async function runPipeline(job) {
   const { id, lyrics_prompt, art_prompt, metadata_prompt, style_tags, lyrics: existingLyrics } = job;
@@ -423,6 +432,7 @@ async function runPipeline(job) {
     // Step 1: Generate lyrics
     let lyrics = existingLyrics;
     if (!lyrics && lyrics_prompt) {
+      if (await isCancelled(id)) return;
       const lyricsResult = await runChatGPT(lyrics_prompt);
       lyrics = lyricsResult;
       await updateJob(id, { lyrics: lyrics, step: "art" });
@@ -431,15 +441,18 @@ async function runPipeline(job) {
     // Step 2: Generate art via ChatGPT image generation
     let artUrl = null;
     if (art_prompt) {
+      if (await isCancelled(id)) return;
       await updateJob(id, { step: "art" });
       artUrl = await runChatGPTImage(art_prompt);
       await updateJob(id, { art_url: artUrl, step: "audio" });
     }
 
     // Step 3: Generate audio in Suno — run TWICE for 4 total tracks
+    if (await isCancelled(id)) return;
     await updateJob(id, { step: "audio" });
     let run1 = [], run2 = [];
     try { run1 = JSON.parse(await runSuno(lyrics, style_tags) || "[]"); } catch { run1 = []; }
+    if (await isCancelled(id)) return;
     try { run2 = JSON.parse(await runSuno(lyrics, style_tags) || "[]"); } catch { run2 = []; }
     const allAudioUrls = [...run1, ...run2];
     const audioUrl = JSON.stringify(allAudioUrls);
@@ -447,12 +460,11 @@ async function runPipeline(job) {
 
     // Step 4: Generate metadata
     if (metadata_prompt) {
+      if (await isCancelled(id)) return;
       await updateJob(id, { step: "metadata" });
       const metaResult = await runChatGPT(metadata_prompt) || "";
-      // Parse title and description from result
       const titleMatch = metaResult.match(/TITLE:\s*(.+)/i);
       const descMatch = metaResult.match(/DESCRIPTION:\s*([\s\S]+)/i);
-      // Pause for user approval — dashboard handles video creation + upload
       await updateJob(id, {
         title: titleMatch?.[1]?.trim() ?? "",
         description: descMatch?.[1]?.trim() ?? metaResult,
