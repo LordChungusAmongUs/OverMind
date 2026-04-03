@@ -358,17 +358,10 @@ export default function YouTubePage() {
       setAutoPublishStep("Encoding video... 0:00:00");
       await ffmpeg.exec([
         "-loop", "1", "-i", "art.jpg", "-i", "audio.mp3",
-        "-filter_complex",
-        "[0:v]scale=trunc(iw/2)*2:trunc(ih/2)*2[scaled];" +
-        "[scaled]split=3[rv][gv][bv];" +
-        "[rv]lutrgb=r=val:g=0:b=0,pad=iw+6:ih:3:0[r];" +
-        "[gv]lutrgb=r=0:g=val:b=0,pad=iw+6:ih:3:0[g];" +
-        "[bv]lutrgb=r=0:g=0:b=val,pad=iw+6:ih:0:0[b];" +
-        "[r][g]blend=all_mode=screen[rg];" +
-        "[rg][b]blend=all_mode=screen,crop=iw-6:ih:3:0,scale=trunc(iw/2)*2:trunc(ih/2)*2[out]",
-        "-map", "[out]", "-map", "1:a",
-        "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-b:a", "192k",
-        "-shortest", "-pix_fmt", "yuv420p", "output.mp4",
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+        "-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage",
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", "yuv420p", "-shortest", "output.mp4",
       ]);
       setAutoPublishStep("Finalizing video...");
       const vidData = await ffmpeg.readFile("output.mp4");
@@ -497,28 +490,12 @@ export default function YouTubePage() {
       await ffmpeg.writeFile("art.jpg", await fetchFile(artFile));
       await ffmpeg.writeFile("audio.mp3", await fetchFile(audioFile));
 
-      // Static image + chromatic aberration + audio
       await ffmpeg.exec([
-        "-loop", "1",
-        "-i", "art.jpg",
-        "-i", "audio.mp3",
-        "-filter_complex",
-        // Chromatic aberration: split RGB channels, offset R right, B left, blend
-        "[0:v]split=3[rv][gv][bv];" +
-        "[rv]lutrgb=r=val:g=0:b=0,pad=iw+6:ih:3:0[r];" +
-        "[gv]lutrgb=r=0:g=val:b=0,pad=iw+6:ih:3:0[g];" +
-        "[bv]lutrgb=r=0:g=0:b=val,pad=iw+6:ih:0:0[b];" +
-        "[r][g]blend=all_mode=screen[rg];" +
-        "[rg][b]blend=all_mode=screen,crop=iw-6:ih:3:0[out]",
-        "-map", "[out]",
-        "-map", "1:a",
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        "-pix_fmt", "yuv420p",
-        "output.mp4",
+        "-loop", "1", "-i", "art.jpg", "-i", "audio.mp3",
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+        "-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage",
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", "yuv420p", "-shortest", "output.mp4",
       ]);
 
       const data = await ffmpeg.readFile("output.mp4");
