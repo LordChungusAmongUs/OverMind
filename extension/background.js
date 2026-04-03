@@ -341,6 +341,15 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(2000);
 
+  // Snapshot ALL audio URLs already on the page before we click Create.
+  // This lets us filter them out later so we only capture the NEW tracks from this run.
+  const preExistingAudioUrls = await injectAndRun(tabId, () => {
+    const urls = [];
+    document.querySelectorAll("audio[src]").forEach(a => { if (a.src) urls.push(a.src); });
+    document.querySelectorAll("a[href*='.mp3']").forEach(a => { if (a.href) urls.push(a.href); });
+    return urls;
+  });
+
   // Click Create
   await injectAndRun(tabId, () => {
     const btn = Array.from(document.querySelectorAll("button")).find(
@@ -350,13 +359,13 @@ async function runSuno(lyrics, styleTags) {
     return false;
   });
 
-  // Wait for track cards to appear, then click play on each to trigger full generation
+  // Wait for the newly created track cards to appear
   await sleep(15000);
 
-  // Click play on up to 2 generated track cards so Suno streams them (required to populate audio src)
-  for (let playAttempt = 0; playAttempt < 10; playAttempt++) {
+  // Click play on the first 2 track cards so Suno streams them (required to populate audio src).
+  // We retry up to 30 times (60s) to handle slow generation.
+  for (let playAttempt = 0; playAttempt < 30; playAttempt++) {
     const played = await injectAndRun(tabId, () => {
-      // Suno play buttons: look for buttons with aria-label containing "Play" inside track cards
       const playBtns = Array.from(document.querySelectorAll('button[aria-label*="Play"], button[title*="Play"]'));
       if (playBtns.length === 0) return 0;
       playBtns.slice(0, 2).forEach(btn => btn.click());
@@ -372,17 +381,20 @@ async function runSuno(lyrics, styleTags) {
   let audioUrls = [];
 
   while (attempts < 60 && audioUrls.length < 2) {
-    audioUrls = await injectAndRun(tabId, () => {
+    // Only collect audio URLs that weren't on the page before we clicked Create
+    audioUrls = await injectAndRun(tabId, (existing) => {
       const urls = new Set();
-      // Grab all audio elements with src
-      document.querySelectorAll("audio[src]").forEach(a => { if (a.src) urls.add(a.src); });
-      // Grab MP3 download links
-      document.querySelectorAll("a[href*='.mp3'], a[download]").forEach(a => { if (a.href) urls.add(a.href); });
+      document.querySelectorAll("audio[src]").forEach(a => {
+        if (a.src && !existing.includes(a.src)) urls.add(a.src);
+      });
+      document.querySelectorAll("a[href*='.mp3']").forEach(a => {
+        if (a.href && !existing.includes(a.href)) urls.add(a.href);
+      });
       return Array.from(urls).slice(0, 2);
-    });
+    }, [preExistingAudioUrls]);
 
     if (audioUrls.length < 2) {
-      // Re-click play in case the first click didn't stick
+      // Re-click play on the newest tracks (top of feed)
       if (attempts % 5 === 0) {
         await injectAndRun(tabId, () => {
           const playBtns = Array.from(document.querySelectorAll('button[aria-label*="Play"], button[title*="Play"]'));
