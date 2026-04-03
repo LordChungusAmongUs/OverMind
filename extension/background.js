@@ -199,26 +199,36 @@ async function runChatGPTImage(prompt) {
 
   if (!imgSrc) return null;
 
-  // Fetch image from background using session cookies (extensions bypass CORS)
-  try {
-    const url = new URL(imgSrc);
-    // Get session cookies for the image domain
-    const cookies = await new Promise(resolve =>
-      chrome.cookies.getAll({ domain: url.hostname }, resolve)
-    );
-    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join("; ");
-    const res = await fetch(imgSrc, {
-      headers: cookieHeader ? { Cookie: cookieHeader } : {},
+  // URL is chatgpt.com/backend-api/... — same-origin from the tab, fetch it there
+  const artBase64 = await injectAndRun(tabId, (src) => {
+    return new Promise(async (resolve) => {
+      try {
+        const r = await fetch(src, { credentials: "include" });
+        if (!r.ok) { resolve(null); return; }
+        const blob = await r.blob();
+        const fr = new FileReader();
+        fr.onloadend = () => resolve(fr.result);
+        fr.readAsDataURL(blob);
+      } catch {
+        resolve(null);
+      }
     });
-    if (res.ok) {
-      const blob = await res.blob();
+  }, [imgSrc]);
+
+  if (artBase64 && artBase64.startsWith("data:")) {
+    try {
+      const base64 = artBase64.split(",")[1];
+      const binary = atob(base64);
+      const arr = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+      const blob = new Blob([arr], { type: "image/jpeg" });
       const path = `art/${Date.now()}.jpg`;
       const storageUrl = await uploadToStorage(path, blob, "image/jpeg");
       if (storageUrl) return storageUrl;
-    }
-  } catch { /* fall through */ }
+    } catch { /* fall through */ }
+  }
 
-  return imgSrc; // last resort — return raw URL
+  return null;
 }
 
 // ── SUNO AUTOMATION ──────────────────────────────────────────────
