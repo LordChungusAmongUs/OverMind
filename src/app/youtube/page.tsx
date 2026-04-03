@@ -10,18 +10,64 @@ import {
   ChevronRight, Calendar, BarChart2,
 } from "lucide-react";
 
-// ── STYLE DATA ───────────────────────────────────────────────
-const DNB_SUBGENRES = [
-  "darkstep", "dubstep", "techstep", "jump up",
-  "liquid", "jungle", "hardstep", "drum n bass",
-];
-
-const MOODS = [
-  "simple", "rhythmic", "melodic", "cinematic", "epic", "dark",
-  "psychedelic", "funky", "tribal", "industrial", "ska", "jazz",
-  "ragga", "90s", "2000s", "southern rap", "hip hop", "metal",
-  "fantasy", "pop", "deep", "emotional", "romantic", "paranoid",
-  "suburban", "caribbean", "sci-fi", "mystery",
+// ── PERSONAS ─────────────────────────────────────────────────
+const PERSONAS = [
+  {
+    name: "ThirstyBoy",
+    desc: "Aggressive, energetic DnB & dubstep",
+    genres: ["jump up", "darkstep", "techstep", "dubstep", "drum n bass"],
+    moods: ["aggressive", "dark", "energetic", "rhythmic", "industrial", "paranoid", "epic"],
+    lyricsStyle: "hard-hitting, aggressive, repetitive hooks, dark energy",
+    artStyle: "dark urban, neon glitch, aggressive typography, bass culture aesthetic",
+  },
+  {
+    name: "Stephani Luci",
+    desc: "Liquid, melodic, emotional DnB",
+    genres: ["liquid", "drum n bass", "melodic dubstep"],
+    moods: ["melodic", "emotional", "romantic", "deep", "cinematic", "atmospheric"],
+    lyricsStyle: "soft, emotional, feminine, introspective, flowing",
+    artStyle: "ethereal, soft light, watercolor, feminine, dreamy atmosphere",
+  },
+  {
+    name: "Hard On",
+    desc: "Hardstyle & techno, high intensity",
+    genres: ["hardstep", "hardstyle", "techno", "industrial"],
+    moods: ["intense", "industrial", "epic", "tribal", "dark", "psychedelic"],
+    lyricsStyle: "minimal, repetitive chants, high energy, aggressive",
+    artStyle: "industrial, hard geometric shapes, high contrast, rave aesthetic",
+  },
+  {
+    name: "Wrapper",
+    desc: "Rap-infused DnB & dubstep",
+    genres: ["jump up", "dubstep", "drum n bass"],
+    moods: ["hip hop", "funky", "rhythmic", "southern rap", "2000s", "swagger"],
+    lyricsStyle: "rap flow, bars, street-focused, rhythmic wordplay",
+    artStyle: "hip hop culture, gold chains, urban landscape, bold colors",
+  },
+  {
+    name: "Jerry Country Singer",
+    desc: "Country-inspired electronic fusion",
+    genres: ["dubstep", "drum n bass", "country fusion"],
+    moods: ["suburban", "melodic", "emotional", "nostalgic", "funky"],
+    lyricsStyle: "country storytelling, twangy phrasing, heartfelt, simple",
+    artStyle: "rural Americana, sunset fields, rustic textures, warm tones",
+  },
+  {
+    name: "RaStevefarian",
+    desc: "Jungle & reggae MC style",
+    genres: ["jungle", "ragga", "drum n bass"],
+    moods: ["ragga", "caribbean", "rhythmic", "funky", "tribal", "psychedelic"],
+    lyricsStyle: "reggae/MC toasting style, patois-influenced, chant-heavy",
+    artStyle: "Caribbean colors, tropical, Rastafarian imagery, jungle vibes",
+  },
+  {
+    name: "Gore Lord",
+    desc: "Dark, horror, metal-influenced bass music",
+    genres: ["darkstep", "techstep", "dubstep"],
+    moods: ["metal", "dark", "horror", "industrial", "aggressive", "sci-fi"],
+    lyricsStyle: "horror imagery, dark poetry, ominous, death metal cadence",
+    artStyle: "horror, dark surrealism, blood, skulls, demonic energy, black metal aesthetic",
+  },
 ];
 
 function pickRandom<T>(arr: T[], n: number): T[] {
@@ -29,11 +75,11 @@ function pickRandom<T>(arr: T[], n: number): T[] {
   return shuffled.slice(0, n);
 }
 
-function generateStyleTag(): string {
-  const subgenre = pickRandom(DNB_SUBGENRES, 1)[0];
-  const moodCount = Math.floor(Math.random() * 3) + 2; // 2–4
-  const moods = pickRandom(MOODS, moodCount);
-  return [subgenre, ...moods].join(", ");
+function generateStyleTagForPersona(persona: typeof PERSONAS[0]): string {
+  const genre = pickRandom(persona.genres, 1)[0];
+  const moodCount = Math.floor(Math.random() * 3) + 2;
+  const moods = pickRandom(persona.moods, moodCount);
+  return [genre, ...moods].join(", ");
 }
 
 // ── STEP CONFIG ──────────────────────────────────────────────
@@ -52,6 +98,7 @@ type StepKey = "concept" | "lyrics" | "art" | "audio" | "video" | "metadata" | "
 export default function YouTubePage() {
   const [activeTab, setActiveTab] = useState<"pipeline" | "calendar" | "analytics">("pipeline");
   const [currentStep, setCurrentStep] = useState<StepKey>("concept");
+  const [selectedPersona, setSelectedPersona] = useState(PERSONAS[0]);
   const [styleTag, setStyleTag] = useState("");
   const [trackTheme, setTrackTheme] = useState("");
   const [lyricsPrompt, setLyricsPrompt] = useState("");
@@ -254,17 +301,21 @@ export default function YouTubePage() {
   };
 
   const generateConcept = () => {
-    const tag = generateStyleTag();
+    const tag = generateStyleTagForPersona(selectedPersona);
     setStyleTag(tag);
     const theme = trackTheme.trim();
     setLyricsPrompt(
+      `You are writing lyrics for ${selectedPersona.name}, an electronic music artist. ` +
+      `Style: ${selectedPersona.lyricsStyle}. ` +
       `Write lyrics for a ${tag} track${theme ? ` about "${theme}"` : ""}. ` +
-      `The lyrics should match the mood and energy of the style. Include a title at the top formatted as "TITLE: [track name]". ` +
-      `Keep it 2 verses and a chorus.`
+      `Keep it concise, rhythm-driven, hook-oriented. 2 verses and a chorus max. ` +
+      `Include a title at the top formatted as "TITLE: [track name]".`
     );
     setArtPrompt(
-      `Create album cover art for a ${tag} music track${theme ? ` themed around "${theme}"` : ""}. ` +
-      `Dark, atmospheric, high quality, digital art style. No text on the image.`
+      `Create album cover art for ${selectedPersona.name}, an electronic music artist. ` +
+      `Art style: ${selectedPersona.artStyle}. ` +
+      `Genre: ${tag}${theme ? `. Theme: ${theme}` : ""}. ` +
+      `High quality digital art. No text on the image.`
     );
   };
 
@@ -331,9 +382,9 @@ export default function YouTubePage() {
 
   const generateMetadataPrompt = () => {
     return (
-      `I have a ${styleTag} music track. The lyrics are:\n\n${lyrics}\n\n` +
-      `Generate:\n1. An engaging YouTube title (max 60 chars, no clickbait)\n` +
-      `2. A 3-paragraph YouTube description with relevant hashtags at the end.\n` +
+      `I have a ${styleTag} track by ${selectedPersona.name} (DJ ThirstyBoy project). The lyrics are:\n\n${lyrics}\n\n` +
+      `Generate:\n1. An engaging YouTube title (max 60 chars, no clickbait, include artist name ${selectedPersona.name})\n` +
+      `2. A 3-paragraph YouTube description referencing the style, mood, and artist. Include relevant hashtags at the end (#DnB #DrumAndBass #${selectedPersona.name.replace(/\s/g, "")} #DJThirstyBoy).\n` +
       `Format as:\nTITLE: [title here]\nDESCRIPTION:\n[description here]`
     );
   };
@@ -349,6 +400,23 @@ export default function YouTubePage() {
       case "concept":
         return (
           <div className="space-y-4">
+            {/* Persona selector */}
+            <div>
+              <label className="text-sm text-muted-foreground mb-2 block">Persona</label>
+              <div className="grid grid-cols-1 gap-1.5">
+                {PERSONAS.map(p => (
+                  <button key={p.name} onClick={() => setSelectedPersona(p)}
+                    className={`text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
+                      selectedPersona.name === p.name
+                        ? "border-primary/50 bg-primary/10 text-primary"
+                        : "border-border bg-secondary text-muted-foreground hover:text-foreground"
+                    }`}>
+                    <span className="font-medium">{p.name}</span>
+                    <span className="text-xs ml-2 opacity-70">{p.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">Track theme (optional)</label>
               <input
