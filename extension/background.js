@@ -368,7 +368,7 @@ async function runSuno(lyrics, styleTags) {
   // no need to scrape the DOM or guess when audio elements are populated.
   // Because this runs in MAIN world, window.__sunoAudio persists across injectAndRun calls.
   await injectAndRun(tabId, () => {
-    if (window.__sunoAudio) return; // already injected this session
+    // Always reset — don't skip if the array exists from a previous run in a reused tab
     window.__sunoAudio = [];
     try {
       const proto = HTMLMediaElement.prototype;
@@ -456,8 +456,9 @@ async function runSuno(lyrics, styleTags) {
     attempts++;
   }
 
-  // Close the Suno tab so the next runSuno call gets a fully fresh page load
-  chrome.tabs.remove(tabId);
+  // Close the Suno tab and WAIT for it to be gone before returning,
+  // so the next runSuno call doesn't find and reuse this tab.
+  await new Promise(resolve => chrome.tabs.remove(tabId, () => resolve()));
 
   // Upload both tracks to Supabase Storage for CORS-free access on dashboard
   const storageUrls = [];
