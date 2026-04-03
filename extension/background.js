@@ -473,12 +473,21 @@ chrome.alarms.create("poll", { periodInMinutes: 0.1 }); // every 6 seconds
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== "poll") return;
 
-  // Watchdog: clear stuck running flag if job has been "running" for over 45 minutes
-  const { running, runningStarted } = await chrome.storage.local.get(["running", "runningStarted"]);
-  if (running && runningStarted && Date.now() - runningStarted > 45 * 60 * 1000) {
-    await chrome.storage.local.set({ running: false, currentJob: null, step: null, runningStarted: null });
-  } else if (running) {
-    return;
+  // Watchdog: clear stuck running flag if timed out OR if current job was cancelled in Supabase
+  const { running, currentJob, runningStarted } = await chrome.storage.local.get(["running", "currentJob", "runningStarted"]);
+  if (running) {
+    const timedOut = runningStarted && Date.now() - runningStarted > 45 * 60 * 1000;
+    let cancelled = false;
+    if (currentJob && !timedOut) {
+      const res = await fetch(`${db("pipeline_jobs")}?id=eq.${currentJob}&select=status`, { headers });
+      const rows = await res.json().catch(() => []);
+      cancelled = rows?.[0]?.status === "error" || rows?.[0]?.status === "complete";
+    }
+    if (timedOut || cancelled) {
+      await chrome.storage.local.set({ running: false, currentJob: null, step: null, runningStarted: null });
+    } else {
+      return;
+    }
   }
 
   const job = await getJob();
