@@ -269,12 +269,34 @@ async function runSuno(lyrics, styleTags) {
   await sleep(1000);
 
   if (!lyrics) {
-    // Instrumental — click the Instrumental button instead of filling lyrics
+    // Instrumental — retry clicking until the button shows as active
+    let instrumentalActive = false;
+    for (let attempt = 0; attempt < 8 && !instrumentalActive; attempt++) {
+      instrumentalActive = await injectAndRun(tabId, () => {
+        const btn = Array.from(document.querySelectorAll("button")).find(
+          b => b.textContent.trim() === "Instrumental"
+        );
+        if (!btn) return false;
+        // Already active if aria-pressed="true" or has an active/selected class
+        const alreadyOn = btn.getAttribute("aria-pressed") === "true" ||
+          btn.classList.contains("active") || btn.classList.contains("selected") ||
+          btn.dataset.state === "on";
+        if (alreadyOn) return true;
+        btn.click();
+        return false;
+      });
+      if (!instrumentalActive) await sleep(1000);
+    }
+    // Also clear the lyrics textarea just in case
     await injectAndRun(tabId, () => {
-      const btn = Array.from(document.querySelectorAll("button")).find(
-        b => b.textContent.trim() === "Instrumental"
+      const ta = Array.from(document.querySelectorAll("textarea")).find(
+        t => (t.placeholder || "").toLowerCase().includes("leave blank for instrumental")
       );
-      if (btn) btn.click();
+      if (!ta) return;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+      setter.call(ta, "");
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      ta.dispatchEvent(new Event("change", { bubbles: true }));
     });
   } else {
     // Fill lyrics — exact placeholder match
