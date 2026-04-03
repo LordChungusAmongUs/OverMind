@@ -12,9 +12,23 @@ const headers = {
 
 // ── SUPABASE HELPERS ─────────────────────────────────────────────
 async function getJob() {
-  const res = await fetch(`${db("pipeline_jobs")}?status=eq.pending&limit=1`, { headers });
-  const data = await res.json();
-  return data?.[0] ?? null;
+  // Fetch the oldest pending job
+  const res = await fetch(`${db("pipeline_jobs")}?status=eq.pending&limit=1&order=created_at.asc`, { headers });
+  const rows = await res.json();
+  const job = rows?.[0];
+  if (!job) return null;
+
+  // Atomically claim it: PATCH only matches if status is STILL pending.
+  // If two alarm handlers race, Postgres serializes them — the second gets 0 rows back.
+  const claimRes = await fetch(`${db("pipeline_jobs")}?id=eq.${job.id}&status=eq.pending`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ status: "running", updated_at: new Date().toISOString() }),
+  });
+  const claimed = await claimRes.json();
+  if (!claimed?.length) return null; // lost the race — another instance already claimed it
+
+  return claimed[0];
 }
 
 async function updateJob(id, fields) {
