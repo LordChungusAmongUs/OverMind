@@ -371,7 +371,7 @@ async function runSuno(lyrics, styleTags) {
   let attempts = 0;
   let audioUrls = [];
 
-  while (attempts < 60 && audioUrls.length < 2) {
+  while (attempts < 25 && audioUrls.length < 2) {
     audioUrls = await injectAndRun(tabId, () => {
       const urls = new Set();
       // Grab all audio elements with src
@@ -393,6 +393,9 @@ async function runSuno(lyrics, styleTags) {
       attempts++;
     }
   }
+
+  // Close the Suno tab so the next runSuno call gets a fully fresh page load
+  chrome.tabs.remove(tabId);
 
   // Upload both tracks to Supabase Storage for CORS-free access on dashboard
   const storageUrls = [];
@@ -435,8 +438,9 @@ async function runPipeline(job) {
 
     // Step 3: Generate audio in Suno — run TWICE for 4 total tracks
     await updateJob(id, { step: "audio" });
-    const run1 = JSON.parse(await runSuno(lyrics, style_tags) || "[]");
-    const run2 = JSON.parse(await runSuno(lyrics, style_tags) || "[]");
+    let run1 = [], run2 = [];
+    try { run1 = JSON.parse(await runSuno(lyrics, style_tags) || "[]"); } catch { run1 = []; }
+    try { run2 = JSON.parse(await runSuno(lyrics, style_tags) || "[]"); } catch { run2 = []; }
     const allAudioUrls = [...run1, ...run2];
     const audioUrl = JSON.stringify(allAudioUrls);
     await updateJob(id, { audio_url: audioUrl, step: "metadata" });
