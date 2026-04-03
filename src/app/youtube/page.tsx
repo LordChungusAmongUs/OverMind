@@ -545,15 +545,28 @@ export default function YouTubePage() {
                     The Overmind extension will handle ChatGPT + Suno automatically. Make sure the extension is installed and you are signed into ChatGPT and Suno.
                   </p>
                   {automating ? (
-                    <div className="flex items-center gap-2 text-sm text-primary">
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      {activeJobIds.length} job{activeJobIds.length !== 1 ? "s" : ""} in queue —{" "}
-                      {automationStep === "queued" ? "waiting for extension..." :
-                       automationStep === "lyrics" ? "generating lyrics..." :
-                       automationStep === "art" ? "generating cover art..." :
-                       automationStep === "audio" ? "generating audio in Suno..." :
-                       automationStep === "metadata" ? "writing metadata..." :
-                       `running: ${automationStep}...`}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-primary">
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        {activeJobIds.length} job{activeJobIds.length !== 1 ? "s" : ""} in queue —{" "}
+                        {automationStep === "queued" ? "waiting for extension..." :
+                         automationStep === "lyrics" ? "generating lyrics..." :
+                         automationStep === "art" ? "generating cover art..." :
+                         automationStep === "audio" ? "generating audio in Suno..." :
+                         automationStep === "metadata" ? "writing metadata..." :
+                         `running: ${automationStep}...`}
+                      </div>
+                      <button
+                        onClick={async () => {
+                          await supabase.from("pipeline_jobs").update({ status: "error", error_message: "Cancelled by user" }).eq("status", "pending");
+                          setActiveJobIds([]);
+                          setAutomating(false);
+                          setAutomationStep(null);
+                        }}
+                        className="text-xs text-red-400 border border-red-400/30 px-3 py-1 rounded-lg hover:bg-red-400/10"
+                      >
+                        Stop &amp; Cancel All Pending
+                      </button>
                     </div>
                   ) : (
                     <>
