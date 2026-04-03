@@ -101,8 +101,28 @@ export default function YouTubePage() {
   const reportedErrors = useRef<Set<string>>(new Set());
   const [autoPublishing, setAutoPublishing] = useState(false);
   const [autoPublishStep, setAutoPublishStep] = useState<string | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
   const audioRef = useRef<HTMLInputElement>(null);
   const artRef = useRef<HTMLInputElement>(null);
+
+  // ── POLL PENDING JOB COUNT (always-on, survives page reload) ──
+  useEffect(() => {
+    const check = async () => {
+      const { count } = await supabase.from("pipeline_jobs").select("*", { count: "exact", head: true }).in("status", ["pending", "running"]);
+      setPendingCount(count ?? 0);
+    };
+    check();
+    const interval = setInterval(check, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const cancelAllPending = async () => {
+    await supabase.from("pipeline_jobs").update({ status: "error", error_message: "Cancelled by user" }).eq("status", "pending");
+    setActiveJobIds([]);
+    setAutomating(false);
+    setAutomationStep(null);
+    setPendingCount(0);
+  };
 
   // ── POLL JOB STATUS ─────────────────────────────────────────
   useEffect(() => {
@@ -895,6 +915,19 @@ export default function YouTubePage() {
             </button>
           ))}
         </div>
+
+        {/* PERSISTENT PIPELINE STATUS BAR */}
+        {activeTab === "pipeline" && pendingCount > 0 && (
+          <div className="mb-4 flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg border border-primary/20 bg-primary/5">
+            <div className="flex items-center gap-2 text-sm text-primary">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              {pendingCount} job{pendingCount !== 1 ? "s" : ""} pending / running in extension
+            </div>
+            <button onClick={cancelAllPending} className="text-xs text-red-400 border border-red-400/30 px-3 py-1 rounded-lg hover:bg-red-400/10 flex-shrink-0">
+              Cancel All
+            </button>
+          </div>
+        )}
 
         {/* APPROVAL QUEUE */}
         {activeTab === "pipeline" && approvalQueue.length > 0 && (
