@@ -107,6 +107,8 @@ export default function YouTubePage() {
         setApprovalJobId(data.id);
         try { setApprovalAudioUrls(JSON.parse(data.audio_url ?? "[]")); } catch { setApprovalAudioUrls([]); }
         setApprovalArtUrl(data.art_url ?? null);
+        // Always clear any leftover art file so the pipeline-generated art is used
+        setArtFile(null);
         setPendingApproval(true);
       } else if (data.status === "error") {
         clearInterval(interval);
@@ -406,9 +408,9 @@ export default function YouTubePage() {
   const generateMetadataPrompt = () => {
     return (
       `I have a ${styleTag} track by ${selectedPersona.name} (DJ ThirstyBoy project). The lyrics are:\n\n${lyrics}\n\n` +
-      `Generate:\n1. An engaging YouTube title (max 60 chars, no clickbait, include artist name ${selectedPersona.name})\n` +
+      `Generate:\n1. A YouTube title — just the track name, max 60 chars. No genre labels, no dashes, no descriptors after the name. Example format: "Shadow Protocol — ${selectedPersona.name}"\n` +
       `2. A 3-paragraph YouTube description referencing the style, mood, and artist. Include relevant hashtags at the end (#DnB #DrumAndBass #${selectedPersona.name.replace(/\s/g, "")} #DJThirstyBoy).\n` +
-      `Format as:\nTITLE: [title here]\nDESCRIPTION:\n[description here]`
+      `Format your response EXACTLY as:\nTITLE: [track name — ${selectedPersona.name}]\nDESCRIPTION:\n[description here]`
     );
   };
 
