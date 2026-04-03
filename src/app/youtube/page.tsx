@@ -87,7 +87,8 @@ export default function YouTubePage() {
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const [automating, setAutomating] = useState(false);
   const [automationStep, setAutomationStep] = useState<string | null>(null);
-  const [batchCount, setBatchCount] = useState(3);
+  const [batchCount, setBatchCount] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [approvalQueue, setApprovalQueue] = useState<ApprovalJob[]>([]);
   const reportedErrors = useRef<Set<string>>(new Set());
@@ -173,7 +174,7 @@ export default function YouTubePage() {
       `Create album cover art for ${persona.name}, an electronic music artist. ` +
       `Art style: ${persona.artStyle}. ` +
       `Genre: ${tag}${theme ? `. Theme: ${theme}` : ""}. ` +
-      `High quality digital art. No text on the image.`;
+      `High quality digital art.`;
     const mp =
       `I have a ${tag} track by ${persona.name} (DJ ThirstyBoy project). The lyrics are:\n\n${lp}\n\n` +
       `Generate:\n1. A YouTube title — just the track name, max 60 chars. No genre labels, no dashes, no descriptors after the name. Example format: "Shadow Protocol — ${persona.name}"\n` +
@@ -183,8 +184,16 @@ export default function YouTubePage() {
   };
 
   const runAutomation = async () => {
+    if (submitting || automating) return;
+    setSubmitting(true);
     setAutomating(true);
     setAutomationStep("queued");
+
+    // Cancel any leftover pending jobs from previous stuck runs
+    await supabase.from("pipeline_jobs")
+      .update({ status: "error", error_message: "Cancelled — new batch started" })
+      .eq("status", "pending");
+
     const newJobIds: string[] = [];
     for (let i = 0; i < batchCount; i++) {
       const { persona, tag, lyricsPrompt: lp, artPrompt: ap, metadataPrompt: mp } = buildConcept(trackTheme.trim());
@@ -198,6 +207,7 @@ export default function YouTubePage() {
       }).select().single();
       if (!error && data) newJobIds.push(data.id);
     }
+    setSubmitting(false);
     if (newJobIds.length > 0) setActiveJobIds(prev => [...prev, ...newJobIds]);
     else { setAutomating(false); setAutomationStep(null); }
   };
@@ -529,9 +539,12 @@ export default function YouTubePage() {
                       </div>
                       <button
                         onClick={runAutomation}
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+                        disabled={submitting}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
                       >
-                        <Wand2 className="w-4 h-4" /> Run {batchCount} Idea{batchCount > 1 ? "s" : ""} Automatically
+                        {submitting
+                          ? <><RefreshCw className="w-4 h-4 animate-spin" /> Creating jobs...</>
+                          : <><Wand2 className="w-4 h-4" /> Run {batchCount} Idea{batchCount > 1 ? "s" : ""} Automatically</>}
                       </button>
                     </>
                   )}
