@@ -207,17 +207,24 @@ export default function YouTubePage() {
       }
 
       // Create video with FFmpeg
-      setAutoPublishStep("Creating video...");
+      setAutoPublishStep("Loading FFmpeg WASM...");
       const { FFmpeg } = await import("@ffmpeg/ffmpeg");
       const { fetchFile, toBlobURL } = await import("@ffmpeg/util");
       const ffmpeg = new FFmpeg();
+      ffmpeg.on("log", ({ message }: { message: string }) => {
+        // Surface time progress from FFmpeg log lines like "time=00:01:23.45"
+        const t = message.match(/time=(\d+:\d+:\d+)/);
+        if (t) setAutoPublishStep(`Encoding video... ${t[1]}`);
+      });
       const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
       await ffmpeg.load({
         coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
         wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
       });
+      setAutoPublishStep("Writing files...");
       await ffmpeg.writeFile("art.jpg", await fetchFile(artFileObj));
       await ffmpeg.writeFile("audio.mp3", await fetchFile(audioFileObj));
+      setAutoPublishStep("Encoding video... 0:00:00");
       await ffmpeg.exec([
         "-loop", "1", "-i", "art.jpg", "-i", "audio.mp3",
         "-filter_complex",
@@ -228,9 +235,10 @@ export default function YouTubePage() {
         "[r][g]blend=all_mode=screen[rg];" +
         "[rg][b]blend=all_mode=screen,crop=iw-6:ih:3:0[out]",
         "-map", "[out]", "-map", "1:a",
-        "-c:v", "libx264", "-preset", "fast", "-c:a", "aac", "-b:a", "192k",
+        "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-b:a", "192k",
         "-shortest", "-pix_fmt", "yuv420p", "output.mp4",
       ]);
+      setAutoPublishStep("Finalizing video...");
       const vidData = await ffmpeg.readFile("output.mp4");
       const vidBlob = new Blob([vidData as unknown as BlobPart], { type: "video/mp4" });
       const vidUrl = URL.createObjectURL(vidBlob);
@@ -304,6 +312,10 @@ export default function YouTubePage() {
       const { FFmpeg } = await import("@ffmpeg/ffmpeg");
       const { fetchFile, toBlobURL } = await import("@ffmpeg/util");
       const ffmpeg = new FFmpeg();
+      ffmpeg.on("log", ({ message }: { message: string }) => {
+        const t = message.match(/time=(\d+:\d+:\d+)/);
+        if (t) console.log(`FFmpeg encoding: ${t[1]}`);
+      });
       const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
       await ffmpeg.load({
         coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
@@ -328,7 +340,7 @@ export default function YouTubePage() {
         "-map", "[out]",
         "-map", "1:a",
         "-c:v", "libx264",
-        "-preset", "fast",
+        "-preset", "ultrafast",
         "-c:a", "aac",
         "-b:a", "192k",
         "-shortest",
