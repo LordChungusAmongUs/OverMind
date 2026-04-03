@@ -473,14 +473,18 @@ chrome.alarms.create("poll", { periodInMinutes: 0.1 }); // every 6 seconds
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== "poll") return;
 
-  // Check if already running a job
-  const { running } = await chrome.storage.local.get("running");
-  if (running) return;
+  // Watchdog: clear stuck running flag if job has been "running" for over 45 minutes
+  const { running, runningStarted } = await chrome.storage.local.get(["running", "runningStarted"]);
+  if (running && runningStarted && Date.now() - runningStarted > 45 * 60 * 1000) {
+    await chrome.storage.local.set({ running: false, currentJob: null, step: null, runningStarted: null });
+  } else if (running) {
+    return;
+  }
 
   const job = await getJob();
   if (!job) return;
 
-  await chrome.storage.local.set({ running: true, currentJob: job.id, step: job.step ?? "starting" });
+  await chrome.storage.local.set({ running: true, currentJob: job.id, step: job.step ?? "starting", runningStarted: Date.now() });
   await runPipeline(job);
   await chrome.storage.local.set({ running: false, currentJob: null, step: null });
 });
