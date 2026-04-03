@@ -45,10 +45,11 @@ async function uploadToStorage(path, blob, contentType) {
 }
 
 // ── INJECT & RUN SCRIPT IN TAB ───────────────────────────────────
-function injectAndRun(tabId, func, args = []) {
+// world: "ISOLATED" (default) or "MAIN" (shares page JS context, window vars persist between calls)
+function injectAndRun(tabId, func, args = [], world = "ISOLATED") {
   return new Promise((resolve, reject) => {
     chrome.scripting.executeScript(
-      { target: { tabId }, func, args },
+      { target: { tabId }, func, args, world },
       (results) => {
         if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
         else resolve(results?.[0]?.result);
@@ -81,13 +82,20 @@ async function openTab(url) {
 
 async function waitForTab(tabId) {
   return new Promise((resolve) => {
-    const listener = (id, info) => {
-      if (id === tabId && info.status === "complete") {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    };
-    chrome.tabs.onUpdated.addListener(listener);
+    const done = () => { clearTimeout(timeout); resolve(); };
+    // 30s max — prevents hanging if "complete" event already fired before listener was added
+    const timeout = setTimeout(done, 30000);
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab) { done(); return; }
+      if (tab.status === "complete") { done(); return; }
+      const listener = (id, info) => {
+        if (id === tabId && info.status === "complete") {
+          chrome.tabs.onUpdated.removeListener(listener);
+          done();
+        }
+      };
+      chrome.tabs.onUpdated.addListener(listener);
+    });
   });
 }
 
@@ -341,17 +349,40 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(2000);
 
-  // Snapshot ALL audio URLs already on the page before we click Create.
-  // This lets us filter them out later so we only capture the NEW tracks from this run.
-  let preExistingAudioUrls = [];
-  try {
-    preExistingAudioUrls = await injectAndRun(tabId, () => {
-      const urls = [];
-      document.querySelectorAll("audio[src]").forEach(a => { if (a.src) urls.push(a.src); });
-      document.querySelectorAll("a[href*='.mp3'], a[download]").forEach(a => { if (a.href) urls.push(a.href); });
-      return urls;
-    }) || [];
-  } catch { preExistingAudioUrls = []; }
+  // Inject an audio URL collector into the page's MAIN JS context BEFORE clicking Create.
+  // It overrides the audio.src setter so we capture URLs the instant Suno assigns them —
+  // no need to scrape the DOM or guess when audio elements are populated.
+  // Because this runs in MAIN world, window.__sunoAudio persists across injectAndRun calls.
+  await injectAndRun(tabId, () => {
+    if (window.__sunoAudio) return; // already injected this session
+    window.__sunoAudio = [];
+    try {
+      const proto = HTMLMediaElement.prototype;
+      const desc = Object.getOwnPropertyDescriptor(proto, "src");
+      if (desc && desc.set) {
+        Object.defineProperty(proto, "src", {
+          configurable: true, get: desc.get,
+          set(val) {
+            if (this.tagName === "AUDIO" && val && !val.startsWith("blob:") && !val.startsWith("data:")) {
+              if (!window.__sunoAudio.includes(val)) window.__sunoAudio.push(val);
+            }
+            return desc.set.call(this, val);
+          },
+        });
+      }
+    } catch (e) {}
+    // Also patch fetch to catch CDN audio requests (e.g. audiopipe, cdn1.suno.ai)
+    try {
+      const origFetch = window.fetch;
+      window.fetch = function(resource, ...args) {
+        const url = typeof resource === "string" ? resource : (resource && resource.url) || "";
+        if (url && (url.includes(".mp3") || url.includes("audiopipe") || url.includes("cdn1.suno") || url.includes("cdn2.suno"))) {
+          if (!window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
+        }
+        return origFetch.apply(this, [resource, ...args]);
+      };
+    } catch (e) {}
+  }, [], "MAIN").catch(() => {});
 
   // Click Create
   await injectAndRun(tabId, () => {
@@ -362,53 +393,62 @@ async function runSuno(lyrics, styleTags) {
     return false;
   });
 
-  // Wait for the newly created track cards to appear
+  // Wait for track generation to start
   await sleep(15000);
 
-  // Click play on the first 2 track cards so Suno streams them (required to populate audio src).
-  // We retry up to 30 times (60s) to handle slow generation.
-  for (let playAttempt = 0; playAttempt < 30; playAttempt++) {
+  // Click play on the first 2 track cards to trigger audio loading.
+  // Retry up to 40 times (80s) to handle slow generation.
+  for (let playAttempt = 0; playAttempt < 40; playAttempt++) {
     const played = await injectAndRun(tabId, () => {
-      const playBtns = Array.from(document.querySelectorAll('button[aria-label*="Play"], button[title*="Play"]'));
+      const playBtns = Array.from(document.querySelectorAll(
+        'button[aria-label*="Play"], button[title*="Play"], [data-testid*="play"], button[class*="play"]'
+      ));
       if (playBtns.length === 0) return 0;
       playBtns.slice(0, 2).forEach(btn => btn.click());
       return playBtns.length;
-    });
+    }).catch(() => 0);
     if (played >= 2) break;
     await sleep(2000);
   }
 
-  await sleep(3000); // let audio elements populate after play clicks
+  await sleep(3000);
 
   let attempts = 0;
   let audioUrls = [];
 
   while (attempts < 60 && audioUrls.length < 2) {
-    // Only collect audio URLs that weren't on the page before we clicked Create
-    const newUrls = await injectAndRun(tabId, (existing) => {
-      const known = Array.isArray(existing) ? existing : [];
-      const urls = new Set();
-      document.querySelectorAll("audio[src]").forEach(a => {
-        if (a.src && !known.includes(a.src)) urls.add(a.src);
-      });
-      document.querySelectorAll("a[href*='.mp3'], a[download]").forEach(a => {
-        if (a.href && !known.includes(a.href)) urls.add(a.href);
-      });
-      return Array.from(urls).slice(0, 2);
-    }, [preExistingAudioUrls]).catch(() => []);
-    if (newUrls && newUrls.length > 0) audioUrls = newUrls;
+    // Primary: read from the MAIN world interceptor (captures src assignments immediately)
+    const intercepted = await injectAndRun(tabId, () => window.__sunoAudio ? [...window.__sunoAudio] : [], [], "MAIN").catch(() => []);
 
-    if (audioUrls.length < 2) {
-      // Re-click play on the newest tracks (top of feed)
-      if (attempts % 5 === 0) {
-        await injectAndRun(tabId, () => {
-          const playBtns = Array.from(document.querySelectorAll('button[aria-label*="Play"], button[title*="Play"]'));
-          playBtns.slice(0, 2).forEach(btn => btn.click());
-        });
-      }
-      await sleep(3000);
-      attempts++;
+    // Fallback: scan the DOM directly for audio elements and download links
+    const domUrls = await injectAndRun(tabId, () => {
+      const urls = new Set();
+      document.querySelectorAll("audio").forEach(a => {
+        const s = a.src || a.currentSrc;
+        if (s && !s.startsWith("blob:") && !s.startsWith("data:")) urls.add(s);
+      });
+      document.querySelectorAll("a[href*='.mp3'], a[download]").forEach(a => { if (a.href) urls.add(a.href); });
+      return Array.from(urls);
+    }).catch(() => []);
+
+    // Merge and keep up to 2
+    const combined = [...new Set([...(intercepted || []), ...(domUrls || [])])].slice(0, 2);
+    if (combined.length > audioUrls.length) audioUrls = combined;
+
+    if (audioUrls.length >= 2) break;
+
+    // Re-click play every 5 attempts in case generation just finished
+    if (attempts % 5 === 0) {
+      await injectAndRun(tabId, () => {
+        const playBtns = Array.from(document.querySelectorAll(
+          'button[aria-label*="Play"], button[title*="Play"], [data-testid*="play"], button[class*="play"]'
+        ));
+        playBtns.slice(0, 2).forEach(btn => btn.click());
+      }).catch(() => {});
     }
+
+    await sleep(3000);
+    attempts++;
   }
 
   // Close the Suno tab so the next runSuno call gets a fully fresh page load
