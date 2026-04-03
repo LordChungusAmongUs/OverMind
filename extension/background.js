@@ -343,12 +343,15 @@ async function runSuno(lyrics, styleTags) {
 
   // Snapshot ALL audio URLs already on the page before we click Create.
   // This lets us filter them out later so we only capture the NEW tracks from this run.
-  const preExistingAudioUrls = await injectAndRun(tabId, () => {
-    const urls = [];
-    document.querySelectorAll("audio[src]").forEach(a => { if (a.src) urls.push(a.src); });
-    document.querySelectorAll("a[href*='.mp3']").forEach(a => { if (a.href) urls.push(a.href); });
-    return urls;
-  });
+  let preExistingAudioUrls = [];
+  try {
+    preExistingAudioUrls = await injectAndRun(tabId, () => {
+      const urls = [];
+      document.querySelectorAll("audio[src]").forEach(a => { if (a.src) urls.push(a.src); });
+      document.querySelectorAll("a[href*='.mp3'], a[download]").forEach(a => { if (a.href) urls.push(a.href); });
+      return urls;
+    }) || [];
+  } catch { preExistingAudioUrls = []; }
 
   // Click Create
   await injectAndRun(tabId, () => {
@@ -382,16 +385,18 @@ async function runSuno(lyrics, styleTags) {
 
   while (attempts < 60 && audioUrls.length < 2) {
     // Only collect audio URLs that weren't on the page before we clicked Create
-    audioUrls = await injectAndRun(tabId, (existing) => {
+    const newUrls = await injectAndRun(tabId, (existing) => {
+      const known = Array.isArray(existing) ? existing : [];
       const urls = new Set();
       document.querySelectorAll("audio[src]").forEach(a => {
-        if (a.src && !existing.includes(a.src)) urls.add(a.src);
+        if (a.src && !known.includes(a.src)) urls.add(a.src);
       });
-      document.querySelectorAll("a[href*='.mp3']").forEach(a => {
-        if (a.href && !existing.includes(a.href)) urls.add(a.href);
+      document.querySelectorAll("a[href*='.mp3'], a[download]").forEach(a => {
+        if (a.href && !known.includes(a.href)) urls.add(a.href);
       });
       return Array.from(urls).slice(0, 2);
-    }, [preExistingAudioUrls]);
+    }, [preExistingAudioUrls]).catch(() => []);
+    if (newUrls && newUrls.length > 0) audioUrls = newUrls;
 
     if (audioUrls.length < 2) {
       // Re-click play on the newest tracks (top of feed)
