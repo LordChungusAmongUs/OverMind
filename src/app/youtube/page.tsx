@@ -164,11 +164,22 @@ export default function YouTubePage() {
   const buildConcept = (theme: string) => {
     const persona = pickPersona();
     const tag = generateStyleTagForPersona(persona);
+    const rhymeSchemes = ["AAAB AAAB", "AAAB CCCB", "ABAB", "ABCB", "ABBB"];
+    const rhyme = rhymeSchemes[Math.floor(Math.random() * rhymeSchemes.length)];
+    const verseBars = [8, 12, 16][Math.floor(Math.random() * 3)];
+    const extras: string[] = [];
+    if (Math.random() < 0.3) extras.push("8-bar intro");
+    if (Math.random() < 0.3) extras.push("8-bar bridge after the second verse");
+    if (Math.random() < 0.3) extras.push("repeat chorus at the end");
+    const structure = `Chorus (8 bars) → Verse (${verseBars} bars) → Chorus → Verse (${verseBars} bars) → Chorus` +
+      (extras.length > 0 ? ` + ${extras.join(", ")}` : "");
     const lp = persona.instrumental ? "" :
       `You are writing lyrics for ${persona.name}, an electronic music artist. ` +
       `Style: ${persona.lyricsStyle}. ` +
       `Write lyrics for a ${tag} track${theme ? ` about "${theme}"` : ""}. ` +
-      `Keep it concise, rhythm-driven, hook-oriented. 2 verses and a chorus max. ` +
+      `Rhyme scheme: ${rhyme}. Song structure: ${structure}. ` +
+      `Label each section clearly (INTRO, CHORUS, VERSE, BRIDGE). ` +
+      `Keep lines punchy and rhythmically tight. ` +
       `Include a title at the top formatted as "TITLE: [track name]".`;
     const ap =
       `Create album cover art for ${persona.name}, an electronic music artist. ` +
