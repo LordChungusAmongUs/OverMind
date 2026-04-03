@@ -78,6 +78,7 @@ export default function YouTubePage() {
   const [autoPublishStep, setAutoPublishStep] = useState<string | null>(null);
   const audioRef = useRef<HTMLInputElement>(null);
   const artRef = useRef<HTMLInputElement>(null);
+  const approvalArtRef = useRef<HTMLInputElement>(null);
 
   // ── POLL JOB STATUS ─────────────────────────────────────────
   useEffect(() => {
@@ -173,7 +174,7 @@ export default function YouTubePage() {
         setArtPreview(URL.createObjectURL(artFileObj));
       }
       if (!artFileObj) {
-        alert("Cover art not available — the extension couldn't capture it. Save the image from the ChatGPT tab and upload it on the Art step, then try approving again.");
+        alert("Upload cover art first using the Upload Art button.");
         setAutoPublishing(false);
         return;
       }
@@ -689,10 +690,27 @@ export default function YouTubePage() {
         {/* APPROVAL CARD */}
         {activeTab === "pipeline" && pendingApproval && (
           <div className="mb-5 p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-4">
+            <input ref={approvalArtRef} type="file" accept="image/*" className="hidden"
+              onChange={e => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                setArtFile(f);
+                setArtPreview(URL.createObjectURL(f));
+              }} />
             <div>
               <p className="text-base font-semibold text-yellow-400">Tracks Ready for Approval</p>
               {title && <p className="text-sm text-muted-foreground mt-0.5">Title: <span className="text-foreground font-medium">{title}</span></p>}
-              <p className="text-xs text-muted-foreground mt-1">Listen in the Suno tab. Approve the track you want — video will be created and uploaded to YouTube automatically.</p>
+              <p className="text-xs text-muted-foreground mt-1">Listen in the Suno tab. Save the cover art from the ChatGPT tab, upload it below, then approve.</p>
+            </div>
+            <div className={`flex items-center gap-3 p-3 rounded-lg border ${artFile ? "border-green-500/20 bg-green-500/10" : "border-border bg-secondary"}`}>
+              {artFile
+                ? <span className="text-sm text-green-400 flex-1">✓ {artFile.name}</span>
+                : <span className="text-sm text-muted-foreground flex-1">Cover art — save from ChatGPT tab</span>
+              }
+              <button onClick={() => approvalArtRef.current?.click()}
+                className="px-3 py-1.5 rounded-lg bg-primary/20 text-primary text-sm font-medium hover:bg-primary/30 flex-shrink-0">
+                {artFile ? "Change" : "Upload Art"}
+              </button>
             </div>
             {autoPublishing ? (
               <div className="flex items-center gap-2 text-sm text-primary">
