@@ -268,26 +268,28 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(1000);
 
-  // Helper: set a React-controlled textarea value reliably
-  function setReactTextarea(el, value) {
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-    setter.call(el, value);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
+  if (!lyrics) {
+    // Instrumental — click the Instrumental button instead of filling lyrics
+    await injectAndRun(tabId, () => {
+      const btn = Array.from(document.querySelectorAll("button")).find(
+        b => b.textContent.trim() === "Instrumental"
+      );
+      if (btn) btn.click();
+    });
+  } else {
+    // Fill lyrics — exact placeholder match
+    await injectAndRun(tabId, (lyricsText) => {
+      const ta = Array.from(document.querySelectorAll("textarea")).find(
+        t => (t.placeholder || "").toLowerCase().includes("leave blank for instrumental")
+      );
+      if (!ta) return false;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+      setter.call(ta, lyricsText);
+      ta.dispatchEvent(new Event("input", { bubbles: true }));
+      ta.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    }, [lyrics]);
   }
-
-  // Fill lyrics — exact placeholder match
-  await injectAndRun(tabId, (lyricsText) => {
-    const ta = Array.from(document.querySelectorAll("textarea")).find(
-      t => (t.placeholder || "").toLowerCase().includes("leave blank for instrumental")
-    );
-    if (!ta) return false;
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-    setter.call(ta, lyricsText);
-    ta.dispatchEvent(new Event("input", { bubbles: true }));
-    ta.dispatchEvent(new Event("change", { bubbles: true }));
-    return true;
-  }, [lyrics]);
 
   await sleep(1000);
 

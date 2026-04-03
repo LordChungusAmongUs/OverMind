@@ -12,63 +12,20 @@ import {
 
 // ── PERSONAS ─────────────────────────────────────────────────
 const PERSONAS = [
-  {
-    name: "ThirstyBoy",
-    desc: "Aggressive, energetic DnB & dubstep",
-    genres: ["jump up", "darkstep", "techstep", "dubstep", "drum n bass"],
-    moods: ["aggressive", "dark", "energetic", "rhythmic", "industrial", "paranoid", "epic"],
-    lyricsStyle: "hard-hitting, aggressive, repetitive hooks, dark energy",
-    artStyle: "dark urban, neon glitch, aggressive typography, bass culture aesthetic",
-  },
-  {
-    name: "Stephani Luci",
-    desc: "Liquid, melodic, emotional DnB",
-    genres: ["liquid", "drum n bass", "melodic dubstep"],
-    moods: ["melodic", "emotional", "romantic", "deep", "cinematic", "atmospheric"],
-    lyricsStyle: "soft, emotional, feminine, introspective, flowing",
-    artStyle: "ethereal, soft light, watercolor, feminine, dreamy atmosphere",
-  },
-  {
-    name: "Hard On",
-    desc: "Hardstyle & techno, high intensity",
-    genres: ["hardstep", "hardstyle", "techno", "industrial"],
-    moods: ["intense", "industrial", "epic", "tribal", "dark", "psychedelic"],
-    lyricsStyle: "minimal, repetitive chants, high energy, aggressive",
-    artStyle: "industrial, hard geometric shapes, high contrast, rave aesthetic",
-  },
-  {
-    name: "Wrapper",
-    desc: "Rap-infused DnB & dubstep",
-    genres: ["jump up", "dubstep", "drum n bass"],
-    moods: ["hip hop", "funky", "rhythmic", "southern rap", "2000s", "swagger"],
-    lyricsStyle: "rap flow, bars, street-focused, rhythmic wordplay",
-    artStyle: "hip hop culture, gold chains, urban landscape, bold colors",
-  },
-  {
-    name: "Jerry Country Singer",
-    desc: "Country-inspired electronic fusion",
-    genres: ["dubstep", "drum n bass", "country fusion"],
-    moods: ["suburban", "melodic", "emotional", "nostalgic", "funky"],
-    lyricsStyle: "country storytelling, twangy phrasing, heartfelt, simple",
-    artStyle: "rural Americana, sunset fields, rustic textures, warm tones",
-  },
-  {
-    name: "RaStevefarian",
-    desc: "Jungle & reggae MC style",
-    genres: ["jungle", "ragga", "drum n bass"],
-    moods: ["ragga", "caribbean", "rhythmic", "funky", "tribal", "psychedelic"],
-    lyricsStyle: "reggae/MC toasting style, patois-influenced, chant-heavy",
-    artStyle: "Caribbean colors, tropical, Rastafarian imagery, jungle vibes",
-  },
-  {
-    name: "Gore Lord",
-    desc: "Dark, horror, metal-influenced bass music",
-    genres: ["darkstep", "techstep", "dubstep"],
-    moods: ["metal", "dark", "horror", "industrial", "aggressive", "sci-fi"],
-    lyricsStyle: "horror imagery, dark poetry, ominous, death metal cadence",
-    artStyle: "horror, dark surrealism, blood, skulls, demonic energy, black metal aesthetic",
-  },
+  { name: "ThirstyBoy",        weight: 2, instrumental: true,  vocals: null,             genres: ["jump up", "darkstep", "techstep", "dubstep", "drum n bass"],    moods: ["aggressive", "dark", "energetic", "rhythmic", "industrial", "paranoid", "epic"],           lyricsStyle: "",                                                          artStyle: "dark urban, neon glitch, aggressive bass culture aesthetic" },
+  { name: "Stephani Luci",     weight: 1, instrumental: false, vocals: "female vocals",  genres: ["liquid", "drum n bass", "melodic dubstep"],                     moods: ["melodic", "emotional", "romantic", "deep", "cinematic", "atmospheric"],                   lyricsStyle: "soft, emotional, feminine, introspective, flowing",          artStyle: "ethereal, soft light, watercolor, feminine, dreamy atmosphere" },
+  { name: "Hard On",           weight: 1, instrumental: false, vocals: "male vocals",    genres: ["hardstep", "hardstyle", "techno", "industrial"],                 moods: ["intense", "industrial", "epic", "tribal", "dark", "psychedelic"],                       lyricsStyle: "minimal, repetitive chants, high energy, aggressive",        artStyle: "industrial, hard geometric shapes, high contrast, rave aesthetic" },
+  { name: "Wrapper",           weight: 1, instrumental: false, vocals: "male vocals",    genres: ["jump up", "dubstep", "drum n bass"],                            moods: ["hip hop", "funky", "rhythmic", "southern rap", "2000s"],                                lyricsStyle: "rap flow, bars, street-focused, rhythmic wordplay",           artStyle: "hip hop culture, urban landscape, bold colors" },
+  { name: "Jerry Country Singer", weight: 1, instrumental: false, vocals: "male vocals", genres: ["dubstep", "drum n bass", "country fusion"],                    moods: ["suburban", "melodic", "emotional", "nostalgic", "funky"],                              lyricsStyle: "country storytelling, twangy phrasing, heartfelt, simple",   artStyle: "rural Americana, sunset fields, rustic textures, warm tones" },
+  { name: "RaStevefarian",     weight: 1, instrumental: false, vocals: "male vocals",    genres: ["jungle", "ragga", "drum n bass"],                              moods: ["ragga", "caribbean", "rhythmic", "funky", "tribal", "psychedelic"],                     lyricsStyle: "reggae/MC toasting style, patois-influenced, chant-heavy",   artStyle: "Caribbean colors, tropical, Rastafarian imagery, jungle vibes" },
+  { name: "Gore Lord",         weight: 1, instrumental: false, vocals: "male vocals",    genres: ["darkstep", "techstep", "dubstep"],                             moods: ["metal", "dark", "horror", "industrial", "aggressive", "sci-fi"],                        lyricsStyle: "horror imagery, dark poetry, ominous, death metal cadence",  artStyle: "horror, dark surrealism, skulls, demonic energy, black metal aesthetic" },
 ];
+
+// Weighted random persona pick — ThirstyBoy appears 2x more often
+function pickPersona() {
+  const pool = PERSONAS.flatMap(p => Array(p.weight).fill(p));
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 
 function pickRandom<T>(arr: T[], n: number): T[] {
   const shuffled = [...arr].sort(() => Math.random() - 0.5);
@@ -79,7 +36,9 @@ function generateStyleTagForPersona(persona: typeof PERSONAS[0]): string {
   const genre = pickRandom(persona.genres, 1)[0];
   const moodCount = Math.floor(Math.random() * 3) + 2;
   const moods = pickRandom(persona.moods, moodCount);
-  return [genre, ...moods].join(", ");
+  const parts = [genre, ...moods];
+  if (persona.vocals) parts.push(persona.vocals);
+  return parts.join(", ");
 }
 
 // ── STEP CONFIG ──────────────────────────────────────────────
@@ -301,19 +260,26 @@ export default function YouTubePage() {
   };
 
   const generateConcept = () => {
-    const tag = generateStyleTagForPersona(selectedPersona);
+    const persona = pickPersona();
+    setSelectedPersona(persona);
+    const tag = generateStyleTagForPersona(persona);
     setStyleTag(tag);
     const theme = trackTheme.trim();
-    setLyricsPrompt(
-      `You are writing lyrics for ${selectedPersona.name}, an electronic music artist. ` +
-      `Style: ${selectedPersona.lyricsStyle}. ` +
-      `Write lyrics for a ${tag} track${theme ? ` about "${theme}"` : ""}. ` +
-      `Keep it concise, rhythm-driven, hook-oriented. 2 verses and a chorus max. ` +
-      `Include a title at the top formatted as "TITLE: [track name]".`
-    );
+    // ThirstyBoy = instrumental, no lyrics prompt
+    if (persona.instrumental) {
+      setLyricsPrompt("");
+    } else {
+      setLyricsPrompt(
+        `You are writing lyrics for ${persona.name}, an electronic music artist. ` +
+        `Style: ${persona.lyricsStyle}. ` +
+        `Write lyrics for a ${tag} track${theme ? ` about "${theme}"` : ""}. ` +
+        `Keep it concise, rhythm-driven, hook-oriented. 2 verses and a chorus max. ` +
+        `Include a title at the top formatted as "TITLE: [track name]".`
+      );
+    }
     setArtPrompt(
-      `Create album cover art for ${selectedPersona.name}, an electronic music artist. ` +
-      `Art style: ${selectedPersona.artStyle}. ` +
+      `Create album cover art for ${persona.name}, an electronic music artist. ` +
+      `Art style: ${persona.artStyle}. ` +
       `Genre: ${tag}${theme ? `. Theme: ${theme}` : ""}. ` +
       `High quality digital art. No text on the image.`
     );
@@ -400,23 +366,13 @@ export default function YouTubePage() {
       case "concept":
         return (
           <div className="space-y-4">
-            {/* Persona selector */}
-            <div>
-              <label className="text-sm text-muted-foreground mb-2 block">Persona</label>
-              <div className="grid grid-cols-1 gap-1.5">
-                {PERSONAS.map(p => (
-                  <button key={p.name} onClick={() => setSelectedPersona(p)}
-                    className={`text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
-                      selectedPersona.name === p.name
-                        ? "border-primary/50 bg-primary/10 text-primary"
-                        : "border-border bg-secondary text-muted-foreground hover:text-foreground"
-                    }`}>
-                    <span className="font-medium">{p.name}</span>
-                    <span className="text-xs ml-2 opacity-70">{p.desc}</span>
-                  </button>
-                ))}
+            {styleTag && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
+                <span className="text-xs text-muted-foreground">Persona:</span>
+                <span className="text-sm font-semibold text-primary">{selectedPersona.name}</span>
+                <span className="text-xs text-muted-foreground ml-auto">{selectedPersona.instrumental ? "Instrumental" : selectedPersona.vocals}</span>
               </div>
-            </div>
+            )}
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">Track theme (optional)</label>
               <input
