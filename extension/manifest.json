@@ -3,11 +3,13 @@
   "name": "Overmind Pipeline",
   "version": "1.0",
   "description": "Automates the @djthirstyboy track pipeline — ChatGPT + Suno",
-  "permissions": ["tabs", "scripting", "storage", "alarms"],
+  "permissions": ["tabs", "scripting", "storage", "alarms", "cookies"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
     "https://suno.com/*",
+    "https://*.oaiusercontent.com/*",
+    "https://*.openai.com/*",
     "https://yrvxxnhwkmukhtwpcusw.supabase.co/*"
   ],
   "background": {

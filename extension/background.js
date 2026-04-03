@@ -175,54 +175,50 @@ async function runChatGPTImage(prompt) {
   // Wait for image to appear — ChatGPT image gen usually takes 15-45s
   await sleep(10000);
   let attempts = 0;
-  let artBase64 = null;
-  while (attempts < 40 && !artBase64) {
-    // Fetch image from within the page context — has session cookies, can access the URL
-    artBase64 = await injectAndRun(tabId, () => {
-      return new Promise(async (resolve) => {
-        const imgs = [...document.querySelectorAll('[data-message-author-role="assistant"] img')]
-          .filter(img => img.naturalWidth > 50 || img.complete);
-        if (!imgs.length) { resolve(null); return; }
-        const img = imgs[imgs.length - 1];
+  let imgSrc = null;
+  while (attempts < 40 && !imgSrc) {
+    imgSrc = await injectAndRun(tabId, () => {
+      // Check all images on the page — broaden beyond just assistant messages
+      const allImgs = [...document.querySelectorAll("img")];
+      for (const img of allImgs) {
         const src = img.currentSrc || img.src || "";
-        if (!src || src.length < 20) { resolve(null); return; }
-        try {
-          const r = await fetch(src, { credentials: "include" });
-          const blob = await r.blob();
-          const fr = new FileReader();
-          fr.onloadend = () => resolve(fr.result); // base64 data URL
-          fr.readAsDataURL(blob);
-        } catch {
-          resolve(src); // fallback: return raw URL for background to try
-        }
-      });
+        if (!src || src.length < 20) continue;
+        if (src.startsWith("data:")) continue;
+        // Filter out small icons/avatars
+        const w = img.naturalWidth || img.width;
+        const h = img.naturalHeight || img.height;
+        if (w > 200 && h > 200) return src;
+      }
+      return null;
     });
-    if (!artBase64) {
+    if (!imgSrc) {
       await sleep(3000);
       attempts++;
     }
   }
 
-  // Upload to Supabase Storage
-  if (artBase64) {
-    try {
-      let blob;
-      if (artBase64.startsWith("data:")) {
-        const base64 = artBase64.split(",")[1];
-        const binary = atob(base64);
-        const arr = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
-        blob = new Blob([arr], { type: "image/jpeg" });
-      } else {
-        const res = await fetch(artBase64); // try background fetch of raw URL
-        blob = await res.blob();
-      }
+  if (!imgSrc) return null;
+
+  // Fetch image from background using session cookies (extensions bypass CORS)
+  try {
+    const url = new URL(imgSrc);
+    // Get session cookies for the image domain
+    const cookies = await new Promise(resolve =>
+      chrome.cookies.getAll({ domain: url.hostname }, resolve)
+    );
+    const cookieHeader = cookies.map(c => `${c.name}=${c.value}`).join("; ");
+    const res = await fetch(imgSrc, {
+      headers: cookieHeader ? { Cookie: cookieHeader } : {},
+    });
+    if (res.ok) {
+      const blob = await res.blob();
       const path = `art/${Date.now()}.jpg`;
       const storageUrl = await uploadToStorage(path, blob, "image/jpeg");
       if (storageUrl) return storageUrl;
-    } catch { /* fall through */ }
-  }
-  return artBase64;
+    }
+  } catch { /* fall through */ }
+
+  return imgSrc; // last resort — return raw URL
 }
 
 // ── SUNO AUTOMATION ──────────────────────────────────────────────
