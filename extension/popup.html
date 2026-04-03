@@ -99,6 +99,22 @@
       transition: background 0.2s;
     }
     .open-btn:hover { background: rgba(139, 92, 246, 0.25); }
+    .reset-btn {
+      display: block;
+      width: 100%;
+      margin-top: 8px;
+      padding: 7px;
+      background: rgba(248, 113, 113, 0.1);
+      color: #f87171;
+      border: 1px solid rgba(248, 113, 113, 0.25);
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      transition: background 0.2s;
+    }
+    .reset-btn:hover { background: rgba(248, 113, 113, 0.2); }
   </style>
 </head>
 <body>
@@ -127,6 +143,7 @@
     <a href="https://overmind-dashboard.vercel.app/youtube" target="_blank" class="open-btn">
       Open Overmind Dashboard
     </a>
+    <button class="reset-btn" id="resetBtn">⚠ Reset Stuck Job</button>
   </div>
   <script src="popup.js"></script>
 </body>

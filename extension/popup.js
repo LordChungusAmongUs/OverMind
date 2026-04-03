@@ -49,3 +49,10 @@ async function refresh() {
 
 refresh();
 setInterval(refresh, 2000);
+
+document.getElementById("resetBtn").addEventListener("click", async () => {
+  await chrome.storage.local.set({ running: false, currentJob: null, step: null, runningStarted: null });
+  refresh();
+  document.getElementById("resetBtn").textContent = "✓ Reset — will pick up next job shortly";
+  setTimeout(() => { document.getElementById("resetBtn").textContent = "⚠ Reset Stuck Job"; }, 3000);
+});
