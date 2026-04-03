@@ -433,9 +433,12 @@ async function runPipeline(job) {
       await updateJob(id, { art_url: artUrl, step: "audio" });
     }
 
-    // Step 3: Generate audio in Suno
+    // Step 3: Generate audio in Suno — run TWICE for 4 total tracks
     await updateJob(id, { step: "audio" });
-    const audioUrl = await runSuno(lyrics, style_tags);
+    const run1 = JSON.parse(await runSuno(lyrics, style_tags) || "[]");
+    const run2 = JSON.parse(await runSuno(lyrics, style_tags) || "[]");
+    const allAudioUrls = [...run1, ...run2];
+    const audioUrl = JSON.stringify(allAudioUrls);
     await updateJob(id, { audio_url: audioUrl, step: "metadata" });
 
     // Step 4: Generate metadata

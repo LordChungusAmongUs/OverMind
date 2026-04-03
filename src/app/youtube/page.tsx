@@ -54,6 +54,18 @@ const STEPS = [
 
 type StepKey = "concept" | "lyrics" | "art" | "audio" | "video" | "metadata" | "publish";
 
+interface ApprovalJob {
+  jobId: string;
+  audioUrls: string[];
+  artUrl: string | null;
+  title: string;
+  description: string;
+  lyrics: string;
+  isInstrumental: boolean;
+  approvedUrls: string[];
+  skippedUrls: string[];
+}
+
 export default function YouTubePage() {
   const [activeTab, setActiveTab] = useState<"pipeline" | "calendar" | "analytics">("pipeline");
   const [currentStep, setCurrentStep] = useState<StepKey>("concept");
@@ -75,50 +87,69 @@ export default function YouTubePage() {
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const [automating, setAutomating] = useState(false);
   const [automationStep, setAutomationStep] = useState<string | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [pendingApproval, setPendingApproval] = useState(false);
-  const [approvalJobId, setApprovalJobId] = useState<string | null>(null);
-  const [approvalAudioUrls, setApprovalAudioUrls] = useState<string[]>([]);
-  const [approvalArtUrl, setApprovalArtUrl] = useState<string | null>(null);
+  const [batchCount, setBatchCount] = useState(3);
+  const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
+  const [approvalQueue, setApprovalQueue] = useState<ApprovalJob[]>([]);
+  const reportedErrors = useRef<Set<string>>(new Set());
   const [autoPublishing, setAutoPublishing] = useState(false);
   const [autoPublishStep, setAutoPublishStep] = useState<string | null>(null);
   const audioRef = useRef<HTMLInputElement>(null);
   const artRef = useRef<HTMLInputElement>(null);
-  const approvalArtRef = useRef<HTMLInputElement>(null);
 
   // ── POLL JOB STATUS ─────────────────────────────────────────
   useEffect(() => {
-    if (!jobId) return;
+    if (activeJobIds.length === 0) return;
     const interval = setInterval(async () => {
-      const { data } = await supabase
+      const { data: jobs } = await supabase
         .from("pipeline_jobs")
         .select("*")
-        .eq("id", jobId)
-        .single();
-      if (!data) return;
-      setAutomationStep(data.step);
-      if (data.step === "approval") {
-        clearInterval(interval);
-        setAutomating(false);
-        setJobId(null);
-        if (data.lyrics) setLyrics(data.lyrics);
-        if (data.title) setTitle(data.title);
-        if (data.description) setDescription(data.description);
-        setApprovalJobId(data.id);
-        try { setApprovalAudioUrls(JSON.parse(data.audio_url ?? "[]")); } catch { setApprovalAudioUrls([]); }
-        setApprovalArtUrl(data.art_url ?? null);
-        // Always clear any leftover art file so the pipeline-generated art is used
-        setArtFile(null);
-        setPendingApproval(true);
-      } else if (data.status === "error") {
-        clearInterval(interval);
-        setAutomating(false);
-        setJobId(null);
-        alert("Automation error: " + data.error_message);
+        .in("id", activeJobIds);
+      if (!jobs) return;
+
+      // Update step display from running jobs
+      const running = jobs.find(j => j.status === "running");
+      if (running) setAutomationStep(running.step);
+
+      // Add newly-approved jobs to queue
+      const readyJobs = jobs.filter(j => j.step === "approval");
+      if (readyJobs.length > 0) {
+        setApprovalQueue(prev => {
+          const existing = new Set(prev.map(a => a.jobId));
+          const toAdd = readyJobs.filter(j => !existing.has(j.id)).map(j => ({
+            jobId: j.id,
+            audioUrls: (() => { try { return JSON.parse(j.audio_url ?? "[]"); } catch { return []; } })(),
+            artUrl: j.art_url ?? null,
+            title: j.title ?? "",
+            description: j.description ?? "",
+            lyrics: j.lyrics ?? "",
+            isInstrumental: !j.lyrics,
+            approvedUrls: [],
+            skippedUrls: [],
+          }));
+          return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+        });
+      }
+
+      // Report errors once
+      jobs.filter(j => j.status === "error").forEach(j => {
+        if (!reportedErrors.current.has(j.id)) {
+          reportedErrors.current.add(j.id);
+          alert("Job error: " + j.error_message);
+        }
+      });
+
+      // Remove finished/approval jobs from active tracking
+      const doneIds = jobs.filter(j => j.step === "approval" || j.status === "error" || j.status === "complete").map(j => j.id);
+      if (doneIds.length > 0) {
+        setActiveJobIds(prev => {
+          const next = prev.filter(id => !doneIds.includes(id));
+          if (next.length === 0) { setAutomating(false); setAutomationStep(null); }
+          return next;
+        });
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [jobId]);
+  }, [activeJobIds]);
 
   const stepIndex = STEPS.findIndex(s => s.key === currentStep);
 
@@ -129,40 +160,74 @@ export default function YouTubePage() {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
+  const buildConcept = (theme: string) => {
+    const persona = pickPersona();
+    const tag = generateStyleTagForPersona(persona);
+    const lp = persona.instrumental ? "" :
+      `You are writing lyrics for ${persona.name}, an electronic music artist. ` +
+      `Style: ${persona.lyricsStyle}. ` +
+      `Write lyrics for a ${tag} track${theme ? ` about "${theme}"` : ""}. ` +
+      `Keep it concise, rhythm-driven, hook-oriented. 2 verses and a chorus max. ` +
+      `Include a title at the top formatted as "TITLE: [track name]".`;
+    const ap =
+      `Create album cover art for ${persona.name}, an electronic music artist. ` +
+      `Art style: ${persona.artStyle}. ` +
+      `Genre: ${tag}${theme ? `. Theme: ${theme}` : ""}. ` +
+      `High quality digital art. No text on the image.`;
+    const mp =
+      `I have a ${tag} track by ${persona.name} (DJ ThirstyBoy project). The lyrics are:\n\n${lp}\n\n` +
+      `Generate:\n1. A YouTube title — just the track name, max 60 chars. No genre labels, no dashes, no descriptors after the name. Example format: "Shadow Protocol — ${persona.name}"\n` +
+      `2. A 3-paragraph YouTube description referencing the style, mood, and artist. Include relevant hashtags at the end (#DnB #DrumAndBass #${persona.name.replace(/\s/g, "")} #DJThirstyBoy).\n` +
+      `Format your response EXACTLY as:\nTITLE: [track name — ${persona.name}]\nDESCRIPTION:\n[description here]`;
+    return { persona, tag, lyricsPrompt: lp, artPrompt: ap, metadataPrompt: mp };
+  };
+
   const runAutomation = async () => {
-    if (!styleTag) { alert("Generate a style first."); return; }
     setAutomating(true);
     setAutomationStep("queued");
-    const { data, error } = await supabase.from("pipeline_jobs").insert({
-      status: "pending",
-      style_tags: styleTag,
-      track_theme: trackTheme,
-      lyrics_prompt: lyricsPrompt,
-      art_prompt: artPrompt,
-      metadata_prompt: generateMetadataPrompt(),
-    }).select().single();
-    if (error || !data) {
-      alert("Failed to create job: " + (error?.message ?? "unknown"));
-      setAutomating(false);
+    const newJobIds: string[] = [];
+    for (let i = 0; i < batchCount; i++) {
+      const { persona, tag, lyricsPrompt: lp, artPrompt: ap, metadataPrompt: mp } = buildConcept(trackTheme.trim());
+      const { data, error } = await supabase.from("pipeline_jobs").insert({
+        status: "pending",
+        style_tags: tag,
+        track_theme: trackTheme.trim(),
+        lyrics_prompt: lp,
+        art_prompt: ap,
+        metadata_prompt: mp,
+      }).select().single();
+      if (!error && data) newJobIds.push(data.id);
+    }
+    if (newJobIds.length > 0) setActiveJobIds(prev => [...prev, ...newJobIds]);
+    else { setAutomating(false); setAutomationStep(null); }
+  };
+
+  const handleSkipTrack = (jobId: string, audioUrl: string) => {
+    setApprovalQueue(prev => prev.map(j => {
+      if (j.jobId !== jobId) return j;
+      const skippedUrls = [...j.skippedUrls, audioUrl];
+      return { ...j, skippedUrls };
+    }).filter(j => j.approvedUrls.length + j.skippedUrls.length < j.audioUrls.length || j.audioUrls.length === 0));
+  };
+
+  const handleDisapproveJob = async (jobId: string) => {
+    await supabase.from("pipeline_jobs").update({ status: "error", error_message: "Disapproved by user" }).eq("id", jobId);
+    setApprovalQueue(prev => prev.filter(j => j.jobId !== jobId));
+  };
+
+  const handleApprove = async (job: ApprovalJob, audioUrl: string) => {
+    // Vocal dedup: if vocal track and already approved one, block
+    if (!job.isInstrumental && job.approvedUrls.length > 0) {
+      alert("Already approved a track with this title — skip or disapprove the job.");
       return;
     }
-    setJobId(data.id);
-  };
-
-  const handleDisapprove = async () => {
-    if (approvalJobId) {
-      await supabase.from("pipeline_jobs").update({ status: "error", error_message: "Disapproved by user" }).eq("id", approvalJobId);
-    }
-    setPendingApproval(false);
-    setApprovalJobId(null);
-    setApprovalAudioUrls([]);
-    setApprovalArtUrl(null);
-    setAutomationStep(null);
-  };
-
-  const handleApprove = async (audioUrl: string) => {
     if (!audioUrl) { alert("No audio URL found. Cannot auto-publish."); return; }
     setAutoPublishing(true);
+
+    // Determine title — append " (Alt)" for 2nd+ instrumental approval
+    const trackTitle = (job.isInstrumental && job.approvedUrls.length >= 1)
+      ? job.title + " (Alt)"
+      : job.title;
 
     try {
       // Fetch audio
@@ -177,14 +242,13 @@ export default function YouTubePage() {
       const audioFileObj = new File([audioBlob], "track.mp3", { type: "audio/mpeg" });
       setAudioFile(audioFileObj);
 
-      // Fetch art — handle Supabase Storage URL or base64 data URL
+      // Fetch art — handle data: and https: URLs from job
       setAutoPublishStep("Fetching art...");
-      let artFileObj = artFile;
-      if (!artFileObj && approvalArtUrl) {
+      let artFileObj: File | null = null;
+      if (job.artUrl) {
         let artBlob: Blob;
-        if (approvalArtUrl.startsWith("data:")) {
-          // Base64 stored directly — convert to blob
-          const base64 = approvalArtUrl.split(",")[1];
+        if (job.artUrl.startsWith("data:")) {
+          const base64 = job.artUrl.split(",")[1];
           const binary = atob(base64);
           const arr = new Uint8Array(binary.length);
           for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
@@ -192,18 +256,17 @@ export default function YouTubePage() {
         } else {
           let artRes: Response;
           try {
-            artRes = await fetch(approvalArtUrl);
+            artRes = await fetch(job.artUrl);
           } catch (e) {
-            throw new Error(`Art fetch failed (${approvalArtUrl.slice(0, 60)}...): ${e}`);
+            throw new Error(`Art fetch failed (${job.artUrl.slice(0, 60)}...): ${e}`);
           }
           artBlob = await artRes.blob();
         }
         artFileObj = new File([artBlob], "art.jpg", { type: "image/jpeg" });
-        setArtFile(artFileObj);
         setArtPreview(URL.createObjectURL(artFileObj));
       }
       if (!artFileObj) {
-        alert("Upload cover art first using the Upload Art button.");
+        alert("No cover art available for this job.");
         setAutoPublishing(false);
         return;
       }
@@ -214,7 +277,6 @@ export default function YouTubePage() {
       const { fetchFile, toBlobURL } = await import("@ffmpeg/util");
       const ffmpeg = new FFmpeg();
       ffmpeg.on("log", ({ message }: { message: string }) => {
-        // Surface time progress from FFmpeg log lines like "time=00:01:23.45"
         const t = message.match(/time=(\d+:\d+:\d+)/);
         if (t) setAutoPublishStep(`Encoding video... ${t[1]}`);
       });
@@ -259,7 +321,6 @@ export default function YouTubePage() {
       if (!tokenData.access_token) throw new Error(tokenData.error || "No YouTube token");
 
       setAutoPublishStep("Starting YouTube upload...");
-      // Step 1: Initiate resumable upload session
       const initRes = await fetch(
         "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
         {
@@ -272,8 +333,8 @@ export default function YouTubePage() {
           },
           body: JSON.stringify({
             snippet: {
-              title: title || "New Track",
-              description: description || "",
+              title: trackTitle || "New Track",
+              description: job.description || "",
               tags: ["drum and bass", "dnb", "djthirstyboy", "music"],
               categoryId: "10",
             },
@@ -288,7 +349,6 @@ export default function YouTubePage() {
       const uploadUrl = initRes.headers.get("Location");
       if (!uploadUrl) throw new Error("No upload URL from YouTube (Location header missing)");
 
-      // Step 2: Upload video blob directly to YouTube
       setAutoPublishStep(`Uploading to YouTube (${(vidBlob.size / 1024 / 1024).toFixed(0)} MB)...`);
       const uploadRes = await fetch(uploadUrl, {
         method: "PUT",
@@ -304,9 +364,22 @@ export default function YouTubePage() {
       if (!videoId) throw new Error(`No video ID in response: ${JSON.stringify(uploadData).slice(0, 120)}`);
 
       setPublishedUrl(`https://www.youtube.com/watch?v=${videoId}`);
-      await supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", approvalJobId);
-      setPendingApproval(false);
       setCurrentStep("publish");
+
+      // Mark this audioUrl as approved in the queue
+      setApprovalQueue(prev => {
+        const updated = prev.map(j => j.jobId === job.jobId
+          ? { ...j, approvedUrls: [...j.approvedUrls, audioUrl] }
+          : j
+        );
+        // If all tracks actioned for this job, mark complete and remove
+        const thisJob = updated.find(j => j.jobId === job.jobId);
+        if (thisJob && thisJob.approvedUrls.length + thisJob.skippedUrls.length >= thisJob.audioUrls.length && thisJob.audioUrls.length > 0) {
+          supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", job.jobId);
+          return updated.filter(j => j.jobId !== job.jobId);
+        }
+        return updated;
+      });
     } catch (err: unknown) {
       alert("Auto-publish failed: " + (err instanceof Error ? err.message : "Unknown error"));
     }
@@ -315,29 +388,11 @@ export default function YouTubePage() {
   };
 
   const generateConcept = () => {
-    const persona = pickPersona();
+    const { persona, tag, lyricsPrompt: lp, artPrompt: ap } = buildConcept(trackTheme.trim());
     setSelectedPersona(persona);
-    const tag = generateStyleTagForPersona(persona);
     setStyleTag(tag);
-    const theme = trackTheme.trim();
-    // ThirstyBoy = instrumental, no lyrics prompt
-    if (persona.instrumental) {
-      setLyricsPrompt("");
-    } else {
-      setLyricsPrompt(
-        `You are writing lyrics for ${persona.name}, an electronic music artist. ` +
-        `Style: ${persona.lyricsStyle}. ` +
-        `Write lyrics for a ${tag} track${theme ? ` about "${theme}"` : ""}. ` +
-        `Keep it concise, rhythm-driven, hook-oriented. 2 verses and a chorus max. ` +
-        `Include a title at the top formatted as "TITLE: [track name]".`
-      );
-    }
-    setArtPrompt(
-      `Create album cover art for ${persona.name}, an electronic music artist. ` +
-      `Art style: ${persona.artStyle}. ` +
-      `Genre: ${tag}${theme ? `. Theme: ${theme}` : ""}. ` +
-      `High quality digital art. No text on the image.`
-    );
+    setLyricsPrompt(lp);
+    setArtPrompt(ap);
   };
 
   const handleArtUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -405,15 +460,6 @@ export default function YouTubePage() {
     setVideoProcessing(false);
   };
 
-  const generateMetadataPrompt = () => {
-    return (
-      `I have a ${styleTag} track by ${selectedPersona.name} (DJ ThirstyBoy project). The lyrics are:\n\n${lyrics}\n\n` +
-      `Generate:\n1. A YouTube title — just the track name, max 60 chars. No genre labels, no dashes, no descriptors after the name. Example format: "Shadow Protocol — ${selectedPersona.name}"\n` +
-      `2. A 3-paragraph YouTube description referencing the style, mood, and artist. Include relevant hashtags at the end (#DnB #DrumAndBass #${selectedPersona.name.replace(/\s/g, "")} #DJThirstyBoy).\n` +
-      `Format your response EXACTLY as:\nTITLE: [track name — ${selectedPersona.name}]\nDESCRIPTION:\n[description here]`
-    );
-  };
-
   const advance = () => {
     const next = STEPS[stepIndex + 1];
     if (next) setCurrentStep(next.key as StepKey);
@@ -463,20 +509,31 @@ export default function YouTubePage() {
                   {automating ? (
                     <div className="flex items-center gap-2 text-sm text-primary">
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      {automationStep === "queued" ? "Queued — extension picking up job..." :
-                       automationStep === "lyrics" ? "Generating lyrics in ChatGPT..." :
-                       automationStep === "art" ? "Generating cover art in DALL-E..." :
-                       automationStep === "audio" ? "Generating audio in Suno..." :
-                       automationStep === "metadata" ? "Writing title & description..." :
-                       `Running: ${automationStep}...`}
+                      {activeJobIds.length} job{activeJobIds.length !== 1 ? "s" : ""} in queue —{" "}
+                      {automationStep === "queued" ? "waiting for extension..." :
+                       automationStep === "lyrics" ? "generating lyrics..." :
+                       automationStep === "art" ? "generating cover art..." :
+                       automationStep === "audio" ? "generating audio in Suno..." :
+                       automationStep === "metadata" ? "writing metadata..." :
+                       `running: ${automationStep}...`}
                     </div>
                   ) : (
-                    <button
-                      onClick={runAutomation}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
-                    >
-                      <Wand2 className="w-4 h-4" /> Run Full Pipeline Automatically
-                    </button>
+                    <>
+                      <div className="flex items-center gap-3 mb-3">
+                        <label className="text-sm text-muted-foreground">Song ideas to generate:</label>
+                        <input
+                          type="number" min={1} max={20} value={batchCount}
+                          onChange={e => setBatchCount(Math.max(1, Math.min(20, Number(e.target.value))))}
+                          className="w-16 px-2 py-1 text-sm rounded-lg bg-secondary border border-border text-foreground text-center focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                      </div>
+                      <button
+                        onClick={runAutomation}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+                      >
+                        <Wand2 className="w-4 h-4" /> Run {batchCount} Idea{batchCount > 1 ? "s" : ""} Automatically
+                      </button>
+                    </>
                   )}
                 </div>
 
@@ -636,13 +693,7 @@ export default function YouTubePage() {
         return (
           <div className="space-y-4">
             <div className="p-3 rounded-lg bg-secondary border border-border">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-xs text-muted-foreground">Copy this prompt into ChatGPT</p>
-                <button onClick={() => copy(generateMetadataPrompt(), "meta-prompt")} className="text-xs text-primary flex items-center gap-1">
-                  {copiedKey === "meta-prompt" ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
-                </button>
-              </div>
-              <p className="text-sm text-foreground whitespace-pre-wrap">{generateMetadataPrompt()}</p>
+              <p className="text-xs text-muted-foreground mb-1">Metadata is generated automatically by the pipeline. Fill in or edit title and description below.</p>
             </div>
             <a href="https://chat.openai.com" target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
@@ -791,66 +842,66 @@ export default function YouTubePage() {
           ))}
         </div>
 
-        {/* APPROVAL CARD */}
-        {activeTab === "pipeline" && pendingApproval && (
-          <div className="mb-5 p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-4">
-            <input ref={approvalArtRef} type="file" accept="image/*" className="hidden"
-              onChange={e => {
-                const f = e.target.files?.[0];
-                if (!f) return;
-                setArtFile(f);
-                setArtPreview(URL.createObjectURL(f));
-              }} />
-            <div>
-              <p className="text-base font-semibold text-yellow-400">Tracks Ready for Approval</p>
-              {title && <p className="text-sm text-muted-foreground mt-0.5">Title: <span className="text-foreground font-medium">{title}</span></p>}
-              <p className="text-xs text-muted-foreground mt-1">Listen in the Suno tab. Save the cover art from the ChatGPT tab, upload it below, then approve.</p>
-            </div>
-            <div className={`flex items-center gap-3 p-3 rounded-lg border ${artFile ? "border-green-500/20 bg-green-500/10" : "border-border bg-secondary"}`}>
-              {artFile
-                ? <span className="text-sm text-green-400 flex-1">✓ {artFile.name}</span>
-                : <span className="text-sm text-muted-foreground flex-1">Cover art — save from ChatGPT tab</span>
-              }
-              <button onClick={() => approvalArtRef.current?.click()}
-                className="px-3 py-1.5 rounded-lg bg-primary/20 text-primary text-sm font-medium hover:bg-primary/30 flex-shrink-0">
-                {artFile ? "Change" : "Upload Art"}
-              </button>
-            </div>
-            {autoPublishing ? (
-              <div className="flex items-center gap-2 text-sm text-primary">
-                <RefreshCw className="w-4 h-4 animate-spin" /> {autoPublishStep}
-              </div>
-            ) : approvalAudioUrls.length > 0 ? (
-              <div className="space-y-2">
-                {approvalAudioUrls.map((url, i) => (
-                  <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-secondary border border-border">
-                    <span className="text-sm text-muted-foreground w-16 flex-shrink-0">Track {i + 1}</span>
-                    <button onClick={() => handleApprove(url)}
-                      className="px-4 py-1.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">
-                      Approve
-                    </button>
-                    <button onClick={handleDisapprove}
-                      className="px-4 py-1.5 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">
-                      Disapprove
-                    </button>
+        {/* APPROVAL QUEUE */}
+        {activeTab === "pipeline" && approvalQueue.length > 0 && (
+          <div className="mb-5 space-y-4">
+            <p className="text-sm font-semibold text-yellow-400">{approvalQueue.length} job{approvalQueue.length > 1 ? "s" : ""} awaiting approval</p>
+            {approvalQueue.map(job => {
+              const allActioned = job.approvedUrls.length + job.skippedUrls.length >= job.audioUrls.length && job.audioUrls.length > 0;
+              return (
+                <div key={job.jobId} className="p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{job.title || "Untitled"}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{job.isInstrumental ? "Instrumental" : "Vocal"} · {job.audioUrls.length} tracks</p>
+                    </div>
+                    <button onClick={() => handleDisapproveJob(job.jobId)}
+                      className="text-xs text-red-400 hover:text-red-300 flex-shrink-0">Dismiss Job</button>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground italic">Audio URLs not captured — download from Suno tab, upload manually on the Audio step, then approve below.</p>
-                <div className="flex gap-3">
-                  <button onClick={() => handleApprove("")}
-                    className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">
-                    Approve Track
-                  </button>
-                  <button onClick={handleDisapprove}
-                    className="px-4 py-2 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">
-                    Disapprove
-                  </button>
+                  {autoPublishing ? (
+                    <div className="flex items-center gap-2 text-sm text-primary">
+                      <RefreshCw className="w-4 h-4 animate-spin" /> {autoPublishStep}
+                    </div>
+                  ) : job.audioUrls.length === 0 ? (
+                    <p className="text-xs text-muted-foreground italic">No audio URLs captured.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {job.audioUrls.map((url, i) => {
+                        const approved = job.approvedUrls.includes(url);
+                        const skipped = job.skippedUrls.includes(url);
+                        const vocalLocked = !job.isInstrumental && job.approvedUrls.length > 0 && !approved && !skipped;
+                        return (
+                          <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-secondary border border-border">
+                            <span className="text-sm text-muted-foreground w-16 flex-shrink-0">Track {i + 1}</span>
+                            {approved ? (
+                              <span className="text-xs text-green-400 flex-1">✓ Approved & uploading</span>
+                            ) : skipped ? (
+                              <span className="text-xs text-muted-foreground flex-1">Skipped</span>
+                            ) : vocalLocked ? (
+                              <>
+                                <span className="text-xs text-yellow-400 flex-1">Title already used</span>
+                                <button onClick={() => handleSkipTrack(job.jobId, url)}
+                                  className="px-3 py-1.5 rounded-lg bg-secondary border border-border text-xs text-muted-foreground hover:text-foreground">Skip</button>
+                              </>
+                            ) : (
+                              <>
+                                <button onClick={() => handleApprove(job, url)}
+                                  className="px-4 py-1.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">Approve</button>
+                                <button onClick={() => handleSkipTrack(job.jobId, url)}
+                                  className="px-4 py-1.5 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">Skip</button>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {allActioned && (
+                    <p className="text-xs text-green-400">All tracks actioned for this job.</p>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })}
           </div>
         )}
 
