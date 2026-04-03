@@ -167,6 +167,12 @@ export default function YouTubePage() {
     const rhymeSchemes = ["AAAB AAAB", "AAAB CCCB", "ABAB", "ABCB", "ABBB"];
     const rhyme = rhymeSchemes[Math.floor(Math.random() * rhymeSchemes.length)];
     const verseBars = [8, 12, 16][Math.floor(Math.random() * 3)];
+    const hookPatterns = [
+      "8 original lines, then repeat lines 5–8, then repeat lines 7–8 (8+4+2 structure)",
+      "4 lines where lines 3–4 repeat twice after the initial delivery (A B C D C D C D)",
+      "4 lines where lines 1–2 repeat at the end (A B C D A B)",
+    ];
+    const hookPattern = hookPatterns[Math.floor(Math.random() * hookPatterns.length)];
     const extras: string[] = [];
     if (Math.random() < 0.3) extras.push("8-bar intro");
     if (Math.random() < 0.3) extras.push("8-bar bridge after the second verse");
@@ -178,7 +184,9 @@ export default function YouTubePage() {
       `Style: ${persona.lyricsStyle}. ` +
       `Write lyrics for a ${tag} track${theme ? ` about "${theme}"` : ""}. ` +
       `Rhyme scheme: ${rhyme}. Song structure: ${structure}. ` +
+      `Chorus/hook repetition pattern: ${hookPattern}. ` +
       `Label each section clearly (INTRO, CHORUS, VERSE, BRIDGE). ` +
+      `Write out repeated lines explicitly — do not write "(repeat)" or "(x2)", write the actual lines. ` +
       `Keep lines punchy and rhythmically tight. ` +
       `Include a title at the top formatted as "TITLE: [track name]".`;
     const ap =
