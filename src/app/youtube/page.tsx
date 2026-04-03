@@ -169,17 +169,27 @@ export default function YouTubePage() {
       const audioFileObj = new File([audioBlob], "track.mp3", { type: "audio/mpeg" });
       setAudioFile(audioFileObj);
 
-      // Fetch art from Supabase Storage (uploaded by extension)
+      // Fetch art — handle Supabase Storage URL or base64 data URL
       setAutoPublishStep("Fetching art...");
       let artFileObj = artFile;
       if (!artFileObj && approvalArtUrl) {
-        let artRes: Response;
-        try {
-          artRes = await fetch(approvalArtUrl);
-        } catch (e) {
-          throw new Error(`Art fetch failed (${approvalArtUrl.slice(0, 60)}...): ${e}`);
+        let artBlob: Blob;
+        if (approvalArtUrl.startsWith("data:")) {
+          // Base64 stored directly — convert to blob
+          const base64 = approvalArtUrl.split(",")[1];
+          const binary = atob(base64);
+          const arr = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+          artBlob = new Blob([arr], { type: "image/jpeg" });
+        } else {
+          let artRes: Response;
+          try {
+            artRes = await fetch(approvalArtUrl);
+          } catch (e) {
+            throw new Error(`Art fetch failed (${approvalArtUrl.slice(0, 60)}...): ${e}`);
+          }
+          artBlob = await artRes.blob();
         }
-        const artBlob = await artRes.blob();
         artFileObj = new File([artBlob], "art.jpg", { type: "image/jpeg" });
         setArtFile(artFileObj);
         setArtPreview(URL.createObjectURL(artFileObj));

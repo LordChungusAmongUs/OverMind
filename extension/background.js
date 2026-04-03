@@ -226,6 +226,8 @@ async function runChatGPTImage(prompt) {
       const storageUrl = await uploadToStorage(path, blob, "image/jpeg");
       if (storageUrl) return storageUrl;
     } catch { /* fall through */ }
+    // Storage upload failed — store base64 directly in the job record
+    return artBase64;
   }
 
   return null;
