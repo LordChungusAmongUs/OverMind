@@ -107,6 +107,13 @@ export default function YouTubePage() {
 
   // ── POLL PENDING JOB COUNT (always-on, survives page reload) ──
   useEffect(() => {
+    // On mount: auto-cancel any jobs stuck in pending/running for over 2 hours
+    const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    supabase.from("pipeline_jobs")
+      .update({ status: "error", error_message: "Auto-cancelled: stale job" })
+      .in("status", ["pending", "running"])
+      .lt("updated_at", staleThreshold);
+
     const check = async () => {
       const { count } = await supabase.from("pipeline_jobs").select("*", { count: "exact", head: true }).in("status", ["pending", "running"]);
       setPendingCount(count ?? 0);
@@ -117,7 +124,9 @@ export default function YouTubePage() {
   }, []);
 
   const cancelAllPending = async () => {
-    await supabase.from("pipeline_jobs").update({ status: "error", error_message: "Cancelled by user" }).eq("status", "pending");
+    await supabase.from("pipeline_jobs")
+      .update({ status: "error", error_message: "Cancelled by user" })
+      .in("status", ["pending", "running"]);
     setActiveJobIds([]);
     setAutomating(false);
     setAutomationStep(null);
