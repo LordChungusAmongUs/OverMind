@@ -32,11 +32,18 @@ function pickRandom<T>(arr: T[], n: number): T[] {
   return shuffled.slice(0, n);
 }
 
+const REQUIRED_GENRES = ["drum n bass", "dubstep", "drumstep", "hardstep", "darkstep", "techstep", "jungle"];
+
 function generateStyleTagForPersona(persona: typeof PERSONAS[0]): string {
   const genre = pickRandom(persona.genres, 1)[0];
   const moodCount = Math.floor(Math.random() * 3) + 2;
   const moods = pickRandom(persona.moods, moodCount);
   const parts = [genre, ...moods];
+  // Always include at least one required genre word
+  const hasRequired = parts.some(p => REQUIRED_GENRES.some(r => p.toLowerCase().includes(r)));
+  if (!hasRequired) {
+    parts.unshift(REQUIRED_GENRES[Math.floor(Math.random() * REQUIRED_GENRES.length)]);
+  }
   if (persona.vocals) parts.push(persona.vocals);
   return parts.join(", ");
 }
