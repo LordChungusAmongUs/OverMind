@@ -175,46 +175,46 @@ async function runChatGPTImage(prompt) {
   // Wait for image to appear — ChatGPT image gen usually takes 15-45s
   await sleep(10000);
   let attempts = 0;
-  let artData = null; // base64 data URL or fallback src
-  while (attempts < 40 && !artData) {
-    artData = await injectAndRun(tabId, () => {
-      const imgs = document.querySelectorAll('[data-message-author-role="assistant"] img');
-      for (const img of imgs) {
-        const src = img.currentSrc || img.src || img.getAttribute("src") || "";
-        if (!src || src.length < 20) continue;
-        // Try to capture as base64 via canvas (works when image is loaded in-page)
+  let artBase64 = null;
+  while (attempts < 40 && !artBase64) {
+    // Fetch image from within the page context — has session cookies, can access the URL
+    artBase64 = await injectAndRun(tabId, () => {
+      return new Promise(async (resolve) => {
+        const imgs = [...document.querySelectorAll('[data-message-author-role="assistant"] img')]
+          .filter(img => img.naturalWidth > 50 || img.complete);
+        if (!imgs.length) { resolve(null); return; }
+        const img = imgs[imgs.length - 1];
+        const src = img.currentSrc || img.src || "";
+        if (!src || src.length < 20) { resolve(null); return; }
         try {
-          const c = document.createElement("canvas");
-          c.width = img.naturalWidth || 512;
-          c.height = img.naturalHeight || 512;
-          c.getContext("2d").drawImage(img, 0, 0);
-          const dataUrl = c.toDataURL("image/jpeg", 0.9);
-          if (dataUrl && dataUrl.length > 100) return dataUrl;
-        } catch { /* CORS blocked canvas — fall through to src */ }
-        return src;
-      }
-      return null;
+          const r = await fetch(src, { credentials: "include" });
+          const blob = await r.blob();
+          const fr = new FileReader();
+          fr.onloadend = () => resolve(fr.result); // base64 data URL
+          fr.readAsDataURL(blob);
+        } catch {
+          resolve(src); // fallback: return raw URL for background to try
+        }
+      });
     });
-    if (!artData) {
+    if (!artBase64) {
       await sleep(3000);
       attempts++;
     }
   }
 
   // Upload to Supabase Storage
-  if (artData) {
+  if (artBase64) {
     try {
       let blob;
-      if (artData.startsWith("data:")) {
-        // Convert base64 to blob
-        const base64 = artData.split(",")[1];
+      if (artBase64.startsWith("data:")) {
+        const base64 = artBase64.split(",")[1];
         const binary = atob(base64);
         const arr = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
         blob = new Blob([arr], { type: "image/jpeg" });
       } else {
-        // Fetch the URL from background (no CORS restriction for extensions)
-        const res = await fetch(artData);
+        const res = await fetch(artBase64); // try background fetch of raw URL
         blob = await res.blob();
       }
       const path = `art/${Date.now()}.jpg`;
@@ -222,7 +222,7 @@ async function runChatGPTImage(prompt) {
       if (storageUrl) return storageUrl;
     } catch { /* fall through */ }
   }
-  return artData;
+  return artBase64;
 }
 
 // ── SUNO AUTOMATION ──────────────────────────────────────────────
