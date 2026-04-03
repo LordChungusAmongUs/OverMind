@@ -244,22 +244,55 @@ export default function YouTubePage() {
       const vidUrl = URL.createObjectURL(vidBlob);
       setVideoUrl(vidUrl);
 
-      // Upload to YouTube
-      setAutoPublishStep("Uploading to YouTube...");
-      const form = new FormData();
-      form.append("video", vidBlob, "track.mp4");
-      form.append("title", title || "New Track");
-      form.append("description", description || "");
-      const res = await fetch("/api/youtube/upload", { method: "POST", body: form });
-      const uploadData = await res.json();
-      if (uploadData.url) {
-        setPublishedUrl(uploadData.url);
-        await supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", approvalJobId);
-        setPendingApproval(false);
-        setCurrentStep("publish");
-      } else {
-        throw new Error(uploadData.error || "Upload failed");
-      }
+      // Upload directly to YouTube from the browser (bypasses Vercel body size limit)
+      setAutoPublishStep("Connecting to YouTube...");
+      const tokenRes = await fetch("/api/youtube/token");
+      const tokenData = await tokenRes.json();
+      if (!tokenData.access_token) throw new Error(tokenData.error || "No YouTube token");
+
+      setAutoPublishStep("Starting YouTube upload...");
+      // Step 1: Initiate resumable upload session
+      const initRes = await fetch(
+        "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${tokenData.access_token}`,
+            "Content-Type": "application/json",
+            "X-Upload-Content-Type": "video/mp4",
+            "X-Upload-Content-Length": String(vidBlob.size),
+          },
+          body: JSON.stringify({
+            snippet: {
+              title: title || "New Track",
+              description: description || "",
+              tags: ["drum and bass", "dnb", "djthirstyboy", "music"],
+              categoryId: "10",
+            },
+            status: { privacyStatus: "public" },
+          }),
+        }
+      );
+      if (!initRes.ok) throw new Error(`YouTube session failed: ${initRes.status}`);
+      const uploadUrl = initRes.headers.get("Location");
+      if (!uploadUrl) throw new Error("No upload URL from YouTube");
+
+      // Step 2: Upload video blob directly to YouTube
+      setAutoPublishStep(`Uploading to YouTube (${(vidBlob.size / 1024 / 1024).toFixed(0)} MB)...`);
+      const uploadRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "video/mp4" },
+        body: vidBlob,
+      });
+      if (!uploadRes.ok) throw new Error(`YouTube upload failed: ${uploadRes.status}`);
+      const uploadData = await uploadRes.json();
+      const videoId = uploadData.id;
+      if (!videoId) throw new Error("No video ID returned from YouTube");
+
+      setPublishedUrl(`https://www.youtube.com/watch?v=${videoId}`);
+      await supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", approvalJobId);
+      setPendingApproval(false);
+      setCurrentStep("publish");
     } catch (err: unknown) {
       alert("Auto-publish failed: " + (err instanceof Error ? err.message : "Unknown error"));
     }
