@@ -928,11 +928,14 @@ export default function YouTubePage() {
           </div>
         )}
 
-        {/* APPROVAL QUEUE */}
+        {/* APPROVAL QUEUE — one job at a time */}
         {activeTab === "pipeline" && approvalQueue.length > 0 && (
           <div className="mb-5 space-y-4">
-            <p className="text-sm font-semibold text-yellow-400">{approvalQueue.length} job{approvalQueue.length > 1 ? "s" : ""} awaiting approval</p>
-            {approvalQueue.map(job => {
+            <p className="text-sm font-semibold text-yellow-400">
+              {approvalQueue.length} job{approvalQueue.length > 1 ? "s" : ""} awaiting approval
+              {approvalQueue.length > 1 && <span className="text-yellow-500/70 font-normal"> — approving job 1 of {approvalQueue.length}</span>}
+            </p>
+            {approvalQueue.slice(0, 1).map(job => {
               const allActioned = job.approvedUrls.length + job.skippedUrls.length >= job.audioUrls.length && job.audioUrls.length > 0;
               return (
                 <div key={job.jobId} className="p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-3">

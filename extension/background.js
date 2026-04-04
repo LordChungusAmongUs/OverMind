@@ -167,7 +167,7 @@ async function runChatGPT(prompt) {
     return last?.innerText ?? "";
   });
 
-  chrome.tabs.remove(tabId);
+  await new Promise(resolve => chrome.tabs.remove(tabId, () => resolve()));
   return text;
 }
 
@@ -207,17 +207,29 @@ async function runChatGPTImage(prompt) {
   let imgSrc = null;
   while (attempts < 40 && !imgSrc) {
     imgSrc = await injectAndRun(tabId, (knownSrcs) => {
-      const allImgs = [...document.querySelectorAll("img")];
-      for (const img of allImgs) {
+      const isNew = (img) => {
         const src = img.currentSrc || img.src || "";
-        if (!src || src.length < 20) continue;
-        if (src.startsWith("data:")) continue;
-        if (knownSrcs.includes(src)) continue;
-        // Only accept images from OpenAI's image CDN (DALL-E generated)
-        if (!src.includes("oaiusercontent.com")) continue;
+        if (!src || src.length < 20 || src.startsWith("data:")) return false;
+        if (knownSrcs.includes(src)) return false;
         const w = img.naturalWidth || img.width;
         const h = img.naturalHeight || img.height;
-        if (w > 200 && h > 200) return src;
+        return w > 200 && h > 200 ? src : false;
+      };
+      // Primary: look inside the most recent assistant message only
+      const messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg) {
+        for (const img of lastMsg.querySelectorAll("img")) {
+          const src = isNew(img);
+          if (src) return src;
+        }
+      }
+      // Fallback: scan all images, restrict to OpenAI CDN
+      for (const img of document.querySelectorAll("img")) {
+        const src = img.currentSrc || img.src || "";
+        if (!src.includes("oaiusercontent.com")) continue;
+        const valid = isNew(img);
+        if (valid) return valid;
       }
       return null;
     }, [existingImgSrcs]);
@@ -524,7 +536,7 @@ async function runSuno(lyrics, styleTags) {
       return Array.from(urls);
     }).catch(() => []);
 
-    const combined = [...new Set([...(blobUrls || []), ...(intercepted || []), ...(domUrls || [])])];
+    const combined = [...new Set([...(blobUrls || []), ...(intercepted || []), ...(domUrls || [])])].slice(0, 2);
     if (combined.length > audioUrls.length) audioUrls = combined;
     if (audioUrls.length >= 2) break;
 
