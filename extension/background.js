@@ -363,13 +363,33 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(2000);
 
-  // Inject an audio URL collector into the page's MAIN JS context BEFORE clicking Create.
-  // It overrides the audio.src setter so we capture URLs the instant Suno assigns them —
-  // no need to scrape the DOM or guess when audio elements are populated.
-  // Because this runs in MAIN world, window.__sunoAudio persists across injectAndRun calls.
+  // Fill Suno's Song Name field using the title extracted from the lyrics
+  const titleFromLyrics = (lyrics || "").match(/^TITLE:\s*(.+)/im)?.[1]?.trim() ?? "";
+  if (titleFromLyrics) {
+    await injectAndRun(tabId, (titleText) => {
+      // Song Name is a text input in Suno's Advanced form
+      const el = Array.from(document.querySelectorAll("input, textarea")).find(el => {
+        const ph = (el.placeholder || "").toLowerCase();
+        return ph.includes("name") || ph.includes("title");
+      });
+      if (!el) return false;
+      const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
+      setter.call(el, titleText);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    }, [titleFromLyrics]);
+    await sleep(500);
+  }
+
+  // Inject audio URL collector into the page's MAIN JS context BEFORE clicking Create.
+  // Intercepts audio src setter, fetch, and XHR so we catch URLs regardless of how Suno loads audio.
+  // MAIN world means window.__sunoAudio persists across injectAndRun calls.
   await injectAndRun(tabId, () => {
-    // Always reset — don't skip if the array exists from a previous run in a reused tab
     window.__sunoAudio = [];
+    // CDN UUID pattern — matches cdn.suno.ai and audiopipe.suno.ai, no .mp3 extension required
+    const audioPattern = /https:\/\/(cdn\d*|audiopipe)\.suno\.ai\/[a-f0-9\-]{20,}/;
     try {
       const proto = HTMLMediaElement.prototype;
       const desc = Object.getOwnPropertyDescriptor(proto, "src");
@@ -385,16 +405,25 @@ async function runSuno(lyrics, styleTags) {
         });
       }
     } catch (e) {}
-    // Patch fetch to catch CDN audio requests — UUID pattern only, avoids API status calls
+    // Patch fetch
     try {
       const origFetch = window.fetch;
-      const audioPattern = /https:\/\/cdn\d*\.suno\.ai\/[a-f0-9\-]{20,}\.mp3|https:\/\/audiopipe\.suno\.ai\//;
       window.fetch = function(resource, ...args) {
         const url = typeof resource === "string" ? resource : (resource && resource.url) || "";
         if (url && audioPattern.test(url)) {
           if (!window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
         }
         return origFetch.apply(this, [resource, ...args]);
+      };
+    } catch (e) {}
+    // Patch XHR — Suno may use XHR instead of fetch for audio loading
+    try {
+      const origOpen = window.XMLHttpRequest.prototype.open;
+      window.XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        if (url && typeof url === "string" && audioPattern.test(url)) {
+          if (!window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
+        }
+        return origOpen.apply(this, [method, url, ...rest]);
       };
     } catch (e) {}
   }, [], "MAIN").catch(() => {});
