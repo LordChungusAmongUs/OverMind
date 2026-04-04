@@ -212,7 +212,9 @@ async function runChatGPTImage(prompt) {
         const src = img.currentSrc || img.src || "";
         if (!src || src.length < 20) continue;
         if (src.startsWith("data:")) continue;
-        if (knownSrcs.includes(src)) continue; // skip pre-existing images
+        if (knownSrcs.includes(src)) continue;
+        // Only accept images from OpenAI's image CDN (DALL-E generated)
+        if (!src.includes("oaiusercontent.com")) continue;
         const w = img.naturalWidth || img.width;
         const h = img.naturalHeight || img.height;
         if (w > 200 && h > 200) return src;
@@ -367,11 +369,21 @@ async function runSuno(lyrics, styleTags) {
   const titleFromLyrics = (lyrics || "").match(/^TITLE:\s*(.+)/im)?.[1]?.trim() ?? "";
   if (titleFromLyrics) {
     await injectAndRun(tabId, (titleText) => {
-      // Song Name is a text input in Suno's Advanced form
-      const el = Array.from(document.querySelectorAll("input, textarea")).find(el => {
-        const ph = (el.placeholder || "").toLowerCase();
-        return ph.includes("name") || ph.includes("title");
-      });
+      // Find Suno's Song Name field — try several selector strategies
+      const allInputs = Array.from(document.querySelectorAll("input, textarea"))
+        .filter(el => el.offsetParent !== null); // visible only
+      const el = (
+        // 1. Exact placeholder match
+        allInputs.find(el => (el.placeholder || "").toLowerCase() === "song name") ||
+        // 2. Placeholder contains "song name"
+        allInputs.find(el => (el.placeholder || "").toLowerCase().includes("song name")) ||
+        // 3. Placeholder contains "name" or "title" (excluding lyrics/style fields)
+        allInputs.find(el => {
+          const ph = (el.placeholder || "").toLowerCase();
+          return (ph.includes("name") || ph.includes("title")) &&
+                 !ph.includes("leave blank") && !ph.includes("describe") && !ph.includes("style");
+        })
+      );
       if (!el) return false;
       const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(proto, "value").set;

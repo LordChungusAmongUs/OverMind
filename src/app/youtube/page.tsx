@@ -99,7 +99,7 @@ export default function YouTubePage() {
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [approvalQueue, setApprovalQueue] = useState<ApprovalJob[]>([]);
   const reportedErrors = useRef<Set<string>>(new Set());
-  const [autoPublishing, setAutoPublishing] = useState(false);
+  const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
   const [autoPublishStep, setAutoPublishStep] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const audioRef = useRef<HTMLInputElement>(null);
@@ -292,7 +292,7 @@ export default function YouTubePage() {
       return;
     }
     if (!audioUrl) { alert("No audio URL found. Cannot auto-publish."); return; }
-    setAutoPublishing(true);
+    setPublishingJobId(job.jobId);
 
     // Determine title — append " (Alt)" for 2nd+ instrumental approval
     const trackTitle = (job.isInstrumental && job.approvedUrls.length >= 1)
@@ -339,7 +339,7 @@ export default function YouTubePage() {
       }
       if (!artFileObj) {
         alert("No cover art available for this job.");
-        setAutoPublishing(false);
+        setPublishingJobId(null);
         return;
       }
 
@@ -944,7 +944,7 @@ export default function YouTubePage() {
                     <button onClick={() => handleDisapproveJob(job.jobId)}
                       className="text-xs text-red-400 hover:text-red-300 flex-shrink-0">Dismiss Job</button>
                   </div>
-                  {autoPublishing ? (
+                  {publishingJobId === job.jobId ? (
                     <div className="flex items-center gap-2 text-sm text-primary">
                       <RefreshCw className="w-4 h-4 animate-spin" /> {autoPublishStep}
                     </div>
