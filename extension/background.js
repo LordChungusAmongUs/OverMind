@@ -390,82 +390,67 @@ async function runSuno(lyrics, styleTags) {
   // URLs directly from Suno's data, regardless of how the player loads them.
   await injectAndRun(tabId, () => {
     window.__sunoAudio = [];
+    // __sunoBlobUrls captures large blobs created by Suno's download button —
+    // these are the actual authenticated audio bytes, no CDN auth needed.
+    window.__sunoBlobUrls = [];
+
+    // Intercept URL.createObjectURL — fires when Suno creates a blob URL for download/playback
+    try {
+      const origCreate = URL.createObjectURL.bind(URL);
+      URL.createObjectURL = function(obj) {
+        const url = origCreate(obj);
+        // Only keep large blobs — real tracks are 3–10 MB, previews/images are smaller
+        if (obj instanceof Blob && obj.size > 100000) {
+          window.__sunoBlobUrls.push(url);
+        }
+        return url;
+      };
+    } catch (e) {}
+
     const cdnPattern = /https:\/\/(cdn\d*|audiopipe)\.suno\.ai\/[a-f0-9\-]{20,}/;
 
-    // Recursively scan a JSON object for audio URL fields
+    // API response scanner — extracts audio_url from Suno's generation status JSON
     const scanForAudioUrls = (obj) => {
       if (!obj || typeof obj !== "object") return;
       if (Array.isArray(obj)) { obj.forEach(scanForAudioUrls); return; }
-      // Suno uses audio_url and stream_audio_url
-      ["audio_url", "stream_audio_url", "url"].forEach(key => {
+      ["audio_url", "stream_audio_url"].forEach(key => {
         const val = obj[key];
         if (typeof val === "string" && val.length > 10 && cdnPattern.test(val)) {
           if (!window.__sunoAudio.includes(val)) window.__sunoAudio.push(val);
         }
       });
-      Object.values(obj).forEach(scanForAudioUrls);
+      Object.values(obj).forEach(v => { if (v && typeof v === "object") scanForAudioUrls(v); });
     };
 
-    // Patch fetch — intercept both outgoing CDN requests AND inbound API responses
+    // Patch fetch
     try {
       const origFetch = window.fetch;
       window.fetch = function(resource, ...args) {
         const url = typeof resource === "string" ? resource : (resource && resource.url) || "";
-        // Catch direct CDN audio requests
-        if (url && cdnPattern.test(url)) {
-          if (!window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
-        }
+        if (url && cdnPattern.test(url) && !window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
         const result = origFetch.apply(this, [resource, ...args]);
-        // Intercept Suno API responses — scan JSON for audio_url fields
         if (url && url.includes("suno.ai")) {
-          result.then(res => {
-            try {
-              res.clone().json().then(scanForAudioUrls).catch(() => {});
-            } catch (e) {}
-          }).catch(() => {});
+          result.then(res => { try { res.clone().json().then(scanForAudioUrls).catch(() => {}); } catch (e) {} }).catch(() => {});
         }
         return result;
       };
     } catch (e) {}
 
-    // Patch XHR as fallback
+    // Patch XHR
     try {
       const origOpen = window.XMLHttpRequest.prototype.open;
       const origSend = window.XMLHttpRequest.prototype.send;
       window.XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-        this.__sunoUrl = url;
-        return origOpen.apply(this, [method, url, ...rest]);
+        this.__sunoUrl = url; return origOpen.apply(this, [method, url, ...rest]);
       };
       window.XMLHttpRequest.prototype.send = function(...args) {
-        const xhr = this;
-        const url = xhr.__sunoUrl || "";
-        if (url && cdnPattern.test(url)) {
-          if (!window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
-        }
+        const xhr = this; const url = xhr.__sunoUrl || "";
+        if (url && cdnPattern.test(url) && !window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
         if (url && url.includes("suno.ai")) {
-          xhr.addEventListener("load", () => {
-            try { scanForAudioUrls(JSON.parse(xhr.responseText)); } catch (e) {}
-          });
+          xhr.addEventListener("load", () => { try { scanForAudioUrls(JSON.parse(xhr.responseText)); } catch (e) {} });
         }
         return origSend.apply(this, args);
       };
-    } catch (e) {}
-
-    // Also patch audio.src setter as a last resort
-    try {
-      const proto = HTMLMediaElement.prototype;
-      const desc = Object.getOwnPropertyDescriptor(proto, "src");
-      if (desc && desc.set) {
-        Object.defineProperty(proto, "src", {
-          configurable: true, get: desc.get,
-          set(val) {
-            if (this.tagName === "AUDIO" && val && !val.startsWith("blob:") && !val.startsWith("data:") && cdnPattern.test(val)) {
-              if (!window.__sunoAudio.includes(val)) window.__sunoAudio.push(val);
-            }
-            return desc.set.call(this, val);
-          },
-        });
-      }
     } catch (e) {}
   }, [], "MAIN").catch(() => {});
 
@@ -498,15 +483,41 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(3000);
 
+  // Trigger Suno's native download for each generated track.
+  // Suno's download pipeline creates an authenticated blob via createObjectURL,
+  // which our interceptor captures — giving us the real audio bytes without CDN auth issues.
+  const triggerDownloads = async () => {
+    // Step 1: open the "..." more-options menu for each track card
+    await injectAndRun(tabId, () => {
+      const btns = Array.from(document.querySelectorAll("button")).filter(b => {
+        const label = (b.getAttribute("aria-label") || "").toLowerCase();
+        const text = (b.textContent || "").trim();
+        return label.includes("more") || label.includes("option") || text === "..." || text === "⋯";
+      });
+      btns.slice(0, 4).forEach(b => b.click());
+    }, [], "MAIN").catch(() => {});
+    await sleep(700);
+    // Step 2: click "Download" in the opened menus
+    await injectAndRun(tabId, () => {
+      Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], button, a, li')).forEach(el => {
+        const text = (el.textContent || "").trim().toLowerCase();
+        if (text === "download" || text === "download audio") el.click();
+      });
+    }, [], "MAIN").catch(() => {});
+    await sleep(2000);
+  };
+
   let attempts = 0;
   let audioUrls = [];
 
-  // Poll until we have 2 URLs (one per generated track) or time out.
-  // The API response interceptor populates window.__sunoAudio as Suno polls its own backend.
   while (attempts < 60 && audioUrls.length < 2) {
+    // Check blob URLs first — these come from Suno's download button (fully authenticated)
+    const blobUrls = await injectAndRun(tabId, () => window.__sunoBlobUrls ? [...window.__sunoBlobUrls] : [], [], "MAIN").catch(() => []);
+
+    // Also check CDN URLs from the API response interceptor
     const intercepted = await injectAndRun(tabId, () => window.__sunoAudio ? [...window.__sunoAudio] : [], [], "MAIN").catch(() => []);
 
-    // Fallback: DOM scan for audio elements and download links
+    // DOM scan fallback
     const domUrls = await injectAndRun(tabId, () => {
       const urls = new Set();
       document.querySelectorAll("audio").forEach(a => {
@@ -517,31 +528,43 @@ async function runSuno(lyrics, styleTags) {
       return Array.from(urls);
     }).catch(() => []);
 
-    // Don't slice — keep everything the interceptor found (could be >2 if plan generates more)
-    const combined = [...new Set([...(intercepted || []), ...(domUrls || [])])];
+    // Prefer blob URLs (real audio) over CDN URLs (may need auth)
+    const combined = [...new Set([...(blobUrls || []), ...(intercepted || []), ...(domUrls || [])])];
     if (combined.length > audioUrls.length) audioUrls = combined;
     if (audioUrls.length >= 2) break;
 
-    if (attempts % 10 === 0) await clickPlay();
+    // Every 15 attempts, retry play + download triggers
+    if (attempts % 15 === 0) {
+      await clickPlay();
+      await triggerDownloads();
+    } else if (attempts % 10 === 0) {
+      await clickPlay();
+    }
 
     await sleep(3000);
     attempts++;
   }
 
-  // Fetch audio and upload to Supabase from WITHIN the Suno tab (MAIN world)
-  // BEFORE closing it — the tab has Suno's session cookies so CDN auth works.
+  // Try download trigger once more if we still don't have enough URLs
+  if (audioUrls.length < 2) await triggerDownloads();
+
+  // Upload audio to Supabase Storage from within the Suno tab (MAIN world).
+  // Blob URLs (from download intercept) are fetched directly — no CDN auth needed.
+  // CDN URLs fall back to a credentials fetch — may fail if Suno uses token-based auth.
   const storageUrls = [];
   for (let i = 0; i < audioUrls.length; i++) {
     const url = audioUrls[i];
     const storagePath = `audio/${Date.now()}-${i}.mp3`;
 
-    // Primary: fetch + upload from inside the tab (has Suno credentials)
     const stored = await injectAndRun(tabId, async (src, sbUrl, sbKey, path) => {
       try {
-        const res = await fetch(src, { credentials: "include" });
+        // blob: URLs are local to the page — fetch works without any auth
+        const res = await fetch(src, src.startsWith("blob:") ? {} : { credentials: "include" });
         if (!res.ok) return null;
+        const ct = res.headers.get("content-type") || "";
+        if (!src.startsWith("blob:") && ct.includes("text/html")) return null; // auth redirect
         const blob = await res.blob();
-        if (blob.size < 10000) return null;
+        if (blob.size < 50000) return null; // real tracks are at least a few hundred KB
         const up = await fetch(`${sbUrl}/storage/v1/object/pipeline-assets/${path}`, {
           method: "POST",
           headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}`, "Content-Type": "audio/mpeg" },
@@ -554,19 +577,19 @@ async function runSuno(lyrics, styleTags) {
 
     if (stored) { storageUrls.push(stored); continue; }
 
-    // Fallback: fetch from background script (no cookies, works for public CDN URLs)
+    // Background fallback (public CDN URLs only)
     try {
       const res = await fetch(url);
       if (res.ok) {
         const blob = await res.blob();
-        if (blob.size >= 10000) {
+        if (blob.size >= 50000) {
           const su = await uploadToStorage(storagePath, blob, "audio/mpeg");
           if (su) { storageUrls.push(su); continue; }
         }
       }
     } catch {}
 
-    storageUrls.push(url); // last resort: store raw URL
+    // Don't store raw Suno URLs — they require auth and always fail at approve time
   }
 
   // Close the tab AFTER uploading so the next runSuno call gets a fresh page.
