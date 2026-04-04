@@ -13,7 +13,7 @@ const headers = {
 // ── SUPABASE HELPERS ─────────────────────────────────────────────
 async function getJob() {
   // Fetch the oldest pending job
-  const res = await fetch(`${db("pipeline_jobs")}?status=eq.pending&limit=1&order=created_at.asc`, { headers });
+  const res = await fetch(`${db("pipeline_jobs")}?status=eq.pending&limit=1`, { headers });
   const rows = await res.json();
   const job = rows?.[0];
   if (!job) return null;
