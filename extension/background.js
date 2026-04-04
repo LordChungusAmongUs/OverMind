@@ -457,25 +457,50 @@ async function runSuno(lyrics, styleTags) {
     attempts++;
   }
 
-  // Close the Suno tab and WAIT for it to be gone before returning,
-  // so the next runSuno call doesn't find and reuse this tab.
-  await new Promise(resolve => chrome.tabs.remove(tabId, () => resolve()));
-
-  // Upload tracks to Supabase Storage. Skip any URL that doesn't return real audio
-  // (API status calls, error pages, or short previews come back as tiny responses).
+  // Fetch audio and upload to Supabase from WITHIN the Suno tab (MAIN world)
+  // BEFORE closing it — the tab has Suno's session cookies so CDN auth works.
   const storageUrls = [];
-  for (const url of audioUrls) {
+  for (let i = 0; i < audioUrls.length; i++) {
+    const url = audioUrls[i];
+    const storagePath = `audio/${Date.now()}-${i}.mp3`;
+
+    // Primary: fetch + upload from inside the tab (has Suno credentials)
+    const stored = await injectAndRun(tabId, async (src, sbUrl, sbKey, path) => {
+      try {
+        const res = await fetch(src, { credentials: "include" });
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        if (blob.size < 10000) return null;
+        const up = await fetch(`${sbUrl}/storage/v1/object/pipeline-assets/${path}`, {
+          method: "POST",
+          headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}`, "Content-Type": "audio/mpeg" },
+          body: blob,
+        });
+        if (!up.ok) return null;
+        return `${sbUrl}/storage/v1/object/public/pipeline-assets/${path}`;
+      } catch { return null; }
+    }, [url, SUPABASE_URL, SUPABASE_KEY, storagePath], "MAIN").catch(() => null);
+
+    if (stored) { storageUrls.push(stored); continue; }
+
+    // Fallback: fetch from background script (no cookies, works for public CDN URLs)
     try {
       const res = await fetch(url);
-      if (!res.ok) continue;
-      const blob = await res.blob();
-      if (blob.size < 100000) continue; // < 100 KB is not a real MP3 track
-      const path = `audio/${Date.now()}-${storageUrls.length}.mp3`;
-      const storageUrl = await uploadToStorage(path, blob, "audio/mpeg");
-      if (storageUrl) storageUrls.push(storageUrl);
-      else storageUrls.push(url); // Supabase upload failed — keep original as fallback
-    } catch { /* skip unfetchable URLs */ }
+      if (res.ok) {
+        const blob = await res.blob();
+        if (blob.size >= 10000) {
+          const su = await uploadToStorage(storagePath, blob, "audio/mpeg");
+          if (su) { storageUrls.push(su); continue; }
+        }
+      }
+    } catch {}
+
+    storageUrls.push(url); // last resort: store raw URL
   }
+
+  // Close the tab AFTER uploading so the next runSuno call gets a fresh page.
+  await new Promise(resolve => chrome.tabs.remove(tabId, () => resolve()));
+
   return JSON.stringify(storageUrls);
 }
 
