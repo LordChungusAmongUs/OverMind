@@ -383,13 +383,75 @@ async function runSuno(lyrics, styleTags) {
     await sleep(500);
   }
 
-  // Inject audio URL collector into the page's MAIN JS context BEFORE clicking Create.
-  // Intercepts audio src setter, fetch, and XHR so we catch URLs regardless of how Suno loads audio.
-  // MAIN world means window.__sunoAudio persists across injectAndRun calls.
+  // Inject audio URL collector into MAIN world BEFORE clicking Create.
+  // Primary strategy: intercept Suno's own API polling responses — they contain
+  // audio_url/stream_audio_url fields in JSON once tracks finish generating.
+  // This is more reliable than intercepting audio element loads because we get
+  // URLs directly from Suno's data, regardless of how the player loads them.
   await injectAndRun(tabId, () => {
     window.__sunoAudio = [];
-    // CDN UUID pattern — matches cdn.suno.ai and audiopipe.suno.ai, no .mp3 extension required
-    const audioPattern = /https:\/\/(cdn\d*|audiopipe)\.suno\.ai\/[a-f0-9\-]{20,}/;
+    const cdnPattern = /https:\/\/(cdn\d*|audiopipe)\.suno\.ai\/[a-f0-9\-]{20,}/;
+
+    // Recursively scan a JSON object for audio URL fields
+    const scanForAudioUrls = (obj) => {
+      if (!obj || typeof obj !== "object") return;
+      if (Array.isArray(obj)) { obj.forEach(scanForAudioUrls); return; }
+      // Suno uses audio_url and stream_audio_url
+      ["audio_url", "stream_audio_url", "url"].forEach(key => {
+        const val = obj[key];
+        if (typeof val === "string" && val.length > 10 && cdnPattern.test(val)) {
+          if (!window.__sunoAudio.includes(val)) window.__sunoAudio.push(val);
+        }
+      });
+      Object.values(obj).forEach(scanForAudioUrls);
+    };
+
+    // Patch fetch — intercept both outgoing CDN requests AND inbound API responses
+    try {
+      const origFetch = window.fetch;
+      window.fetch = function(resource, ...args) {
+        const url = typeof resource === "string" ? resource : (resource && resource.url) || "";
+        // Catch direct CDN audio requests
+        if (url && cdnPattern.test(url)) {
+          if (!window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
+        }
+        const result = origFetch.apply(this, [resource, ...args]);
+        // Intercept Suno API responses — scan JSON for audio_url fields
+        if (url && url.includes("suno.ai")) {
+          result.then(res => {
+            try {
+              res.clone().json().then(scanForAudioUrls).catch(() => {});
+            } catch (e) {}
+          }).catch(() => {});
+        }
+        return result;
+      };
+    } catch (e) {}
+
+    // Patch XHR as fallback
+    try {
+      const origOpen = window.XMLHttpRequest.prototype.open;
+      const origSend = window.XMLHttpRequest.prototype.send;
+      window.XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+        this.__sunoUrl = url;
+        return origOpen.apply(this, [method, url, ...rest]);
+      };
+      window.XMLHttpRequest.prototype.send = function(...args) {
+        const xhr = this;
+        const url = xhr.__sunoUrl || "";
+        if (url && cdnPattern.test(url)) {
+          if (!window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
+        }
+        if (url && url.includes("suno.ai")) {
+          xhr.addEventListener("load", () => {
+            try { scanForAudioUrls(JSON.parse(xhr.responseText)); } catch (e) {}
+          });
+        }
+        return origSend.apply(this, args);
+      };
+    } catch (e) {}
+
+    // Also patch audio.src setter as a last resort
     try {
       const proto = HTMLMediaElement.prototype;
       const desc = Object.getOwnPropertyDescriptor(proto, "src");
@@ -397,34 +459,13 @@ async function runSuno(lyrics, styleTags) {
         Object.defineProperty(proto, "src", {
           configurable: true, get: desc.get,
           set(val) {
-            if (this.tagName === "AUDIO" && val && !val.startsWith("blob:") && !val.startsWith("data:")) {
+            if (this.tagName === "AUDIO" && val && !val.startsWith("blob:") && !val.startsWith("data:") && cdnPattern.test(val)) {
               if (!window.__sunoAudio.includes(val)) window.__sunoAudio.push(val);
             }
             return desc.set.call(this, val);
           },
         });
       }
-    } catch (e) {}
-    // Patch fetch
-    try {
-      const origFetch = window.fetch;
-      window.fetch = function(resource, ...args) {
-        const url = typeof resource === "string" ? resource : (resource && resource.url) || "";
-        if (url && audioPattern.test(url)) {
-          if (!window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
-        }
-        return origFetch.apply(this, [resource, ...args]);
-      };
-    } catch (e) {}
-    // Patch XHR — Suno may use XHR instead of fetch for audio loading
-    try {
-      const origOpen = window.XMLHttpRequest.prototype.open;
-      window.XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-        if (url && typeof url === "string" && audioPattern.test(url)) {
-          if (!window.__sunoAudio.includes(url)) window.__sunoAudio.push(url);
-        }
-        return origOpen.apply(this, [method, url, ...rest]);
-      };
     } catch (e) {}
   }, [], "MAIN").catch(() => {});
 
@@ -460,11 +501,12 @@ async function runSuno(lyrics, styleTags) {
   let attempts = 0;
   let audioUrls = [];
 
+  // Poll until we have 2 URLs (one per generated track) or time out.
+  // The API response interceptor populates window.__sunoAudio as Suno polls its own backend.
   while (attempts < 60 && audioUrls.length < 2) {
-    // Primary: MAIN world interceptor captures src assignments the instant Suno sets them
     const intercepted = await injectAndRun(tabId, () => window.__sunoAudio ? [...window.__sunoAudio] : [], [], "MAIN").catch(() => []);
 
-    // Fallback: direct DOM scan
+    // Fallback: DOM scan for audio elements and download links
     const domUrls = await injectAndRun(tabId, () => {
       const urls = new Set();
       document.querySelectorAll("audio").forEach(a => {
@@ -475,11 +517,11 @@ async function runSuno(lyrics, styleTags) {
       return Array.from(urls);
     }).catch(() => []);
 
-    const combined = [...new Set([...(intercepted || []), ...(domUrls || [])])].slice(0, 2);
+    // Don't slice — keep everything the interceptor found (could be >2 if plan generates more)
+    const combined = [...new Set([...(intercepted || []), ...(domUrls || [])])];
     if (combined.length > audioUrls.length) audioUrls = combined;
     if (audioUrls.length >= 2) break;
 
-    // Every 10 attempts (~30s) try play again — safe selector only
     if (attempts % 10 === 0) await clickPlay();
 
     await sleep(3000);
