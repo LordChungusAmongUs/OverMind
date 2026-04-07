@@ -716,30 +716,36 @@ async function waitForApproval(id, reviewStep) {
 // ── MAIN PIPELINE ────────────────────────────────────────────────
 async function runPipeline(job) {
   const { id, lyrics_prompt, art_prompt, metadata_prompt, style_tags, lyrics: existingLyrics } = job;
+  // Debug jobs (created by the step-test buttons) skip approval gates and run straight through
+  const isDebug = (job.track_theme || "").startsWith("__debug:");
 
   try {
     await updateJob(id, { status: "running", step: "lyrics" });
 
-    // Step 1: Generate lyrics → pause for review
+    // Step 1: Generate lyrics → pause for review (skipped for debug jobs)
     let lyrics = existingLyrics;
     if (!lyrics && lyrics_prompt) {
       if (await isCancelled(id)) return;
       const lyricsResult = await runChatGPT(lyrics_prompt);
       lyrics = lyricsResult;
-      await updateJob(id, { lyrics, step: "lyrics_review" });
-      await waitForApproval(id, "lyrics_review");
-      if (await isCancelled(id)) return;
+      await updateJob(id, { lyrics, step: isDebug ? "art" : "lyrics_review" });
+      if (!isDebug) {
+        await waitForApproval(id, "lyrics_review");
+        if (await isCancelled(id)) return;
+      }
     }
 
-    // Step 2: Generate art → pause for review
+    // Step 2: Generate art → pause for review (skipped for debug jobs)
     let artUrl = null;
     if (art_prompt) {
       if (await isCancelled(id)) return;
       await updateJob(id, { step: "art" });
       artUrl = await runChatGPTImage(art_prompt);
-      await updateJob(id, { art_url: artUrl, step: "art_review" });
-      await waitForApproval(id, "art_review");
-      if (await isCancelled(id)) return;
+      await updateJob(id, { art_url: artUrl, step: isDebug ? "audio" : "art_review" });
+      if (!isDebug) {
+        await waitForApproval(id, "art_review");
+        if (await isCancelled(id)) return;
+      }
     }
 
     // Step 3: Generate audio in Suno → pause for review
@@ -748,9 +754,11 @@ async function runPipeline(job) {
     let audioUrl;
     if (prefilledAudio) {
       audioUrl = prefilledAudio;
-      await updateJob(id, { step: "audio_review" });
-      await waitForApproval(id, "audio_review");
-      if (await isCancelled(id)) return;
+      await updateJob(id, { step: isDebug ? "metadata" : "audio_review" });
+      if (!isDebug) {
+        await waitForApproval(id, "audio_review");
+        if (await isCancelled(id)) return;
+      }
     } else {
       if (await isCancelled(id)) return;
       await updateJob(id, { step: "audio" });
@@ -762,12 +770,14 @@ async function runPipeline(job) {
       const allAudioUrls = [...run1, ...run2];
       await chrome.storage.local.set({ __audioDebug: { run1, run2, allAudioUrls } });
       audioUrl = JSON.stringify(allAudioUrls);
-      await updateJob(id, { audio_url: audioUrl, step: "audio_review" });
-      await waitForApproval(id, "audio_review");
-      if (await isCancelled(id)) return;
+      await updateJob(id, { audio_url: audioUrl, step: isDebug ? "metadata" : "audio_review" });
+      if (!isDebug) {
+        await waitForApproval(id, "audio_review");
+        if (await isCancelled(id)) return;
+      }
     }
 
-    // Step 4: Generate metadata → pause for review
+    // Step 4: Generate metadata → pause for review (skipped for debug jobs)
     if (metadata_prompt) {
       if (await isCancelled(id)) return;
       await updateJob(id, { step: "metadata" });
@@ -777,10 +787,12 @@ async function runPipeline(job) {
       await updateJob(id, {
         title: titleMatch?.[1]?.trim() ?? "",
         description: descMatch?.[1]?.trim() ?? metaResult,
-        step: "metadata_review",
+        step: isDebug ? "approval" : "metadata_review",
       });
-      await waitForApproval(id, "metadata_review");
-      if (await isCancelled(id)) return;
+      if (!isDebug) {
+        await waitForApproval(id, "metadata_review");
+        if (await isCancelled(id)) return;
+      }
     } else {
       await updateJob(id, { step: "approval" });
     }
