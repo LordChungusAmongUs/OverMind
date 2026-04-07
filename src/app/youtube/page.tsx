@@ -232,7 +232,10 @@ export default function YouTubePage() {
       setActiveJobs(jobMap);
 
       // Keep the most recently updated job as the live preview (running, review, or errored)
-      const liveCandidate = [...jobs].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
+      // Skip jobs that have no step yet (pending, not yet picked up) — those can't render meaningfully
+      const liveCandidate = [...jobs]
+        .filter(j => j.step != null)
+        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0] ?? null;
       if (liveCandidate) setLiveJob({ id: liveCandidate.id, step: liveCandidate.step, lyrics: liveCandidate.lyrics, art_url: liveCandidate.art_url, audio_url: liveCandidate.audio_url, title: liveCandidate.title, description: liveCandidate.description, error_message: liveCandidate.error_message, lyrics_prompt: liveCandidate.lyrics_prompt, art_prompt: liveCandidate.art_prompt, metadata_prompt: liveCandidate.metadata_prompt, style_tags: liveCandidate.style_tags, track_theme: liveCandidate.track_theme });
 
       // Update step display from running jobs
@@ -1302,7 +1305,7 @@ export default function YouTubePage() {
               {isError && (
                 <div className="flex gap-3 pt-1 border-t border-border">
                   <button onClick={() => retryFromStep(liveJob)} className="flex-1 px-4 py-2 rounded-lg bg-yellow-600 text-white text-sm font-semibold hover:bg-yellow-700">
-                    Retry {liveJob.step.replace("_review", "")}
+                    Retry {step.replace("_review", "") || "step"}
                   </button>
                   <button onClick={() => setLiveJob(null)} className="px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-semibold hover:border-primary/40">
                     Dismiss
