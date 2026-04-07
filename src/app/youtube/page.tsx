@@ -1206,9 +1206,10 @@ export default function YouTubePage() {
             audio_review: "metadata",
             metadata_review: "approval",
           };
-          const reviewStep = REVIEW_NEXT[liveJob.step] ? liveJob.step : null;
+          const step = liveJob.step ?? "";
+          const reviewStep = REVIEW_NEXT[step] ? step : null;
           const isReview = !!reviewStep;
-          const isError = liveJob.error_message && !liveJob.step.endsWith("_review");
+          const isError = liveJob.error_message && !step.endsWith("_review");
 
           const approveStep = async () => {
             if (!reviewStep) return;
@@ -1233,7 +1234,7 @@ export default function YouTubePage() {
                   <p className="text-sm font-semibold">
                     {isError ? "Step Failed" : isReview ? "Approve to Continue" : "Live Preview"}
                     <span className={`ml-2 text-xs font-normal capitalize ${isError ? "text-red-400" : isReview ? "text-yellow-400" : "text-primary"}`}>
-                      {liveJob.step.replace("_review", " — review")}
+                      {step.replace("_review", " — review") || "starting…"}
                     </span>
                   </p>
                   {isError && <p className="text-xs text-red-400 mt-0.5">{liveJob.error_message}</p>}
