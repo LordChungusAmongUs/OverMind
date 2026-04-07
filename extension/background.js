@@ -341,8 +341,15 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(1000);
 
-  if (!lyrics) {
-    // Instrumental — retry clicking until the button shows as active
+  // Strip TITLE:/STYLE: header lines that ChatGPT adds — they belong in separate fields,
+  // not in Suno's lyrics box. After stripping, empty = instrumental track.
+  const lyricsForSuno = (lyrics || "")
+    .replace(/^TITLE:\s*.+\r?\n?/im, "")
+    .replace(/^STYLE:\s*.+\r?\n?/im, "")
+    .trim();
+
+  if (!lyricsForSuno) {
+    // Instrumental — click Instrumental button and clear the lyrics field
     let instrumentalActive = false;
     for (let attempt = 0; attempt < 8 && !instrumentalActive; attempt++) {
       instrumentalActive = await injectAndRun(tabId, () => {
@@ -350,7 +357,6 @@ async function runSuno(lyrics, styleTags) {
           b => b.textContent.trim() === "Instrumental"
         );
         if (!btn) return false;
-        // Already active if aria-pressed="true" or has an active/selected class
         const alreadyOn = btn.getAttribute("aria-pressed") === "true" ||
           btn.classList.contains("active") || btn.classList.contains("selected") ||
           btn.dataset.state === "on";
@@ -360,7 +366,6 @@ async function runSuno(lyrics, styleTags) {
       });
       if (!instrumentalActive) await sleep(1000);
     }
-    // Also clear the lyrics textarea just in case
     await injectAndRun(tabId, () => {
       const LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics"];
       const ta = Array.from(document.querySelectorAll("textarea")).find(
@@ -373,7 +378,7 @@ async function runSuno(lyrics, styleTags) {
       ta.dispatchEvent(new Event("change", { bubbles: true }));
     });
   } else {
-    // Fill lyrics
+    // Fill lyrics (headers already stripped)
     await injectAndRun(tabId, (lyricsText) => {
       const LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics"];
       const ta = Array.from(document.querySelectorAll("textarea")).find(
@@ -385,7 +390,7 @@ async function runSuno(lyrics, styleTags) {
       ta.dispatchEvent(new Event("input", { bubbles: true }));
       ta.dispatchEvent(new Event("change", { bubbles: true }));
       return true;
-    }, [lyrics]);
+    }, [lyricsForSuno]);
   }
 
   await sleep(1000);

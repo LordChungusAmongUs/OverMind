@@ -307,21 +307,26 @@ export default function YouTubePage() {
     if (Math.random() < 0.3) extras.push("repeat chorus at the end");
     const structure = `Chorus (8 bars) → Verse (${verseBars} bars) → Chorus → Verse (${verseBars} bars) → Chorus` +
       (extras.length > 0 ? ` + ${extras.join(", ")}` : "");
-    const lp = persona.instrumental ? "" :
-      `You are writing lyrics for ${persona.name}, an electronic music artist. ` +
-      `Style: ${persona.lyricsStyle}. ` +
-      `Write lyrics for a ${tag} track${theme ? ` about "${theme}"` : ""}.\n\n` +
-      `STRICT RULES — follow exactly, do not deviate:\n` +
-      `1. RHYME SCHEME: ${rhyme}. Apply this pattern to EVERY verse and chorus section. Each letter = one line-end rhyme group. Every line labelled the same letter must rhyme with each other.\n` +
-      `2. SONG STRUCTURE: ${structure}. Use exactly this order of sections, no more, no less.\n` +
-      `3. CHORUS LENGTH: Every chorus is exactly 8 bars.\n` +
-      `4. VERSE LENGTH: Every verse is exactly ${verseBars} bars.\n` +
-      `5. CHORUS REPETITION PATTERN: ${hookPattern}. Write out every repeated line in full — never write "(repeat)", "(x2)", or any shorthand.\n` +
-      `6. Label every section clearly on its own line: INTRO, CHORUS, VERSE 1, VERSE 2, BRIDGE, OUTRO.\n` +
-      `7. Keep every line punchy and rhythmically tight for electronic music.\n` +
-      `8. At the VERY TOP of your response (before any song sections), include these two header lines exactly:\n` +
-      `   TITLE: [the track name you choose]\n` +
-      `   STYLE: ${tag}`;
+    const lp = persona.instrumental
+      ? `Create a track concept for ${persona.name}, an electronic music artist (instrumental, no vocals). ` +
+        `Style: ${persona.artStyle}. Genre: ${tag}${theme ? `. Theme: "${theme}"` : ""}.\n\n` +
+        `Output ONLY these two lines — nothing else:\n` +
+        `TITLE: [a creative track name]\n` +
+        `STYLE: ${tag}`
+      : `You are writing lyrics for ${persona.name}, an electronic music artist. ` +
+        `Style: ${persona.lyricsStyle}. ` +
+        `Write lyrics for a ${tag} track${theme ? ` about "${theme}"` : ""}.\n\n` +
+        `STRICT RULES — follow exactly, do not deviate:\n` +
+        `1. RHYME SCHEME: ${rhyme}. Apply this pattern to EVERY verse and chorus section. Each letter = one line-end rhyme group. Every line labelled the same letter must rhyme with each other.\n` +
+        `2. SONG STRUCTURE: ${structure}. Use exactly this order of sections, no more, no less.\n` +
+        `3. CHORUS LENGTH: Every chorus is exactly 8 bars.\n` +
+        `4. VERSE LENGTH: Every verse is exactly ${verseBars} bars.\n` +
+        `5. CHORUS REPETITION PATTERN: ${hookPattern}. Write out every repeated line in full — never write "(repeat)", "(x2)", or any shorthand.\n` +
+        `6. Label every section clearly on its own line: INTRO, CHORUS, VERSE 1, VERSE 2, BRIDGE, OUTRO.\n` +
+        `7. Keep every line punchy and rhythmically tight for electronic music.\n` +
+        `8. At the VERY TOP of your response (before any song sections), include these two header lines exactly:\n` +
+        `   TITLE: [the track name you choose]\n` +
+        `   STYLE: ${tag}`;
     const ap =
       `Create album cover art for ${persona.name}, an electronic music artist. ` +
       `Art style: ${persona.artStyle}. ` +
