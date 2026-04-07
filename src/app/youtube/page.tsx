@@ -1247,6 +1247,14 @@ export default function YouTubePage() {
                 {!isReview && !isError && <button onClick={() => setLiveJob(null)} className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>}
               </div>
 
+              {/* Style tags row */}
+              {liveJob.style_tags && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Style / Genre</p>
+                  <p className="text-xs text-primary font-medium">{liveJob.style_tags}</p>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Lyrics */}
                 <div className="space-y-1">

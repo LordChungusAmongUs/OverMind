@@ -390,77 +390,115 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(1000);
 
-  // Fill style — Suno's style field can be <input> or <textarea>
-  await injectAndRun(tabId, (style) => {
-    const LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics"];
-    const STYLE_PH = ["style of music", "enter style", "style tags", "genre", "style"];
-
-    // First: try to find by positive placeholder match (most reliable)
-    const allFields = Array.from(document.querySelectorAll("input, textarea"))
-      .filter(el => el.offsetParent !== null);
-
-    let el = allFields.find(el => {
-      const ph = (el.placeholder || "").toLowerCase();
-      return STYLE_PH.some(sp => ph.includes(sp));
-    });
-
-    // Fallback: visible textarea that isn't the lyrics or song-name field
-    if (!el) {
-      const textareas = allFields.filter(el => el.tagName === "TEXTAREA");
-      el = textareas.find(t => {
-        const ph = (t.placeholder || "").toLowerCase();
-        return !LYRICS_PH.some(lp => ph.includes(lp)) &&
-               !ph.includes("describe the sound") &&
-               t.offsetHeight < 108;
-      });
-    }
-
-    if (!el) return false;
-    const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
-    setter.call(el, style);
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-    return true;
-  }, [styleTags]);
-
-  await sleep(2000);
-
-  // Fill Suno's Song Name field using the title extracted from the lyrics
+  // ── Fill style + title fields ────────────────────────────────────
   const titleFromLyrics = (lyrics || "").match(/^TITLE:\s*(.+)/im)?.[1]?.trim() ?? "";
-  if (titleFromLyrics) {
-    await injectAndRun(tabId, (titleText) => {
-      // Find Suno's Song Name field — try several selector strategies
-      const allInputs = Array.from(document.querySelectorAll("input, textarea"))
-        .filter(el => el.offsetParent !== null); // visible only
-      const el = (
-        // 1. Exact placeholder match
-        allInputs.find(el => (el.placeholder || "").toLowerCase() === "song name") ||
-        // 2. Placeholder contains "song name"
-        allInputs.find(el => (el.placeholder || "").toLowerCase().includes("song name")) ||
-        // 3. Placeholder contains "name" or "title" (excluding lyrics/style fields)
-        allInputs.find(el => {
-          const ph = (el.placeholder || "").toLowerCase();
-          return (ph.includes("name") || ph.includes("title")) &&
-                 !ph.includes("leave blank") && !ph.includes("describe") && !ph.includes("style");
-        }) ||
-        // 4. Last resort: any single-line input not matching known fields
-        allInputs.find(el => {
-          if (el.tagName === "TEXTAREA") return false;
-          const ph = (el.placeholder || "").toLowerCase();
-          return !ph.includes("leave blank") && !ph.includes("describe") && !ph.includes("style") && !ph.includes("search");
-        })
-      );
+
+  // Poll up to 10s for the style field to be present in the DOM before filling
+  let styleFilled = false, titleFilled = false;
+  for (let attempt = 0; attempt < 5 && !styleFilled; attempt++) {
+    styleFilled = await injectAndRun(tabId, (style) => {
+      const LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics", "optional"];
+      const STYLE_PH  = ["style of music", "enter style", "style tags", "genre", "style", "music style"];
+
+      const visible = Array.from(document.querySelectorAll("input, textarea"))
+        .filter(el => el.offsetParent !== null && !el.disabled && el.offsetWidth > 0);
+
+      // 1. Placeholder match
+      let el = visible.find(el => STYLE_PH.some(sp => (el.placeholder || "").toLowerCase().includes(sp)));
+
+      // 2. aria-label match
+      if (!el) el = visible.find(el => STYLE_PH.some(sp => (el.getAttribute("aria-label") || "").toLowerCase().includes(sp)));
+
+      // 3. Nearest label text match
+      if (!el) el = visible.find(el => {
+        const label = el.labels?.[0]?.textContent || el.closest("label")?.textContent || "";
+        return STYLE_PH.some(sp => label.toLowerCase().includes(sp));
+      });
+
+      // 4. Short textarea that isn't lyrics (lyrics textarea is usually tall > 100px)
+      if (!el) {
+        el = visible.find(el =>
+          el.tagName === "TEXTAREA" &&
+          el.offsetHeight < 100 &&
+          !LYRICS_PH.some(lp => (el.placeholder || "").toLowerCase().includes(lp))
+        );
+      }
+
+      // 5. Any visible input with no conflicting placeholder (last resort)
+      if (!el) {
+        el = visible.find(el =>
+          el.tagName === "INPUT" && el.type !== "search" &&
+          !LYRICS_PH.some(lp => (el.placeholder || "").toLowerCase().includes(lp)) &&
+          !(el.placeholder || "").toLowerCase().includes("search") &&
+          !(el.placeholder || "").toLowerCase().includes("title") &&
+          !(el.placeholder || "").toLowerCase().includes("name")
+        );
+      }
+
       if (!el) return false;
       const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
-      setter.call(el, titleText);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
+      Object.getOwnPropertyDescriptor(proto, "value").set.call(el, style);
+      el.dispatchEvent(new Event("input",  { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
       return true;
-    }, [titleFromLyrics]);
-    await sleep(500);
+    }, [styleTags]).catch(() => false);
+
+    if (!styleFilled) await sleep(2000);
   }
+
+  await sleep(1000);
+
+  // Fill Suno's title/song-name field
+  if (titleFromLyrics) {
+    for (let attempt = 0; attempt < 5 && !titleFilled; attempt++) {
+      titleFilled = await injectAndRun(tabId, (titleText) => {
+        const LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics", "optional"];
+        const STYLE_PH  = ["style of music", "enter style", "style tags", "genre", "style", "music style"];
+        const TITLE_PH  = ["song name", "title", "track name", "track title", "name"];
+
+        const visible = Array.from(document.querySelectorAll("input, textarea"))
+          .filter(el => el.offsetParent !== null && !el.disabled && el.offsetWidth > 0);
+
+        // 1. Placeholder/aria-label title match (exclude style and lyrics fields)
+        let el = visible.find(el => {
+          const ph  = (el.placeholder || "").toLowerCase();
+          const al  = (el.getAttribute("aria-label") || "").toLowerCase();
+          const isTitle = TITLE_PH.some(tp => ph.includes(tp) || al.includes(tp));
+          const isStyle = STYLE_PH.some(sp => ph.includes(sp) || al.includes(sp));
+          const isLyrics = LYRICS_PH.some(lp => ph.includes(lp));
+          return isTitle && !isStyle && !isLyrics;
+        });
+
+        // 2. Any single-line input not already matched as style/lyrics
+        if (!el) {
+          el = visible.find(el => {
+            if (el.tagName !== "INPUT") return false;
+            const ph = (el.placeholder || "").toLowerCase();
+            return !LYRICS_PH.some(lp => ph.includes(lp)) &&
+                   !STYLE_PH.some(sp => ph.includes(sp)) &&
+                   el.type !== "search";
+          });
+        }
+
+        if (!el) return false;
+        const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, "value").set.call(el, titleText);
+        el.dispatchEvent(new Event("input",  { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+      }, [titleFromLyrics]).catch(() => false);
+
+      if (!titleFilled) await sleep(2000);
+    }
+  }
+
+  // Debug log — visible in chrome.storage via the extension popup console
+  const allPH = await injectAndRun(tabId, () =>
+    Array.from(document.querySelectorAll("input, textarea"))
+      .filter(el => el.offsetParent !== null)
+      .map(el => `${el.tagName}[ph="${el.placeholder}"][al="${el.getAttribute("aria-label") || ""}"]`)
+  ).catch(() => []);
+  await chrome.storage.local.set({ __sunoFill: { styleFilled, titleFilled, titleFromLyrics, styleTags, allPH } });
 
   // Inject audio URL collector into MAIN world BEFORE clicking Create.
   // Primary strategy: intercept Suno's own API polling responses — they contain
