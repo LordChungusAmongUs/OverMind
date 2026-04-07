@@ -98,7 +98,7 @@ export default function YouTubePage() {
   const [submitting, setSubmitting] = useState(false);
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [activeJobs, setActiveJobs] = useState<Record<string, { step: string; status: string }>>({});
-  const [liveJob, setLiveJob] = useState<{ id: string; step: string; lyrics?: string; art_url?: string; audio_url?: string; title?: string; description?: string } | null>(null);
+  const [liveJob, setLiveJob] = useState<{ id: string; step: string; lyrics?: string; art_url?: string; audio_url?: string; title?: string; description?: string; error_message?: string; lyrics_prompt?: string; art_prompt?: string; metadata_prompt?: string; style_tags?: string; track_theme?: string } | null>(null);
   const [approvalQueue, setApprovalQueue] = useState<ApprovalJob[]>([]);
   const reportedErrors = useRef<Set<string>>(new Set());
   const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
@@ -185,6 +185,37 @@ export default function YouTubePage() {
     }
   };
 
+  // ── RETRY LAST STEP ─────────────────────────────────────────
+  // Re-runs the failed/rejected step from scratch, carrying over everything before it.
+  const retryFromStep = async (job: NonNullable<typeof liveJob>) => {
+    // Map review steps back to the step that runs them
+    const stepToRun = job.step.replace("_review", "") as "lyrics" | "art" | "audio" | "metadata";
+    const carry: Record<string, string | null> = {
+      status: "pending",
+      style_tags: job.style_tags ?? "",
+      track_theme: job.track_theme ?? "",
+      lyrics_prompt: job.lyrics_prompt ?? null,
+      art_prompt: job.art_prompt ?? null,
+      metadata_prompt: job.metadata_prompt ?? null,
+    };
+    // Carry over everything BEFORE the failed step
+    if (stepToRun !== "lyrics") carry.lyrics = job.lyrics ?? "";
+    if (stepToRun !== "art" && stepToRun !== "lyrics") {
+      carry.art_url = job.art_url ?? null;
+      carry.art_prompt = null;
+    }
+    if (stepToRun !== "audio" && stepToRun !== "art" && stepToRun !== "lyrics") {
+      carry.audio_url = job.audio_url ?? "[]";
+    }
+
+    const { data: newJob } = await supabase.from("pipeline_jobs").insert(carry).select().single();
+    if (newJob) {
+      setActiveJobIds(prev => [...prev, newJob.id]);
+      setAutomating(true);
+      setLiveJob(null);
+    }
+  };
+
   // ── POLL JOB STATUS ─────────────────────────────────────────
   useEffect(() => {
     if (activeJobIds.length === 0) return;
@@ -200,9 +231,9 @@ export default function YouTubePage() {
       jobs.forEach(j => { jobMap[j.id] = { step: j.step, status: j.status }; });
       setActiveJobs(jobMap);
 
-      // Keep the most recently updated running job as the live preview
-      const live = jobs.filter(j => j.status === "running" || j.status === "pending").sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
-      if (live) setLiveJob({ id: live.id, step: live.step, lyrics: live.lyrics, art_url: live.art_url, audio_url: live.audio_url, title: live.title, description: live.description });
+      // Keep the most recently updated job as the live preview (running, review, or errored)
+      const liveCandidate = [...jobs].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
+      if (liveCandidate) setLiveJob({ id: liveCandidate.id, step: liveCandidate.step, lyrics: liveCandidate.lyrics, art_url: liveCandidate.art_url, audio_url: liveCandidate.audio_url, title: liveCandidate.title, description: liveCandidate.description, error_message: liveCandidate.error_message, lyrics_prompt: liveCandidate.lyrics_prompt, art_prompt: liveCandidate.art_prompt, metadata_prompt: liveCandidate.metadata_prompt, style_tags: liveCandidate.style_tags, track_theme: liveCandidate.track_theme });
 
       // Update step display from running jobs
       const running = jobs.find(j => j.status === "running");
@@ -228,15 +259,10 @@ export default function YouTubePage() {
         });
       }
 
-      // Report errors once
-      jobs.filter(j => j.status === "error").forEach(j => {
-        if (!reportedErrors.current.has(j.id)) {
-          reportedErrors.current.add(j.id);
-          alert("Job error: " + j.error_message);
-        }
-      });
+      // Mark errors as seen (live preview shows them with retry button)
+      jobs.filter(j => j.status === "error").forEach(j => { reportedErrors.current.add(j.id); });
 
-      // Remove finished/approval jobs from active tracking
+      // Remove finished jobs from active tracking (keep review steps alive so approve buttons show)
       const doneIds = jobs.filter(j => j.step === "approval" || j.status === "error" || j.status === "complete").map(j => j.id);
       if (doneIds.length > 0) {
         setActiveJobIds(prev => {
@@ -1173,67 +1199,118 @@ export default function YouTubePage() {
         )}
 
         {/* LIVE JOB PREVIEW */}
-        {activeTab === "pipeline" && liveJob && (
-          <div className="mb-5 p-4 rounded-xl border border-primary/20 bg-card space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold">Live Preview
-                <span className="ml-2 text-xs font-normal text-primary capitalize">{liveJob.step}…</span>
-              </p>
-              <button onClick={() => setLiveJob(null)} className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>
-            </div>
+        {activeTab === "pipeline" && liveJob && (() => {
+          const REVIEW_NEXT: Record<string, string> = {
+            lyrics_review: "art",
+            art_review: "audio",
+            audio_review: "metadata",
+            metadata_review: "approval",
+          };
+          const reviewStep = REVIEW_NEXT[liveJob.step] ? liveJob.step : null;
+          const isReview = !!reviewStep;
+          const isError = liveJob.error_message && !liveJob.step.endsWith("_review");
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Lyrics */}
-              <div className="space-y-1">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Lyrics</p>
-                {liveJob.lyrics
-                  ? <pre className="text-xs text-foreground whitespace-pre-wrap max-h-48 overflow-y-auto p-2 rounded-lg bg-secondary border border-border">{liveJob.lyrics}</pre>
-                  : <p className="text-xs text-muted-foreground italic">Not yet generated</p>}
+          const approveStep = async () => {
+            if (!reviewStep) return;
+            await supabase.from("pipeline_jobs").update({ step: REVIEW_NEXT[reviewStep] }).eq("id", liveJob.id);
+          };
+          const rejectStep = async () => {
+            await supabase.from("pipeline_jobs").update({ status: "error", error_message: "Rejected at " + liveJob.step }).eq("id", liveJob.id);
+            setActiveJobIds(prev => prev.filter(id => id !== liveJob.id));
+            setLiveJob(null);
+          };
+
+          let audioUrls: string[] = [];
+          try { audioUrls = JSON.parse(liveJob.audio_url ?? "[]"); } catch {}
+
+          return (
+            <div className={`mb-5 p-4 rounded-xl border space-y-4 ${
+              isError  ? "border-red-500/40 bg-red-500/5" :
+              isReview ? "border-yellow-500/40 bg-yellow-500/5" :
+                         "border-primary/20 bg-card"}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold">
+                    {isError ? "Step Failed" : isReview ? "Approve to Continue" : "Live Preview"}
+                    <span className={`ml-2 text-xs font-normal capitalize ${isError ? "text-red-400" : isReview ? "text-yellow-400" : "text-primary"}`}>
+                      {liveJob.step.replace("_review", " — review")}
+                    </span>
+                  </p>
+                  {isError && <p className="text-xs text-red-400 mt-0.5">{liveJob.error_message}</p>}
+                </div>
+                {!isReview && !isError && <button onClick={() => setLiveJob(null)} className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>}
               </div>
 
-              {/* Cover Art */}
-              <div className="space-y-1">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cover Art</p>
-                {liveJob.art_url
-                  ? <img src={liveJob.art_url} alt="Cover art" className="w-40 h-40 object-cover rounded-lg border border-border" />
-                  : <div className="w-40 h-40 rounded-lg border border-border bg-secondary flex items-center justify-center text-xs text-muted-foreground">Not yet generated</div>}
-              </div>
-            </div>
-
-            {/* Audio tracks */}
-            {(() => {
-              let urls: string[] = [];
-              try { urls = JSON.parse(liveJob.audio_url ?? "[]"); } catch {}
-              return urls.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Lyrics */}
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Audio Tracks ({urls.length})</p>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Lyrics</p>
+                  {liveJob.lyrics
+                    ? <pre className="text-xs text-foreground whitespace-pre-wrap max-h-48 overflow-y-auto p-2 rounded-lg bg-secondary border border-border">{liveJob.lyrics}</pre>
+                    : <p className="text-xs text-muted-foreground italic">Not yet generated</p>}
+                </div>
+
+                {/* Cover Art */}
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cover Art</p>
+                  {liveJob.art_url
+                    ? <img src={liveJob.art_url} alt="Cover art" className="w-40 h-40 object-cover rounded-lg border border-border" />
+                    : <div className="w-40 h-40 rounded-lg border border-border bg-secondary flex items-center justify-center text-xs text-muted-foreground">Not yet generated</div>}
+                </div>
+              </div>
+
+              {/* Audio tracks */}
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Audio Tracks {audioUrls.length > 0 ? `(${audioUrls.length})` : ""}
+                </p>
+                {audioUrls.length > 0 ? (
                   <div className="space-y-2">
-                    {urls.map((url, i) => (
+                    {audioUrls.map((url, i) => (
                       <div key={i} className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground w-16 flex-shrink-0">Track {i + 1}</span>
                         <audio controls src={url} className="h-8 w-full" style={{ maxWidth: 320 }} />
                       </div>
                     ))}
                   </div>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Audio Tracks</p>
-                  <p className="text-xs text-muted-foreground italic">Not yet generated</p>
-                </div>
-              );
-            })()}
-
-            {/* Title & Description */}
-            {(liveJob.title || liveJob.description) && (
-              <div className="space-y-1">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Metadata</p>
-                {liveJob.title && <p className="text-sm font-medium">{liveJob.title}</p>}
-                {liveJob.description && <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-3">{liveJob.description}</p>}
+                ) : <p className="text-xs text-muted-foreground italic">Not yet generated</p>}
               </div>
-            )}
-          </div>
-        )}
+
+              {/* Title & Description */}
+              {(liveJob.title || liveJob.description) && (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Metadata</p>
+                  {liveJob.title && <p className="text-sm font-medium">{liveJob.title}</p>}
+                  {liveJob.description && <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-3">{liveJob.description}</p>}
+                </div>
+              )}
+
+              {/* Approve / Reject — shown when paused at a review step */}
+              {isReview && (
+                <div className="flex gap-3 pt-1 border-t border-border">
+                  <button onClick={approveStep} className="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">
+                    Approve — continue to {REVIEW_NEXT[reviewStep!]}
+                  </button>
+                  <button onClick={rejectStep} className="px-4 py-2 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">
+                    Reject
+                  </button>
+                </div>
+              )}
+
+              {/* Retry — shown when a step errored */}
+              {isError && (
+                <div className="flex gap-3 pt-1 border-t border-border">
+                  <button onClick={() => retryFromStep(liveJob)} className="flex-1 px-4 py-2 rounded-lg bg-yellow-600 text-white text-sm font-semibold hover:bg-yellow-700">
+                    Retry {liveJob.step.replace("_review", "")}
+                  </button>
+                  <button onClick={() => setLiveJob(null)} className="px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-semibold hover:border-primary/40">
+                    Dismiss
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* PIPELINE TAB */}
         {activeTab === "pipeline" && (

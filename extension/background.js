@@ -697,6 +697,22 @@ async function isCancelled(id) {
   } catch { return false; }
 }
 
+// ── WAIT FOR STEP APPROVAL ───────────────────────────────────────
+// Sets the job step to `reviewStep` and polls until the dashboard
+// changes it (user clicked Approve) or the job is cancelled.
+async function waitForApproval(id, reviewStep) {
+  while (true) {
+    await sleep(3000);
+    try {
+      const res = await fetch(`${db("pipeline_jobs")}?id=eq.${id}&select=step,status`, { headers });
+      const rows = await res.json();
+      const job = rows?.[0];
+      if (!job || job.status === "error") return; // cancelled
+      if (job.step !== reviewStep) return;         // approved — step was advanced
+    } catch { return; }
+  }
+}
+
 // ── MAIN PIPELINE ────────────────────────────────────────────────
 async function runPipeline(job) {
   const { id, lyrics_prompt, art_prompt, metadata_prompt, style_tags, lyrics: existingLyrics } = job;
@@ -704,33 +720,38 @@ async function runPipeline(job) {
   try {
     await updateJob(id, { status: "running", step: "lyrics" });
 
-    // Step 1: Generate lyrics
+    // Step 1: Generate lyrics → pause for review
     let lyrics = existingLyrics;
     if (!lyrics && lyrics_prompt) {
       if (await isCancelled(id)) return;
       const lyricsResult = await runChatGPT(lyrics_prompt);
       lyrics = lyricsResult;
-      await updateJob(id, { lyrics: lyrics, step: "art" });
+      await updateJob(id, { lyrics, step: "lyrics_review" });
+      await waitForApproval(id, "lyrics_review");
+      if (await isCancelled(id)) return;
     }
 
-    // Step 2: Generate art via ChatGPT image generation
+    // Step 2: Generate art → pause for review
     let artUrl = null;
     if (art_prompt) {
       if (await isCancelled(id)) return;
       await updateJob(id, { step: "art" });
       artUrl = await runChatGPTImage(art_prompt);
-      await updateJob(id, { art_url: artUrl, step: "audio" });
+      await updateJob(id, { art_url: artUrl, step: "art_review" });
+      await waitForApproval(id, "art_review");
+      if (await isCancelled(id)) return;
     }
 
-    // Step 3: Generate audio in Suno — skip if audio_url already set (debug/pre-filled jobs)
+    // Step 3: Generate audio in Suno → pause for review
+    // Skip if audio_url already set (debug/pre-filled jobs)
     const prefilledAudio = job.audio_url;
     let audioUrl;
     if (prefilledAudio) {
-      // Pre-filled: skip Suno entirely (used for debug runs that test other steps)
       audioUrl = prefilledAudio;
-      await updateJob(id, { step: "metadata" });
+      await updateJob(id, { step: "audio_review" });
+      await waitForApproval(id, "audio_review");
+      if (await isCancelled(id)) return;
     } else {
-      // Normal: run TWICE for 4 total tracks
       if (await isCancelled(id)) return;
       await updateJob(id, { step: "audio" });
       let run1 = [], run2 = [];
@@ -741,10 +762,12 @@ async function runPipeline(job) {
       const allAudioUrls = [...run1, ...run2];
       await chrome.storage.local.set({ __audioDebug: { run1, run2, allAudioUrls } });
       audioUrl = JSON.stringify(allAudioUrls);
-      await updateJob(id, { audio_url: audioUrl, step: "metadata" });
+      await updateJob(id, { audio_url: audioUrl, step: "audio_review" });
+      await waitForApproval(id, "audio_review");
+      if (await isCancelled(id)) return;
     }
 
-    // Step 4: Generate metadata
+    // Step 4: Generate metadata → pause for review
     if (metadata_prompt) {
       if (await isCancelled(id)) return;
       await updateJob(id, { step: "metadata" });
@@ -754,8 +777,10 @@ async function runPipeline(job) {
       await updateJob(id, {
         title: titleMatch?.[1]?.trim() ?? "",
         description: descMatch?.[1]?.trim() ?? metaResult,
-        step: "approval",
+        step: "metadata_review",
       });
+      await waitForApproval(id, "metadata_review");
+      if (await isCancelled(id)) return;
     } else {
       await updateJob(id, { step: "approval" });
     }
@@ -782,13 +807,14 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         return; // still claiming the lock, leave it alone
       }
     } else {
-      const timedOut = Date.now() - runningStarted > 45 * 60 * 1000;
-      let cancelled = false;
-      if (!timedOut) {
-        const res = await fetch(`${db("pipeline_jobs")}?id=eq.${currentJob}&select=status`, { headers });
-        const rows = await res.json().catch(() => []);
-        cancelled = rows?.[0]?.status === "error" || rows?.[0]?.status === "complete";
-      }
+      const res = await fetch(`${db("pipeline_jobs")}?id=eq.${currentJob}&select=status,step`, { headers });
+      const rows = await res.json().catch(() => []);
+      const jobRow = rows?.[0];
+      const cancelled = jobRow?.status === "error" || jobRow?.status === "complete";
+      // Jobs paused at a review step can wait up to 8 hours; all others time out at 45 min
+      const isReview = (jobRow?.step || "").endsWith("_review");
+      const timeout = isReview ? 8 * 60 * 60 * 1000 : 45 * 60 * 1000;
+      const timedOut = Date.now() - runningStarted > timeout;
       if (timedOut || cancelled) {
         await chrome.storage.local.set({ running: false, currentJob: null, step: null, runningStarted: null });
       } else {
