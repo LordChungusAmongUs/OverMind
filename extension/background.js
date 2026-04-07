@@ -771,9 +771,11 @@ async function runPipeline(job) {
       lyrics = lyricsResult;
       // Extract style tags from ChatGPT's STYLE: header line — use for Suno
       const styleFromLyrics = lyricsResult.match(/^STYLE:\s*(.+)/im)?.[1]?.trim();
+      const titleFromLyrics = lyricsResult.match(/^TITLE:\s*(.+)/im)?.[1]?.trim();
       if (styleFromLyrics) style_tags = styleFromLyrics;
       const step1Update = { lyrics, step: isDebug ? "art" : "lyrics_review" };
       if (styleFromLyrics) step1Update.style_tags = styleFromLyrics;
+      if (titleFromLyrics)  step1Update.title       = titleFromLyrics;
       await updateJob(id, step1Update);
       if (!isDebug) {
         await waitForApproval(id, "lyrics_review");
