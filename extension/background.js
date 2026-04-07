@@ -190,14 +190,26 @@ async function runChatGPT(prompt) {
 
 // ── CHATGPT IMAGE GENERATION ─────────────────────────────────────
 async function runChatGPTImage(prompt) {
-  // ── Step 1: Send the art prompt ──────────────────────────────────
-  // Always open a FRESH tab for image generation — reusing an existing tab risks
-  // capturing old conversation images as the art baseline.
-  const tabId = await openTab("https://chatgpt.com/?model=gpt-4o");
+  // Always open a FRESH tab — reusing an existing tab risks capturing old images
+  const tabId = await openTab("https://chatgpt.com/");
   await waitForTab(tabId);
   await sleep(4000);
 
-  // Send the art prompt (same approach as runChatGPT for lyrics)
+  // ── Helper: collect image srcs from INSIDE assistant messages only ──
+  const getAssistantImages = () => injectAndRun(tabId, () => {
+    const srcs = [];
+    document.querySelectorAll('[data-message-author-role="assistant"] img').forEach(img => {
+      const src = img.currentSrc || img.src || "";
+      if (!src || src.startsWith("data:") || src.endsWith(".svg")) return;
+      srcs.push(src);
+    });
+    return srcs;
+  }).catch(() => []);
+
+  // Snapshot any images already on the page before we send our prompt
+  const baseline = new Set(await getAssistantImages());
+
+  // ── Step 1: Type and send the art prompt ──
   await injectAndRun(tabId, (p) => {
     const input = document.querySelector("#prompt-textarea") || document.querySelector('[contenteditable="true"]');
     if (!input) return;
@@ -211,77 +223,61 @@ async function runChatGPTImage(prompt) {
     if (btn) btn.click();
   });
 
-  // ── Step 2: Wait for generation to finish — same stop-button approach as lyrics ──
-  let stopAppeared = false;
-  for (let i = 0; i < 20; i++) {
+  // ── Step 2: Wait for the stop button to appear (generation started) ──
+  for (let i = 0; i < 30; i++) {
     const appeared = await injectAndRun(tabId, () =>
       !!document.querySelector('[data-testid="stop-button"]') ||
       !!document.querySelector('button[aria-label*="Stop"]') ||
       !!document.querySelector('button[aria-label*="stop"]')
     ).catch(() => false);
-    if (appeared) { stopAppeared = true; break; }
+    if (appeared) break;
     await sleep(2000);
   }
 
-  if (stopAppeared) {
-    for (let i = 0; i < 60; i++) {
-      const done = await injectAndRun(tabId, () =>
-        !document.querySelector('[data-testid="stop-button"]') &&
-        !document.querySelector('button[aria-label*="Stop"]') &&
-        !document.querySelector('button[aria-label*="stop"]')
-      ).catch(() => true);
-      if (done) break;
-      await sleep(3000);
-    }
-  } else {
-    await sleep(90000);
+  // ── Step 3: Wait for stop button to disappear (generation finished) ──
+  for (let i = 0; i < 90; i++) {
+    const done = await injectAndRun(tabId, () =>
+      !document.querySelector('[data-testid="stop-button"]') &&
+      !document.querySelector('button[aria-label*="Stop"]') &&
+      !document.querySelector('button[aria-label*="stop"]')
+    ).catch(() => true);
+    if (done) break;
+    await sleep(3000);
   }
 
-  // Extra buffer — give the image time to fully render
-  await sleep(5000);
-
-  // ── Step 3: Grab the generated image ─────────────────────────────
-  // Strategy: snapshot all image srcs on the page BEFORE the prompt was sent
-  // would be ideal, but we have a fresh tab so there are no pre-existing images.
-  // Instead: scroll to bottom, then find the LAST non-tiny img in the page
-  // that has a non-empty src. Generated images are typically 512-1024px — we
-  // filter out icons/avatars (which are usually < 64px or data: URLs).
-  await injectAndRun(tabId, () => {
-    const scroller = document.querySelector("main") || document.body;
-    scroller.scrollTop = scroller.scrollHeight;
-  }).catch(() => {});
-  await sleep(2000);
-
-  // Helper: get all candidate image srcs from the page
-  const getCandidates = () => injectAndRun(tabId, () => {
-    const srcs = [];
-    document.querySelectorAll("img").forEach(img => {
-      const src = img.currentSrc || img.src || "";
-      // Skip: empty, data URIs, SVGs, and tiny images (icons ≤ 40px)
-      if (!src || src.startsWith("data:") || src.endsWith(".svg")) return;
-      const w = img.naturalWidth || img.width || 0;
-      const h = img.naturalHeight || img.height || 0;
-      if (w > 0 && w <= 40) return; // definitely an icon
-      if (h > 0 && h <= 40) return;
-      srcs.push(src);
-    });
-    return srcs;
-  }).catch(() => []);
-
-  // Poll until at least one candidate image appears (up to ~3 min)
+  // ── Step 4: Poll for a NEW image inside the last assistant message ──
+  // Poll up to ~3 min for the image to appear. We specifically look for images
+  // INSIDE the last assistant message that weren't there before we sent the prompt.
   let imgSrc = "";
-  for (let i = 0; i < 40 && !imgSrc; i++) {
-    const candidates = await getCandidates();
-    // Take the last candidate — it's the most recently rendered image (the generated art)
-    if (candidates.length > 0) imgSrc = candidates[candidates.length - 1];
+  for (let i = 0; i < 60 && !imgSrc; i++) {
+    const current = await getAssistantImages();
+    const newImgs = current.filter(src => !baseline.has(src));
+    if (newImgs.length > 0) {
+      imgSrc = newImgs[newImgs.length - 1]; // last new image = the generated art
+    }
     if (!imgSrc) await sleep(3000);
+  }
+
+  // Fallback: if no image found in assistant messages, scan page for any large image
+  if (!imgSrc) {
+    imgSrc = await injectAndRun(tabId, () => {
+      let best = "";
+      document.querySelectorAll("img").forEach(img => {
+        const src = img.currentSrc || img.src || "";
+        if (!src || src.startsWith("data:") || src.endsWith(".svg")) return;
+        const w = img.naturalWidth || img.width || 0;
+        const h = img.naturalHeight || img.height || 0;
+        if (w > 200 && h > 200) best = src; // keep last large image found
+      });
+      return best;
+    }).catch(() => "") || "";
   }
 
   const artLog = { imgSrc: imgSrc?.slice(0, 120), fetch: null };
   await chrome.storage.local.set({ __artLog: artLog });
 
   if (imgSrc) {
-    // Fetch the image from within the ChatGPT tab (handles same-origin URLs automatically)
+    // Fetch from within the tab so same-origin/CDN URLs work
     const b64 = await injectAndRun(tabId, (src) => new Promise(async resolve => {
       try {
         const r = await fetch(src, { credentials: "include" });
