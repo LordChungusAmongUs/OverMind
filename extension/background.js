@@ -711,20 +711,27 @@ async function waitForApproval(id, reviewStep) {
 
 // ── MAIN PIPELINE ────────────────────────────────────────────────
 async function runPipeline(job) {
-  const { id, lyrics_prompt, art_prompt, metadata_prompt, style_tags, lyrics: existingLyrics } = job;
+  const { id, lyrics_prompt, art_prompt, metadata_prompt, lyrics: existingLyrics } = job;
+  // style_tags may be updated after step 1 if ChatGPT returns a STYLE: line
+  let style_tags = job.style_tags;
   // Debug jobs (created by the step-test buttons) skip approval gates and run straight through
   const isDebug = (job.track_theme || "").startsWith("__debug:");
 
   try {
     await updateJob(id, { status: "running", step: "lyrics" });
 
-    // Step 1: Generate lyrics → pause for review (skipped for debug jobs)
+    // Step 1: Generate lyrics → capture TITLE + STYLE + lyrics → pause for review
     let lyrics = existingLyrics;
     if (!lyrics && lyrics_prompt) {
       if (await isCancelled(id)) return;
       const lyricsResult = await runChatGPT(lyrics_prompt);
       lyrics = lyricsResult;
-      await updateJob(id, { lyrics, step: isDebug ? "art" : "lyrics_review" });
+      // Extract style tags from ChatGPT's STYLE: header line — use for Suno
+      const styleFromLyrics = lyricsResult.match(/^STYLE:\s*(.+)/im)?.[1]?.trim();
+      if (styleFromLyrics) style_tags = styleFromLyrics;
+      const step1Update = { lyrics, step: isDebug ? "art" : "lyrics_review" };
+      if (styleFromLyrics) step1Update.style_tags = styleFromLyrics;
+      await updateJob(id, step1Update);
       if (!isDebug) {
         await waitForApproval(id, "lyrics_review");
         if (await isCancelled(id)) return;

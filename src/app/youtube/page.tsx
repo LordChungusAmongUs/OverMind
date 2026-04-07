@@ -319,7 +319,9 @@ export default function YouTubePage() {
       `5. CHORUS REPETITION PATTERN: ${hookPattern}. Write out every repeated line in full — never write "(repeat)", "(x2)", or any shorthand.\n` +
       `6. Label every section clearly on its own line: INTRO, CHORUS, VERSE 1, VERSE 2, BRIDGE, OUTRO.\n` +
       `7. Keep every line punchy and rhythmically tight for electronic music.\n` +
-      `8. Include a title at the top formatted as: TITLE: [track name]`;
+      `8. At the VERY TOP of your response (before any song sections), include these two header lines exactly:\n` +
+      `   TITLE: [the track name you choose]\n` +
+      `   STYLE: ${tag}`;
     const ap =
       `Create album cover art for ${persona.name}, an electronic music artist. ` +
       `Art style: ${persona.artStyle}. ` +
