@@ -42,15 +42,32 @@ async function updateJob(id, fields) {
 // ── SUPABASE STORAGE UPLOAD ──────────────────────────────────────
 async function uploadToStorage(path, blob, contentType) {
   try {
-    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/pipeline-assets/${path}`, {
-      method: "POST",
+    // Try PUT with upsert first (more permissive), fall back to POST
+    let res = await fetch(`${SUPABASE_URL}/storage/v1/object/pipeline-assets/${path}`, {
+      method: "PUT",
       headers: {
         "apikey": SUPABASE_KEY,
         "Authorization": `Bearer ${SUPABASE_KEY}`,
         "Content-Type": contentType,
+        "x-upsert": "true",
       },
       body: blob,
     });
+    if (!res.ok) {
+      // Log the error for debugging
+      const errText = await res.text().catch(() => "");
+      await chrome.storage.local.set({ __uploadErr: `PUT ${res.status}: ${errText.slice(0, 200)}` });
+      // Retry with POST
+      res = await fetch(`${SUPABASE_URL}/storage/v1/object/pipeline-assets/${path}`, {
+        method: "POST",
+        headers: {
+          "apikey": SUPABASE_KEY,
+          "Authorization": `Bearer ${SUPABASE_KEY}`,
+          "Content-Type": contentType,
+        },
+        body: blob,
+      });
+    }
     if (!res.ok) return null;
     return `${SUPABASE_URL}/storage/v1/object/public/pipeline-assets/${path}`;
   } catch {
@@ -173,105 +190,119 @@ async function runChatGPT(prompt) {
 
 // ── CHATGPT IMAGE GENERATION ─────────────────────────────────────
 async function runChatGPTImage(prompt) {
-  const tabId = await getOrOpenTab("chatgpt.com", "https://chatgpt.com/");
+  // ── Step 1: Send the art prompt ──────────────────────────────────
+  // Always open a FRESH tab for image generation — reusing an existing tab risks
+  // capturing old conversation images as the art baseline.
+  const tabId = await openTab("https://chatgpt.com/?model=gpt-4o");
   await waitForTab(tabId);
-  await sleep(3000);
+  await sleep(4000);
 
-  await injectAndRun(tabId, (prompt) => {
-    const input = document.querySelector("#prompt-textarea") ||
-      document.querySelector('[contenteditable="true"][data-id]');
+  // Send the art prompt (same approach as runChatGPT for lyrics)
+  await injectAndRun(tabId, (p) => {
+    const input = document.querySelector("#prompt-textarea") || document.querySelector('[contenteditable="true"]');
     if (!input) return;
     input.focus();
-    document.execCommand("insertText", false, prompt);
+    document.execCommand("insertText", false, p);
     input.dispatchEvent(new InputEvent("input", { bubbles: true }));
   }, [prompt]);
-
   await sleep(1000);
-
   await injectAndRun(tabId, () => {
-    const btn = document.querySelector('[data-testid="send-button"]') ||
-      document.querySelector('button[aria-label*="Send"]');
+    const btn = document.querySelector('[data-testid="send-button"]') || document.querySelector('button[aria-label*="Send"]');
     if (btn) btn.click();
   });
 
-  // Snapshot existing large images BEFORE the prompt is sent so we only pick up the NEW one
-  const existingImgSrcs = await injectAndRun(tabId, () => {
-    return [...document.querySelectorAll("img")]
-      .map(img => img.currentSrc || img.src || "")
-      .filter(src => src && !src.startsWith("data:") && src.length > 20);
-  });
-
-  // Wait for a NEW image to appear — ChatGPT image gen usually takes 15-45s
-  await sleep(10000);
-  let attempts = 0;
-  let imgSrc = null;
-  while (attempts < 40 && !imgSrc) {
-    imgSrc = await injectAndRun(tabId, (knownSrcs) => {
-      const isNew = (img) => {
-        const src = img.currentSrc || img.src || "";
-        if (!src || src.length < 20 || src.startsWith("data:")) return false;
-        if (knownSrcs.includes(src)) return false;
-        const w = img.naturalWidth || img.width;
-        const h = img.naturalHeight || img.height;
-        return w > 200 && h > 200 ? src : false;
-      };
-      // Primary: look inside the most recent assistant message only
-      const messages = document.querySelectorAll('[data-message-author-role="assistant"]');
-      const lastMsg = messages[messages.length - 1];
-      if (lastMsg) {
-        for (const img of lastMsg.querySelectorAll("img")) {
-          const src = isNew(img);
-          if (src) return src;
-        }
-      }
-      // Fallback: scan all images, restrict to OpenAI CDN
-      for (const img of document.querySelectorAll("img")) {
-        const src = img.currentSrc || img.src || "";
-        if (!src.includes("oaiusercontent.com")) continue;
-        const valid = isNew(img);
-        if (valid) return valid;
-      }
-      return null;
-    }, [existingImgSrcs]);
-    if (!imgSrc) {
-      await sleep(3000);
-      attempts++;
-    }
+  // ── Step 2: Wait for generation to finish — same stop-button approach as lyrics ──
+  let stopAppeared = false;
+  for (let i = 0; i < 20; i++) {
+    const appeared = await injectAndRun(tabId, () =>
+      !!document.querySelector('[data-testid="stop-button"]') ||
+      !!document.querySelector('button[aria-label*="Stop"]') ||
+      !!document.querySelector('button[aria-label*="stop"]')
+    ).catch(() => false);
+    if (appeared) { stopAppeared = true; break; }
+    await sleep(2000);
   }
 
-  if (!imgSrc) return null;
+  if (stopAppeared) {
+    for (let i = 0; i < 60; i++) {
+      const done = await injectAndRun(tabId, () =>
+        !document.querySelector('[data-testid="stop-button"]') &&
+        !document.querySelector('button[aria-label*="Stop"]') &&
+        !document.querySelector('button[aria-label*="stop"]')
+      ).catch(() => true);
+      if (done) break;
+      await sleep(3000);
+    }
+  } else {
+    await sleep(90000);
+  }
 
-  // URL is chatgpt.com/backend-api/... — same-origin from the tab, fetch it there
-  const artBase64 = await injectAndRun(tabId, (src) => {
-    return new Promise(async (resolve) => {
+  // Extra buffer — give the image time to fully render
+  await sleep(5000);
+
+  // ── Step 3: Grab the generated image ─────────────────────────────
+  // Strategy: snapshot all image srcs on the page BEFORE the prompt was sent
+  // would be ideal, but we have a fresh tab so there are no pre-existing images.
+  // Instead: scroll to bottom, then find the LAST non-tiny img in the page
+  // that has a non-empty src. Generated images are typically 512-1024px — we
+  // filter out icons/avatars (which are usually < 64px or data: URLs).
+  await injectAndRun(tabId, () => {
+    const scroller = document.querySelector("main") || document.body;
+    scroller.scrollTop = scroller.scrollHeight;
+  }).catch(() => {});
+  await sleep(2000);
+
+  // Helper: get all candidate image srcs from the page
+  const getCandidates = () => injectAndRun(tabId, () => {
+    const srcs = [];
+    document.querySelectorAll("img").forEach(img => {
+      const src = img.currentSrc || img.src || "";
+      // Skip: empty, data URIs, SVGs, and tiny images (icons ≤ 40px)
+      if (!src || src.startsWith("data:") || src.endsWith(".svg")) return;
+      const w = img.naturalWidth || img.width || 0;
+      const h = img.naturalHeight || img.height || 0;
+      if (w > 0 && w <= 40) return; // definitely an icon
+      if (h > 0 && h <= 40) return;
+      srcs.push(src);
+    });
+    return srcs;
+  }).catch(() => []);
+
+  // Poll until at least one candidate image appears (up to ~3 min)
+  let imgSrc = "";
+  for (let i = 0; i < 40 && !imgSrc; i++) {
+    const candidates = await getCandidates();
+    // Take the last candidate — it's the most recently rendered image (the generated art)
+    if (candidates.length > 0) imgSrc = candidates[candidates.length - 1];
+    if (!imgSrc) await sleep(3000);
+  }
+
+  const artLog = { imgSrc: imgSrc?.slice(0, 120), fetch: null };
+  await chrome.storage.local.set({ __artLog: artLog });
+
+  if (imgSrc) {
+    // Fetch the image from within the ChatGPT tab (handles same-origin URLs automatically)
+    const b64 = await injectAndRun(tabId, (src) => new Promise(async resolve => {
       try {
         const r = await fetch(src, { credentials: "include" });
-        if (!r.ok) { resolve(null); return; }
+        if (!r.ok) { resolve(`err:${r.status}`); return; }
         const blob = await r.blob();
         const fr = new FileReader();
         fr.onloadend = () => resolve(fr.result);
         fr.readAsDataURL(blob);
-      } catch {
-        resolve(null);
-      }
-    });
-  }, [imgSrc]);
+      } catch (e) { resolve(`exc:${e.message}`); }
+    }), [imgSrc]).catch(() => null);
 
-  if (artBase64 && artBase64.startsWith("data:")) {
-    try {
-      const base64 = artBase64.split(",")[1];
-      const binary = atob(base64);
-      const arr = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
-      const blob = new Blob([arr], { type: "image/jpeg" });
-      const path = `art/${Date.now()}.jpg`;
-      const storageUrl = await uploadToStorage(path, blob, "image/jpeg");
-      if (storageUrl) return storageUrl;
-    } catch { /* fall through */ }
-    // Storage upload failed — store base64 directly in the job record
-    return artBase64;
+    artLog.fetch = typeof b64 === "string" ? (b64.startsWith("data:") ? `ok len=${b64.length}` : b64) : "null";
+    await chrome.storage.local.set({ __artLog: artLog });
+
+    if (typeof b64 === "string" && b64.startsWith("data:image")) {
+      await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+      return b64;
+    }
   }
 
+  await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
   return null;
 }
 
@@ -290,18 +321,22 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(2000);
 
-  // Click "Advanced" and wait until the lyrics field appears
+  // Click "Custom Mode" / "Advanced" toggle and wait until the lyrics field appears
+  // Suno renamed "Advanced" to "Custom Mode" — handle both
   let lyricsFieldVisible = false;
   for (let attempt = 0; attempt < 10; attempt++) {
     await injectAndRun(tabId, () => {
-      const all = Array.from(document.querySelectorAll("button, [role='tab'], label, span"));
-      const btn = all.find(el => el.textContent.trim() === "Advanced");
+      const LABELS = ["Custom Mode", "Custom", "Advanced"];
+      const all = Array.from(document.querySelectorAll("button, [role='tab'], [role='switch'], label, span"));
+      const btn = all.find(el => LABELS.includes(el.textContent.trim()));
       if (btn) btn.click();
     });
     await sleep(1500);
     lyricsFieldVisible = await injectAndRun(tabId, () => {
       const ta = Array.from(document.querySelectorAll("textarea")).find(
-        t => (t.placeholder || "").toLowerCase().includes("leave blank for instrumental")
+        t => (t.placeholder || "").toLowerCase().includes("leave blank for instrumental") ||
+             (t.placeholder || "").toLowerCase().includes("lyrics") ||
+             (t.placeholder || "").toLowerCase().includes("enter lyrics")
       );
       return !!ta;
     });
@@ -331,8 +366,9 @@ async function runSuno(lyrics, styleTags) {
     }
     // Also clear the lyrics textarea just in case
     await injectAndRun(tabId, () => {
+      const LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics"];
       const ta = Array.from(document.querySelectorAll("textarea")).find(
-        t => (t.placeholder || "").toLowerCase().includes("leave blank for instrumental")
+        t => LYRICS_PH.some(ph => (t.placeholder || "").toLowerCase().includes(ph))
       );
       if (!ta) return;
       const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
@@ -341,10 +377,11 @@ async function runSuno(lyrics, styleTags) {
       ta.dispatchEvent(new Event("change", { bubbles: true }));
     });
   } else {
-    // Fill lyrics — exact placeholder match
+    // Fill lyrics
     await injectAndRun(tabId, (lyricsText) => {
+      const LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics"];
       const ta = Array.from(document.querySelectorAll("textarea")).find(
-        t => (t.placeholder || "").toLowerCase().includes("leave blank for instrumental")
+        t => LYRICS_PH.some(ph => (t.placeholder || "").toLowerCase().includes(ph))
       );
       if (!ta) return false;
       const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
@@ -357,21 +394,37 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(1000);
 
-  // Fill style — exclude lyrics, title (tallest), and "describe the sound" fields
+  // Fill style — Suno's style field can be <input> or <textarea>
   await injectAndRun(tabId, (style) => {
-    const all = Array.from(document.querySelectorAll("textarea"))
-      .filter(t => t.offsetHeight > 0 && t.offsetParent !== null);
-    const input = all.find(t => {
-      const ph = (t.placeholder || "").toLowerCase();
-      return !ph.includes("leave blank for instrumental") &&
-             !ph.includes("describe the sound") &&
-             t.offsetHeight < 108; // exclude title field (tallest)
+    const LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics"];
+    const STYLE_PH = ["style of music", "enter style", "style tags", "genre", "style"];
+
+    // First: try to find by positive placeholder match (most reliable)
+    const allFields = Array.from(document.querySelectorAll("input, textarea"))
+      .filter(el => el.offsetParent !== null);
+
+    let el = allFields.find(el => {
+      const ph = (el.placeholder || "").toLowerCase();
+      return STYLE_PH.some(sp => ph.includes(sp));
     });
-    if (!input) return false;
-    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-    setter.call(input, style);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    // Fallback: visible textarea that isn't the lyrics or song-name field
+    if (!el) {
+      const textareas = allFields.filter(el => el.tagName === "TEXTAREA");
+      el = textareas.find(t => {
+        const ph = (t.placeholder || "").toLowerCase();
+        return !LYRICS_PH.some(lp => ph.includes(lp)) &&
+               !ph.includes("describe the sound") &&
+               t.offsetHeight < 108;
+      });
+    }
+
+    if (!el) return false;
+    const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
+    setter.call(el, style);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
     return true;
   }, [styleTags]);
 
@@ -394,6 +447,12 @@ async function runSuno(lyrics, styleTags) {
           const ph = (el.placeholder || "").toLowerCase();
           return (ph.includes("name") || ph.includes("title")) &&
                  !ph.includes("leave blank") && !ph.includes("describe") && !ph.includes("style");
+        }) ||
+        // 4. Last resort: any single-line input not matching known fields
+        allInputs.find(el => {
+          if (el.tagName === "TEXTAREA") return false;
+          const ph = (el.placeholder || "").toLowerCase();
+          return !ph.includes("leave blank") && !ph.includes("describe") && !ph.includes("style") && !ph.includes("search");
         })
       );
       if (!el) return false;
@@ -489,13 +548,22 @@ async function runSuno(lyrics, styleTags) {
   }, [], "MAIN").catch(() => {});
 
   // Click Create
-  await injectAndRun(tabId, () => {
+  const createClicked = await injectAndRun(tabId, () => {
+    const LABELS = ["Create", "Generate"];
     const btn = Array.from(document.querySelectorAll("button")).find(
-      b => b.textContent.trim() === "Create"
+      b => LABELS.includes(b.textContent.trim())
     );
     if (btn) { btn.click(); return true; }
     return false;
-  });
+  }).catch(() => false);
+  await chrome.storage.local.set({ __sunoStep: `create_clicked=${createClicked}` });
+
+  // Reset audio arrays NOW (after Create click) so ambient URLs captured before
+  // generation (from Suno's feed/existing songs) are discarded.
+  await injectAndRun(tabId, () => {
+    window.__sunoAudio = [];
+    window.__sunoBlobUrls = [];
+  }, [], "MAIN").catch(() => {});
 
   // Wait for track generation to start
   await sleep(15000);
@@ -520,12 +588,21 @@ async function runSuno(lyrics, styleTags) {
   let attempts = 0;
   let audioUrls = [];
 
+  // Phase 1: wait for 2 blob URLs (up to ~3 min). If blobs aren't firing,
+  // CDN URLs from the API interceptor cover us in Phase 2.
   while (attempts < 60 && audioUrls.length < 2) {
-    // Blob URLs come from createObjectURL intercept (download button flows)
-    const blobUrls = await injectAndRun(tabId, () => window.__sunoBlobUrls ? [...window.__sunoBlobUrls] : [], [], "MAIN").catch(() => []);
-    // CDN URLs come from fetch/XHR/WebSocket interceptors
+    const blobs = await injectAndRun(tabId, () => window.__sunoBlobUrls ? [...window.__sunoBlobUrls] : [], [], "MAIN").catch(() => []);
+    if ((blobs || []).length > audioUrls.length) audioUrls = (blobs || []).slice(0, 2);
+    if (audioUrls.length >= 2) break;
+
+    if (attempts % 10 === 0) await clickPlay();
+    await sleep(3000);
+    attempts++;
+  }
+
+  // Phase 2: fall back to CDN URLs only if we couldn't get 2 blob URLs
+  if (audioUrls.length < 2) {
     const intercepted = await injectAndRun(tabId, () => window.__sunoAudio ? [...window.__sunoAudio] : [], [], "MAIN").catch(() => []);
-    // DOM scan fallback
     const domUrls = await injectAndRun(tabId, () => {
       const urls = new Set();
       document.querySelectorAll("audio").forEach(a => {
@@ -535,14 +612,9 @@ async function runSuno(lyrics, styleTags) {
       document.querySelectorAll("a[href*='.mp3']").forEach(a => { if (a.href) urls.add(a.href); });
       return Array.from(urls);
     }).catch(() => []);
-
-    const combined = [...new Set([...(blobUrls || []), ...(intercepted || []), ...(domUrls || [])])].slice(0, 2);
-    if (combined.length > audioUrls.length) audioUrls = combined;
-    if (audioUrls.length >= 2) break;
-
-    if (attempts % 10 === 0) await clickPlay();
-    await sleep(3000);
-    attempts++;
+    const needed = 2 - audioUrls.length;
+    const cdnCandidates = [...new Set([...(intercepted || []), ...(domUrls || [])])].filter(u => !audioUrls.includes(u));
+    audioUrls = [...audioUrls, ...cdnCandidates.slice(0, needed)];
   }
 
   // Extract the Clerk session token from the page — Suno uses it as Bearer auth for CDN requests
@@ -650,18 +722,27 @@ async function runPipeline(job) {
       await updateJob(id, { art_url: artUrl, step: "audio" });
     }
 
-    // Step 3: Generate audio in Suno — run TWICE for 4 total tracks
-    if (await isCancelled(id)) return;
-    await updateJob(id, { step: "audio" });
-    let run1 = [], run2 = [];
-    try { run1 = JSON.parse(await runSuno(lyrics, style_tags) || "[]"); } catch { run1 = []; }
-    // Save run1 immediately so we never lose those tracks if run2 fails
-    if (run1.length > 0) await updateJob(id, { audio_url: JSON.stringify(run1) });
-    if (await isCancelled(id)) return;
-    try { run2 = JSON.parse(await runSuno(lyrics, style_tags) || "[]"); } catch { run2 = []; }
-    const allAudioUrls = [...run1, ...run2];
-    const audioUrl = JSON.stringify(allAudioUrls);
-    await updateJob(id, { audio_url: audioUrl, step: "metadata" });
+    // Step 3: Generate audio in Suno — skip if audio_url already set (debug/pre-filled jobs)
+    const prefilledAudio = job.audio_url;
+    let audioUrl;
+    if (prefilledAudio) {
+      // Pre-filled: skip Suno entirely (used for debug runs that test other steps)
+      audioUrl = prefilledAudio;
+      await updateJob(id, { step: "metadata" });
+    } else {
+      // Normal: run TWICE for 4 total tracks
+      if (await isCancelled(id)) return;
+      await updateJob(id, { step: "audio" });
+      let run1 = [], run2 = [];
+      try { run1 = JSON.parse(await runSuno(lyrics, style_tags) || "[]"); } catch { run1 = []; }
+      if (run1.length > 0) await updateJob(id, { audio_url: JSON.stringify(run1) });
+      if (await isCancelled(id)) return;
+      try { run2 = JSON.parse(await runSuno(lyrics, style_tags) || "[]"); } catch { run2 = []; }
+      const allAudioUrls = [...run1, ...run2];
+      await chrome.storage.local.set({ __audioDebug: { run1, run2, allAudioUrls } });
+      audioUrl = JSON.stringify(allAudioUrls);
+      await updateJob(id, { audio_url: audioUrl, step: "metadata" });
+    }
 
     // Step 4: Generate metadata
     if (metadata_prompt) {
@@ -721,7 +802,15 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   // and both start a pipeline on the same job, causing duplicate Suno runs.
   await chrome.storage.local.set({ running: true, currentJob: null, step: null, runningStarted: Date.now() });
 
-  const job = await getJob();
+  let job = null;
+  try {
+    job = await getJob();
+  } catch (e) {
+    // Network error reaching Supabase — release lock and retry on next alarm
+    await chrome.storage.local.set({ running: false, runningStarted: null });
+    return;
+  }
+
   if (!job) {
     // Nothing to do — release the lock
     await chrome.storage.local.set({ running: false, runningStarted: null });

@@ -97,11 +97,15 @@ export default function YouTubePage() {
   const [batchCount, setBatchCount] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
+  const [activeJobs, setActiveJobs] = useState<Record<string, { step: string; status: string }>>({});
   const [approvalQueue, setApprovalQueue] = useState<ApprovalJob[]>([]);
   const reportedErrors = useRef<Set<string>>(new Set());
   const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
   const [autoPublishStep, setAutoPublishStep] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
+  const [debugRunning, setDebugRunning] = useState<string | null>(null);
+  const [debugResult, setDebugResult] = useState<{ type: string; jobId: string; lyrics?: string; artUrl?: string; title?: string; description?: string } | null>(null);
+  const debugJobIdRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLInputElement>(null);
   const artRef = useRef<HTMLInputElement>(null);
 
@@ -133,6 +137,53 @@ export default function YouTubePage() {
     setPendingCount(0);
   };
 
+  // ── JUMP TO STEP ─────────────────────────────────────────────
+  // Cancels the running job, then re-queues it starting from the requested step,
+  // carrying over any already-generated data (lyrics, art_url, audio_url).
+  const jumpToStep = async (jobId: string, targetStep: "lyrics" | "art" | "audio" | "metadata" | "approval") => {
+    // Fetch current job data
+    const { data: job } = await supabase.from("pipeline_jobs").select("*").eq("id", jobId).single();
+    if (!job) return;
+
+    // Cancel the stalled job
+    await supabase.from("pipeline_jobs").update({ status: "error", error_message: "Manually skipped to " + targetStep }).eq("id", jobId);
+    setActiveJobIds(prev => prev.filter(id => id !== jobId));
+
+    // Build new job carrying over completed-step data
+    const carry: Record<string, string | null> = {
+      status: "pending",
+      style_tags: job.style_tags,
+      track_theme: job.track_theme,
+    };
+    // Always carry lyrics & art prompts so the extension has them if needed later
+    if (job.lyrics_prompt)   carry.lyrics_prompt   = job.lyrics_prompt;
+    if (job.art_prompt)      carry.art_prompt       = job.art_prompt;
+    if (job.metadata_prompt) carry.metadata_prompt  = job.metadata_prompt;
+
+    // Pre-fill completed steps so the extension skips them
+    if (targetStep === "art" || targetStep === "audio" || targetStep === "metadata" || targetStep === "approval") {
+      carry.lyrics = job.lyrics ?? ""; // skip lyrics step
+    }
+    if (targetStep === "audio" || targetStep === "metadata" || targetStep === "approval") {
+      carry.art_url = job.art_url ?? null; // skip art step (null = no art, extension skips)
+      carry.art_prompt = null;             // clear prompt so extension won't regenerate
+    }
+    if (targetStep === "metadata" || targetStep === "approval") {
+      carry.audio_url = job.audio_url ?? "[]"; // skip Suno
+    }
+    if (targetStep === "approval") {
+      carry.title = job.title ?? "";
+      carry.description = job.description ?? "";
+      carry.metadata_prompt = null;
+    }
+
+    const { data: newJob } = await supabase.from("pipeline_jobs").insert(carry).select().single();
+    if (newJob) {
+      setActiveJobIds(prev => [...prev, newJob.id]);
+      setAutomating(true);
+    }
+  };
+
   // ── POLL JOB STATUS ─────────────────────────────────────────
   useEffect(() => {
     if (activeJobIds.length === 0) return;
@@ -142,6 +193,11 @@ export default function YouTubePage() {
         .select("*")
         .in("id", activeJobIds);
       if (!jobs) return;
+
+      // Update per-job step/status tracking
+      const jobMap: Record<string, { step: string; status: string }> = {};
+      jobs.forEach(j => { jobMap[j.id] = { step: j.step, status: j.status }; });
+      setActiveJobs(jobMap);
 
       // Update step display from running jobs
       const running = jobs.find(j => j.status === "running");
@@ -272,6 +328,53 @@ export default function YouTubePage() {
     else { setAutomating(false); setAutomationStep(null); }
   };
 
+  const runDebugStep = async (step: "lyrics" | "art" | "suno" | "metadata") => {
+    if (debugRunning) return;
+    setDebugRunning(step);
+    setDebugResult(null);
+
+    const { persona, tag, lyricsPrompt: lp, artPrompt: ap, metadataPrompt: mp } = buildConcept(trackTheme.trim());
+    setSelectedPersona(persona);
+    setStyleTag(tag);
+
+    // Build a minimal job — pre-set audio_url="[]" to skip Suno for non-audio steps
+    const jobData: Record<string, string> = {
+      status: "pending",
+      style_tags: tag,
+      track_theme: `__debug:${step}__`,
+    };
+    if (step === "lyrics")   { jobData.lyrics_prompt = lp; jobData.audio_url = "[]"; }
+    if (step === "art")      { jobData.art_prompt = ap;    jobData.audio_url = "[]"; }
+    if (step === "suno")     { jobData.lyrics_prompt = lp; /* no audio_url — let Suno run */ }
+    if (step === "metadata") { jobData.metadata_prompt = mp; jobData.lyrics = lp; jobData.audio_url = "[]"; }
+
+    const { data, error } = await supabase.from("pipeline_jobs").insert(jobData).select().single();
+    if (error || !data) { setDebugRunning(null); alert("Failed to create debug job: " + error?.message); return; }
+
+    debugJobIdRef.current = data.id;
+    setActiveJobIds(prev => [...prev, data.id]);
+
+    // Poll until this specific job finishes (approval or error)
+    const pollDebug = setInterval(async () => {
+      const { data: job } = await supabase.from("pipeline_jobs").select("*").eq("id", data.id).single();
+      if (!job) return;
+      if (job.step === "approval" || job.status === "error" || job.status === "complete") {
+        clearInterval(pollDebug);
+        setDebugRunning(null);
+        if (job.status === "error") { alert("Debug job failed: " + job.error_message); return; }
+        if (step === "suno") return; // Suno results go to the normal approval queue
+        setDebugResult({
+          type: step,
+          jobId: job.id,
+          lyrics: job.lyrics ?? undefined,
+          artUrl: job.art_url ?? undefined,
+          title: job.title ?? undefined,
+          description: job.description ?? undefined,
+        });
+      }
+    }, 3000);
+  };
+
   const handleSkipTrack = (jobId: string, audioUrl: string) => {
     setApprovalQueue(prev => prev.map(j => {
       if (j.jobId !== jobId) return j;
@@ -300,17 +403,20 @@ export default function YouTubePage() {
       : job.title;
 
     try {
-      // Fetch audio
+      // Fetch audio (30s timeout — Suno CDN URLs may hang without auth)
       setAutoPublishStep("Fetching audio...");
-      let audioRes: Response;
+      let audioBlob: Blob;
       try {
-        audioRes = await fetch(audioUrl);
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), 30000);
+        const audioRes = await fetch(audioUrl, { signal: ac.signal });
+        clearTimeout(timer);
+        if (!audioRes.ok) throw new Error(`HTTP ${audioRes.status}`);
+        audioBlob = await audioRes.blob();
       } catch (e) {
-        throw new Error(`Audio fetch failed (${audioUrl.slice(0, 60)}...): ${e}`);
+        throw new Error(`Audio fetch failed — ${e instanceof Error ? e.message : e}. URL: ${audioUrl.slice(0, 80)}`);
       }
-      if (!audioRes.ok) throw new Error(`Audio HTTP ${audioRes.status} from ${audioUrl.slice(0, 60)}`);
-      const audioBlob = await audioRes.blob();
-      if (audioBlob.size < 10000) throw new Error(`Audio file too small (${audioBlob.size} bytes) — may be expired or invalid`);
+      if (audioBlob.size < 10000) throw new Error(`Audio file too small (${audioBlob.size} bytes) — URL may be expired`);
       const audioFileObj = new File([audioBlob], "track.mp3", { type: "audio/mpeg" });
       setAudioFile(audioFileObj);
 
@@ -439,24 +545,21 @@ export default function YouTubePage() {
       setPublishedUrl(`https://www.youtube.com/watch?v=${videoId}`);
       setCurrentStep("publish");
 
-      // Mark this audioUrl as approved in the queue
+      // Approve this track and auto-skip all remaining tracks in this job — one decision per job
       setApprovalQueue(prev => {
-        const updated = prev.map(j => j.jobId === job.jobId
-          ? { ...j, approvedUrls: [...j.approvedUrls, audioUrl] }
-          : j
-        );
-        // If all tracks actioned for this job, mark complete and remove
-        const thisJob = updated.find(j => j.jobId === job.jobId);
-        if (thisJob && thisJob.approvedUrls.length + thisJob.skippedUrls.length >= thisJob.audioUrls.length && thisJob.audioUrls.length > 0) {
-          supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", job.jobId);
-          return updated.filter(j => j.jobId !== job.jobId);
-        }
-        return updated;
+        const updated = prev.map(j => {
+          if (j.jobId !== job.jobId) return j;
+          const actioned = new Set([...j.approvedUrls, ...j.skippedUrls, audioUrl]);
+          const newSkipped = j.audioUrls.filter(u => !actioned.has(u));
+          return { ...j, approvedUrls: [...j.approvedUrls, audioUrl], skippedUrls: [...j.skippedUrls, ...newSkipped] };
+        });
+        supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", job.jobId);
+        return updated.filter(j => j.jobId !== job.jobId);
       });
     } catch (err: unknown) {
       alert("Auto-publish failed: " + (err instanceof Error ? err.message : "Unknown error"));
     }
-    setAutoPublishing(false);
+    setPublishingJobId(null);
     setAutoPublishStep(null);
   };
 
@@ -614,6 +717,28 @@ export default function YouTubePage() {
                 <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
                   Next: Lyrics manually <ChevronRight className="w-4 h-4" />
                 </button>
+
+                {/* Debug results (shown here when triggered from the step panel above) */}
+                {debugResult && (
+                  <div className="mt-3 p-3 rounded-lg bg-secondary border border-border space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{debugResult.type} result</p>
+                    {debugResult.type === "lyrics" && debugResult.lyrics && (
+                      <pre className="text-xs text-foreground whitespace-pre-wrap max-h-48 overflow-y-auto">{debugResult.lyrics}</pre>
+                    )}
+                    {debugResult.type === "art" && (
+                      debugResult.artUrl
+                        ? <img src={debugResult.artUrl} alt="Debug art" className="w-48 h-48 object-cover rounded-lg border border-border" />
+                        : <p className="text-xs text-red-400">No art captured — check extension logs.</p>
+                    )}
+                    {debugResult.type === "metadata" && (
+                      <div className="space-y-1">
+                        <p className="text-xs"><span className="text-muted-foreground">Title: </span>{debugResult.title || "(none)"}</p>
+                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">{debugResult.description || "(no description)"}</p>
+                      </div>
+                    )}
+                    <button onClick={() => setDebugResult(null)} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -915,39 +1040,99 @@ export default function YouTubePage() {
           ))}
         </div>
 
-        {/* PERSISTENT PIPELINE STATUS BAR */}
-        {activeTab === "pipeline" && pendingCount > 0 && (
-          <div className="mb-4 flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg border border-primary/20 bg-primary/5">
-            <div className="flex items-center gap-2 text-sm text-primary">
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              {pendingCount} job{pendingCount !== 1 ? "s" : ""} pending / running in extension
-            </div>
-            <button onClick={cancelAllPending} className="text-xs text-red-400 border border-red-400/30 px-3 py-1 rounded-lg hover:bg-red-400/10 flex-shrink-0">
-              Cancel All
-            </button>
-          </div>
-        )}
+        {/* STEP CONTROLS — always visible in pipeline tab */}
+        {activeTab === "pipeline" && (() => {
+          const PIPELINE_STEPS = [
+            { key: "lyrics",   label: "Lyrics" },
+            { key: "art",      label: "Art" },
+            { key: "audio",    label: "Suno" },
+            { key: "metadata", label: "Metadata" },
+            { key: "approval", label: "Approval" },
+          ] as const;
+          const runningJobId = activeJobIds.find(id => activeJobs[id]?.status === "running") ?? activeJobIds[0] ?? null;
+          const runningStep = runningJobId ? activeJobs[runningJobId]?.step : null;
+          const runningIdx = PIPELINE_STEPS.findIndex(s => s.key === runningStep);
 
-        {/* APPROVAL QUEUE — one job at a time */}
+          const handleStepClick = async (stepKey: typeof PIPELINE_STEPS[number]["key"]) => {
+            if (runningJobId) {
+              jumpToStep(runningJobId, stepKey);
+            } else {
+              runDebugStep(stepKey === "audio" ? "suno" : stepKey === "approval" ? "metadata" : stepKey as any);
+            }
+          };
+
+          return (
+            <div className="mb-4 p-3 rounded-xl border border-border bg-card">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pipeline Steps</span>
+                {pendingCount > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-primary flex items-center gap-1">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      {runningStep ? <span className="capitalize">{runningStep}…</span> : `${pendingCount} queued`}
+                    </span>
+                    <button onClick={cancelAllPending} className="text-xs text-red-400 border border-red-400/30 px-2 py-0.5 rounded hover:bg-red-400/10">
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {PIPELINE_STEPS.map((s, i) => {
+                  const isRunning = s.key === runningStep;
+                  const isDone = runningIdx >= 0 && i < runningIdx;
+                  const isJumpable = runningJobId && i > runningIdx;
+                  const isIdle = !runningJobId;
+                  return (
+                    <button
+                      key={s.key}
+                      onClick={() => handleStepClick(s.key)}
+                      disabled={!!debugRunning || (!isJumpable && !isIdle) || isRunning}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors
+                        ${isRunning  ? "border-primary/50 bg-primary/10 text-primary cursor-default" :
+                          isDone     ? "border-green-500/30 bg-green-500/10 text-green-400 cursor-default opacity-60" :
+                          isJumpable ? "border-orange-500/40 bg-orange-500/5 text-orange-300 hover:bg-orange-500/10 cursor-pointer" :
+                          isIdle     ? "border-border bg-secondary text-foreground hover:border-primary/40 cursor-pointer" :
+                                       "border-border bg-secondary text-muted-foreground opacity-40 cursor-not-allowed"}`}
+                    >
+                      {isRunning && <RefreshCw className="w-3 h-3 animate-spin" />}
+                      {isDone    && <span className="text-green-400">✓</span>}
+                      {s.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {!runningJobId && <p className="text-xs text-muted-foreground mt-2">Click any step to run it in isolation for testing.</p>}
+              {runningJobId  && <p className="text-xs text-muted-foreground mt-2">Click a future step to skip ahead (carries over completed data).</p>}
+            </div>
+          );
+        })()}
+
+        {/* APPROVAL QUEUE — all jobs visible, one upload at a time */}
         {activeTab === "pipeline" && approvalQueue.length > 0 && (
           <div className="mb-5 space-y-4">
             <p className="text-sm font-semibold text-yellow-400">
               {approvalQueue.length} job{approvalQueue.length > 1 ? "s" : ""} awaiting approval
-              {approvalQueue.length > 1 && <span className="text-yellow-500/70 font-normal"> — approving job 1 of {approvalQueue.length}</span>}
+              {publishingJobId && <span className="text-yellow-500/70 font-normal"> — uploading…</span>}
             </p>
-            {approvalQueue.slice(0, 1).map(job => {
-              const allActioned = job.approvedUrls.length + job.skippedUrls.length >= job.audioUrls.length && job.audioUrls.length > 0;
+            {approvalQueue.map((job, jobIdx) => {
+              const isUploading = publishingJobId === job.jobId;
+              const isBlocked = publishingJobId !== null && !isUploading;
               return (
                 <div key={job.jobId} className="p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
+                      <p className="text-xs text-yellow-500/70 font-medium mb-0.5">Job {jobIdx + 1} of {approvalQueue.length}</p>
                       <p className="text-sm font-semibold text-foreground">{job.title || "Untitled"}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{job.isInstrumental ? "Instrumental" : "Vocal"} · {job.audioUrls.length} tracks</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {job.isInstrumental ? "Instrumental" : "Vocal"} · {job.audioUrls.length} tracks · pick one to publish, rest will be skipped
+                      </p>
                     </div>
                     <button onClick={() => handleDisapproveJob(job.jobId)}
-                      className="text-xs text-red-400 hover:text-red-300 flex-shrink-0">Dismiss Job</button>
+                      className="text-xs text-red-400 hover:text-red-300 flex-shrink-0">Dismiss</button>
                   </div>
-                  {publishingJobId === job.jobId ? (
+
+                  {isUploading ? (
                     <div className="flex items-center gap-2 text-sm text-primary">
                       <RefreshCw className="w-4 h-4 animate-spin" /> {autoPublishStep}
                     </div>
@@ -955,38 +1140,26 @@ export default function YouTubePage() {
                     <p className="text-xs text-muted-foreground italic">No audio URLs captured.</p>
                   ) : (
                     <div className="space-y-2">
-                      {job.audioUrls.map((url, i) => {
-                        const approved = job.approvedUrls.includes(url);
-                        const skipped = job.skippedUrls.includes(url);
-                        const vocalLocked = !job.isInstrumental && job.approvedUrls.length > 0 && !approved && !skipped;
-                        return (
-                          <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-secondary border border-border">
-                            <span className="text-sm text-muted-foreground w-16 flex-shrink-0">Track {i + 1}</span>
-                            {approved ? (
-                              <span className="text-xs text-green-400 flex-1">✓ Approved & uploading</span>
-                            ) : skipped ? (
-                              <span className="text-xs text-muted-foreground flex-1">Skipped</span>
-                            ) : vocalLocked ? (
-                              <>
-                                <span className="text-xs text-yellow-400 flex-1">Title already used</span>
-                                <button onClick={() => handleSkipTrack(job.jobId, url)}
-                                  className="px-3 py-1.5 rounded-lg bg-secondary border border-border text-xs text-muted-foreground hover:text-foreground">Skip</button>
-                              </>
-                            ) : (
-                              <>
-                                <button onClick={() => handleApprove(job, url)}
-                                  className="px-4 py-1.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">Approve</button>
-                                <button onClick={() => handleSkipTrack(job.jobId, url)}
-                                  className="px-4 py-1.5 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">Skip</button>
-                              </>
-                            )}
-                          </div>
-                        );
-                      })}
+                      {job.audioUrls.map((url, i) => (
+                        <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-secondary border border-border">
+                          <span className="text-xs text-muted-foreground w-14 flex-shrink-0 font-mono">Track {i + 1}</span>
+                          <button
+                            onClick={() => handleApprove(job, url)}
+                            disabled={isBlocked}
+                            className="px-4 py-1.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => handleSkipTrack(job.jobId, url)}
+                            disabled={isBlocked}
+                            className="px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            Skip
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  )}
-                  {allActioned && (
-                    <p className="text-xs text-green-400">All tracks actioned for this job.</p>
                   )}
                 </div>
               );
