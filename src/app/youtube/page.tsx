@@ -98,6 +98,7 @@ export default function YouTubePage() {
   const [submitting, setSubmitting] = useState(false);
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [activeJobs, setActiveJobs] = useState<Record<string, { step: string; status: string }>>({});
+  const [liveJob, setLiveJob] = useState<{ id: string; step: string; lyrics?: string; art_url?: string; audio_url?: string; title?: string; description?: string } | null>(null);
   const [approvalQueue, setApprovalQueue] = useState<ApprovalJob[]>([]);
   const reportedErrors = useRef<Set<string>>(new Set());
   const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
@@ -198,6 +199,10 @@ export default function YouTubePage() {
       const jobMap: Record<string, { step: string; status: string }> = {};
       jobs.forEach(j => { jobMap[j.id] = { step: j.step, status: j.status }; });
       setActiveJobs(jobMap);
+
+      // Keep the most recently updated running job as the live preview
+      const live = jobs.filter(j => j.status === "running" || j.status === "pending").sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0];
+      if (live) setLiveJob({ id: live.id, step: live.step, lyrics: live.lyrics, art_url: live.art_url, audio_url: live.audio_url, title: live.title, description: live.description });
 
       // Update step display from running jobs
       const running = jobs.find(j => j.status === "running");
@@ -1164,6 +1169,69 @@ export default function YouTubePage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* LIVE JOB PREVIEW */}
+        {activeTab === "pipeline" && liveJob && (
+          <div className="mb-5 p-4 rounded-xl border border-primary/20 bg-card space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">Live Preview
+                <span className="ml-2 text-xs font-normal text-primary capitalize">{liveJob.step}…</span>
+              </p>
+              <button onClick={() => setLiveJob(null)} className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Lyrics */}
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Lyrics</p>
+                {liveJob.lyrics
+                  ? <pre className="text-xs text-foreground whitespace-pre-wrap max-h-48 overflow-y-auto p-2 rounded-lg bg-secondary border border-border">{liveJob.lyrics}</pre>
+                  : <p className="text-xs text-muted-foreground italic">Not yet generated</p>}
+              </div>
+
+              {/* Cover Art */}
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cover Art</p>
+                {liveJob.art_url
+                  ? <img src={liveJob.art_url} alt="Cover art" className="w-40 h-40 object-cover rounded-lg border border-border" />
+                  : <div className="w-40 h-40 rounded-lg border border-border bg-secondary flex items-center justify-center text-xs text-muted-foreground">Not yet generated</div>}
+              </div>
+            </div>
+
+            {/* Audio tracks */}
+            {(() => {
+              let urls: string[] = [];
+              try { urls = JSON.parse(liveJob.audio_url ?? "[]"); } catch {}
+              return urls.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Audio Tracks ({urls.length})</p>
+                  <div className="space-y-2">
+                    {urls.map((url, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground w-16 flex-shrink-0">Track {i + 1}</span>
+                        <audio controls src={url} className="h-8 w-full" style={{ maxWidth: 320 }} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Audio Tracks</p>
+                  <p className="text-xs text-muted-foreground italic">Not yet generated</p>
+                </div>
+              );
+            })()}
+
+            {/* Title & Description */}
+            {(liveJob.title || liveJob.description) && (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Metadata</p>
+                {liveJob.title && <p className="text-sm font-medium">{liveJob.title}</p>}
+                {liveJob.description && <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-3">{liveJob.description}</p>}
+              </div>
+            )}
           </div>
         )}
 
