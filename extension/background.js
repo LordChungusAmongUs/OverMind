@@ -405,40 +405,38 @@ async function runSuno(lyrics, styleTags) {
       const LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics", "optional"];
       const STYLE_PH  = ["style of music", "enter style", "style tags", "genre", "style", "music style"];
 
-      const visible = Array.from(document.querySelectorAll("input, textarea"))
-        .filter(el => el.offsetParent !== null && !el.disabled && el.offsetWidth > 0);
+      // Use getBoundingClientRect — more reliable than offsetParent/offsetWidth on Suno
+      const allFields = Array.from(document.querySelectorAll("input, textarea"))
+        .filter(el => {
+          if (el.disabled || el.readOnly) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        });
 
-      // 1. Placeholder match
-      let el = visible.find(el => STYLE_PH.some(sp => (el.placeholder || "").toLowerCase().includes(sp)));
+      // Identify and exclude the lyrics field first
+      const lyricsField = allFields.find(el =>
+        LYRICS_PH.some(ph => (el.placeholder || "").toLowerCase().includes(ph))
+      );
+      const candidates = allFields.filter(el => el !== lyricsField);
 
-      // 2. aria-label match
-      if (!el) el = visible.find(el => STYLE_PH.some(sp => (el.getAttribute("aria-label") || "").toLowerCase().includes(sp)));
-
-      // 3. Nearest label text match
-      if (!el) el = visible.find(el => {
-        const label = el.labels?.[0]?.textContent || el.closest("label")?.textContent || "";
-        return STYLE_PH.some(sp => label.toLowerCase().includes(sp));
+      // 1. Placeholder / aria-label contains "style" or "genre"
+      let el = candidates.find(el => {
+        const ph = (el.placeholder || "").toLowerCase();
+        const al = (el.getAttribute("aria-label") || "").toLowerCase();
+        return ph.includes("style") || ph.includes("genre") ||
+               al.includes("style") || al.includes("genre");
       });
 
-      // 4. Short textarea that isn't lyrics (lyrics textarea is usually tall > 100px)
-      if (!el) {
-        el = visible.find(el =>
-          el.tagName === "TEXTAREA" &&
-          el.offsetHeight < 100 &&
-          !LYRICS_PH.some(lp => (el.placeholder || "").toLowerCase().includes(lp))
-        );
-      }
+      // 2. Any textarea that isn't the lyrics field
+      if (!el) el = candidates.find(el => el.tagName === "TEXTAREA");
 
-      // 5. Any visible input with no conflicting placeholder (last resort)
-      if (!el) {
-        el = visible.find(el =>
-          el.tagName === "INPUT" && el.type !== "search" &&
-          !LYRICS_PH.some(lp => (el.placeholder || "").toLowerCase().includes(lp)) &&
-          !(el.placeholder || "").toLowerCase().includes("search") &&
-          !(el.placeholder || "").toLowerCase().includes("title") &&
-          !(el.placeholder || "").toLowerCase().includes("name")
-        );
-      }
+      // 3. Any non-search/title/name input
+      if (!el) el = candidates.find(el => {
+        if (el.tagName !== "INPUT") return false;
+        const ph = (el.placeholder || "").toLowerCase();
+        return el.type !== "search" &&
+               !ph.includes("search") && !ph.includes("title") && !ph.includes("name");
+      });
 
       if (!el) return false;
       const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
@@ -757,8 +755,9 @@ async function runPipeline(job) {
   const { id, lyrics_prompt, art_prompt, metadata_prompt, lyrics: existingLyrics } = job;
   // style_tags may be updated after step 1 if ChatGPT returns a STYLE: line
   let style_tags = job.style_tags;
-  // Debug jobs (created by the step-test buttons) skip approval gates and run straight through
-  const isDebug = (job.track_theme || "").startsWith("__debug:");
+  // Debug jobs and auto-approve jobs skip approval gates and run straight through
+  const isDebug      = (job.track_theme || "").startsWith("__debug:");
+  const skipApproval = isDebug || !!job.auto_approve;
 
   try {
     await updateJob(id, { status: "running", step: "lyrics" });
@@ -773,37 +772,36 @@ async function runPipeline(job) {
       const styleFromLyrics = lyricsResult.match(/^STYLE:\s*(.+)/im)?.[1]?.trim();
       const titleFromLyrics = lyricsResult.match(/^TITLE:\s*(.+)/im)?.[1]?.trim();
       if (styleFromLyrics) style_tags = styleFromLyrics;
-      const step1Update = { lyrics, step: isDebug ? "art" : "lyrics_review" };
+      const step1Update = { lyrics, step: skipApproval ? "art" : "lyrics_review" };
       if (styleFromLyrics) step1Update.style_tags = styleFromLyrics;
       if (titleFromLyrics)  step1Update.title       = titleFromLyrics;
       await updateJob(id, step1Update);
-      if (!isDebug) {
+      if (!skipApproval) {
         await waitForApproval(id, "lyrics_review");
         if (await isCancelled(id)) return;
       }
     }
 
-    // Step 2: Generate art → pause for review (skipped for debug jobs)
+    // Step 2: Generate art → pause for review
     let artUrl = null;
     if (art_prompt) {
       if (await isCancelled(id)) return;
       await updateJob(id, { step: "art" });
       artUrl = await runChatGPTImage(art_prompt);
-      await updateJob(id, { art_url: artUrl, step: isDebug ? "audio" : "art_review" });
-      if (!isDebug) {
+      await updateJob(id, { art_url: artUrl, step: skipApproval ? "audio" : "art_review" });
+      if (!skipApproval) {
         await waitForApproval(id, "art_review");
         if (await isCancelled(id)) return;
       }
     }
 
     // Step 3: Generate audio in Suno → pause for review
-    // Skip if audio_url already set (debug/pre-filled jobs)
     const prefilledAudio = job.audio_url;
     let audioUrl;
     if (prefilledAudio) {
       audioUrl = prefilledAudio;
-      await updateJob(id, { step: isDebug ? "metadata" : "audio_review" });
-      if (!isDebug) {
+      await updateJob(id, { step: skipApproval ? "metadata" : "audio_review" });
+      if (!skipApproval) {
         await waitForApproval(id, "audio_review");
         if (await isCancelled(id)) return;
       }
@@ -818,14 +816,14 @@ async function runPipeline(job) {
       const allAudioUrls = [...run1, ...run2];
       await chrome.storage.local.set({ __audioDebug: { run1, run2, allAudioUrls } });
       audioUrl = JSON.stringify(allAudioUrls);
-      await updateJob(id, { audio_url: audioUrl, step: isDebug ? "metadata" : "audio_review" });
-      if (!isDebug) {
+      await updateJob(id, { audio_url: audioUrl, step: skipApproval ? "metadata" : "audio_review" });
+      if (!skipApproval) {
         await waitForApproval(id, "audio_review");
         if (await isCancelled(id)) return;
       }
     }
 
-    // Step 4: Generate metadata → pause for review (skipped for debug jobs)
+    // Step 4: Generate metadata → pause for review
     if (metadata_prompt) {
       if (await isCancelled(id)) return;
       await updateJob(id, { step: "metadata" });
@@ -835,9 +833,9 @@ async function runPipeline(job) {
       await updateJob(id, {
         title: titleMatch?.[1]?.trim() ?? "",
         description: descMatch?.[1]?.trim() ?? metaResult,
-        step: isDebug ? "approval" : "metadata_review",
+        step: skipApproval ? "approval" : "metadata_review",
       });
-      if (!isDebug) {
+      if (!skipApproval) {
         await waitForApproval(id, "metadata_review");
         if (await isCancelled(id)) return;
       }

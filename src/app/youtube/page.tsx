@@ -95,6 +95,7 @@ export default function YouTubePage() {
   const [automating, setAutomating] = useState(false);
   const [automationStep, setAutomationStep] = useState<string | null>(null);
   const [batchCount, setBatchCount] = useState(1);
+  const [autoApprove, setAutoApprove] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [activeJobs, setActiveJobs] = useState<Record<string, { step: string; status: string }>>({});
@@ -361,6 +362,7 @@ export default function YouTubePage() {
         lyrics_prompt: lp,
         art_prompt: ap,
         metadata_prompt: mp,
+        auto_approve: autoApprove,
       }).select().single();
       if (!error && data) newJobIds.push(data.id);
     }
@@ -733,13 +735,26 @@ export default function YouTubePage() {
                     </div>
                   ) : (
                     <>
-                      <div className="flex items-center gap-3 mb-3">
-                        <label className="text-sm text-muted-foreground">Song ideas to generate:</label>
-                        <input
-                          type="number" min={1} max={20} value={batchCount}
-                          onChange={e => setBatchCount(Math.max(1, Math.min(20, Number(e.target.value))))}
-                          className="w-16 px-2 py-1 text-sm rounded-lg bg-secondary border border-border text-foreground text-center focus:outline-none focus:ring-1 focus:ring-ring"
-                        />
+                      <div className="flex items-center gap-4 mb-3 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm text-muted-foreground">Song ideas:</label>
+                          <input
+                            type="number" min={1} max={20} value={batchCount}
+                            onChange={e => setBatchCount(Math.max(1, Math.min(20, Number(e.target.value))))}
+                            className="w-16 px-2 py-1 text-sm rounded-lg bg-secondary border border-border text-foreground text-center focus:outline-none focus:ring-1 focus:ring-ring"
+                          />
+                        </div>
+                        <button
+                          onClick={() => setAutoApprove(v => !v)}
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border transition-colors ${
+                            autoApprove
+                              ? "bg-green-600/20 border-green-500/40 text-green-400"
+                              : "bg-secondary border-border text-muted-foreground hover:border-primary/40"
+                          }`}
+                        >
+                          <span className={`w-3 h-3 rounded-full ${autoApprove ? "bg-green-400" : "bg-muted-foreground/40"}`} />
+                          Auto-approve {autoApprove ? "ON" : "OFF"}
+                        </button>
                       </div>
                       <button
                         onClick={runAutomation}
