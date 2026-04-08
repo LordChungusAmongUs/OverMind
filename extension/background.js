@@ -245,35 +245,54 @@ async function runChatGPTImage(prompt) {
     await sleep(3000);
   }
 
-  // ── Step 4: Poll for a NEW large image that wasn't on the page before ──
-  // "New" = not in the baseline snapshot. "Large" = oaiusercontent CDN or >200px.
-  // ChatGPT CDN for generated images: files.oaiusercontent.com
+  // Extra buffer — give the image time to fully render after generation
+  await sleep(6000);
+
+  // Scroll to bottom so lazy-loaded images render
+  await injectAndRun(tabId, () => {
+    (document.querySelector("main") || document.body).scrollTo(0, 999999);
+  }).catch(() => {});
+  await sleep(2000);
+
+  // ── Step 4: Poll for the generated image ──
+  // Strategy: look for a NEW image (not in baseline) inside the main chat area
+  // that is rendered large. Also check known ChatGPT CDN domains as a fast path.
   let imgSrc = "";
-  for (let i = 0; i < 60 && !imgSrc; i++) {
-    const current = await getAllImgSrcs();
-    const newImgs = current.filter(src => !baseline.has(src));
-    // Prefer oaiusercontent CDN URLs — that's where DALL-E images live
-    const cdnImg = newImgs.find(src => src.includes("oaiusercontent.com") || src.includes("oaistatic.com"));
-    if (cdnImg) { imgSrc = cdnImg; break; }
-    // Fallback to any new large image (rendered >200px)
-    if (newImgs.length > 0) {
-      const large = await injectAndRun(tabId, (srcs) => {
-        for (let i = srcs.length - 1; i >= 0; i--) {
-          const imgs = Array.from(document.querySelectorAll("img"));
-          const el = imgs.find(img => (img.currentSrc || img.src) === srcs[i]);
-          if (el) {
-            const r = el.getBoundingClientRect();
-            if (r.width > 100 && r.height > 100) return srcs[i];
-          }
+  for (let i = 0; i < 40 && !imgSrc; i++) {
+    imgSrc = await injectAndRun(tabId, (baselineArr) => {
+      const baseline = new Set(baselineArr);
+      const allImgs = Array.from(document.querySelectorAll("img"));
+
+      // Fast path: any new oaiusercontent / Azure CDN URL (DALL-E lives here)
+      for (const img of allImgs) {
+        const src = img.currentSrc || img.src || "";
+        if (!src || baseline.has(src)) continue;
+        if (src.includes("oaiusercontent.com") ||
+            src.includes("blob.core.windows.net") ||
+            src.includes("oaidalle")) {
+          return src;
         }
-        return "";
-      }, [newImgs]).catch(() => "");
-      if (large) { imgSrc = large; break; }
-    }
-    await sleep(3000);
+      }
+
+      // Slow path: last new image rendered large (>150px) inside the main area
+      const container = document.querySelector("main") ||
+                        document.querySelector('[class*="conversation"]') ||
+                        document.body;
+      const containerImgs = Array.from(container.querySelectorAll("img")).reverse();
+      for (const img of containerImgs) {
+        const src = img.currentSrc || img.src || "";
+        if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
+        if (baseline.has(src)) continue;
+        const r = img.getBoundingClientRect();
+        if (r.width > 150 && r.height > 150) return src;
+      }
+      return "";
+    }, [Array.from(baseline)]).catch(() => "");
+
+    if (!imgSrc) await sleep(4000);
   }
 
-  const artLog = { imgSrc: imgSrc?.slice(0, 120), fetch: null };
+  const artLog = { imgSrc: imgSrc?.slice(0, 200), isCDN: !!(imgSrc?.includes("oaiusercontent") || imgSrc?.includes("blob.core.windows")), fetch: null };
   await chrome.storage.local.set({ __artLog: artLog });
 
   if (imgSrc) {
