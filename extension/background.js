@@ -492,10 +492,12 @@ async function runSuno(lyrics, styleTags) {
 
       let el = null;
       if (mode === "style") {
-        el = nonLyrics.find(el => stylPH.some(s => lbl(el).includes(s)))
-          ?? nonLyrics.find(el => el.tagName === "TEXTAREA")
-          ?? nonLyrics.find(el => el.getAttribute("contenteditable") === "true")
-          ?? nonLyrics.find(el => el.tagName === "INPUT" && el.type !== "search" && !lbl(el).includes("title") && !lbl(el).includes("name") && !lbl(el).includes("search"));
+        // Exclude "Exclude styles" / "negative" fields — their label contains "style" but they're for exclusions
+        const notExclude = el => !lbl(el).includes("exclude") && !lbl(el).includes("negative");
+        el = nonLyrics.find(el => notExclude(el) && stylPH.some(s => lbl(el).includes(s)))
+          ?? nonLyrics.find(el => notExclude(el) && el.tagName === "TEXTAREA")
+          ?? nonLyrics.find(el => notExclude(el) && el.getAttribute("contenteditable") === "true")
+          ?? nonLyrics.find(el => notExclude(el) && el.tagName === "INPUT" && el.type !== "search" && !lbl(el).includes("title") && !lbl(el).includes("name") && !lbl(el).includes("search"));
       } else {
         el = fields.find(el => {
           const l = lbl(el);
@@ -550,9 +552,10 @@ async function runSuno(lyrics, styleTags) {
       const lbl = el => ((el.placeholder || "") + " " + (el.getAttribute("aria-label") || "")).toLowerCase();
       const lyricsField = fields.find(el => lyrPH.some(ph => lbl(el).includes(ph)));
       const nonLyrics = fields.filter(el => el !== lyricsField);
-      const el = nonLyrics.find(el => stylPH.some(s => lbl(el).includes(s)))
-        ?? nonLyrics.find(el => el.tagName === "TEXTAREA")
-        ?? nonLyrics.find(el => el.getAttribute("contenteditable") === "true");
+      const notExclude = el => !lbl(el).includes("exclude") && !lbl(el).includes("negative");
+      const el = nonLyrics.find(el => notExclude(el) && stylPH.some(s => lbl(el).includes(s)))
+        ?? nonLyrics.find(el => notExclude(el) && el.tagName === "TEXTAREA")
+        ?? nonLyrics.find(el => notExclude(el) && el.getAttribute("contenteditable") === "true");
       if (!el) return "field_gone";
       const cur = el.isContentEditable ? el.textContent : el.value;
       if (cur === val) return `still_ok`;
