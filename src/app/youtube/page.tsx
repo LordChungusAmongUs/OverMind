@@ -68,6 +68,7 @@ interface ApprovalJob {
   title: string;
   description: string;
   lyrics: string;
+  styleTags: string;
   isInstrumental: boolean;
   approvedUrls: string[];
   skippedUrls: string[];
@@ -298,6 +299,7 @@ export default function YouTubePage() {
             title: j.title ?? "",
             description: j.description ?? "",
             lyrics: j.lyrics ?? "",
+            styleTags: j.style_tags ?? "",
             isInstrumental: !(j.lyrics || "").replace(/^TITLE:\s*.+\r?\n?/im, "").replace(/^STYLE:\s*.+\r?\n?/im, "").trim(),
             approvedUrls: [],
             skippedUrls: [],
@@ -1346,7 +1348,8 @@ export default function YouTubePage() {
               const isUploading = publishingJobId === job.jobId;
               const isBlocked = publishingJobId !== null && !isUploading;
               return (
-                <div key={job.jobId} className="p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-3">
+                <div key={job.jobId} className="p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-4">
+                  {/* Header */}
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs text-yellow-500/70 font-medium mb-0.5">Job {jobIdx + 1} of {approvalQueue.length}</p>
@@ -1359,6 +1362,24 @@ export default function YouTubePage() {
                       className="text-xs text-red-400 hover:text-red-300 flex-shrink-0">Dismiss</button>
                   </div>
 
+                  {/* Art + details */}
+                  <div className="flex gap-4">
+                    {job.artUrl
+                      ? <img src={job.artUrl} alt="Cover art" className="w-28 h-28 object-cover rounded-lg border border-border flex-shrink-0" />
+                      : <div className="w-28 h-28 rounded-lg border border-border bg-secondary flex-shrink-0 flex items-center justify-center text-xs text-muted-foreground">No art</div>}
+                    <div className="flex-1 space-y-2 min-w-0">
+                      {job.styleTags && <p className="text-xs text-primary font-medium">{job.styleTags}</p>}
+                      {job.description && <p className="text-xs text-muted-foreground line-clamp-4 whitespace-pre-wrap">{job.description}</p>}
+                      {!job.isInstrumental && job.lyrics && (
+                        <details className="text-xs">
+                          <summary className="text-muted-foreground cursor-pointer hover:text-foreground">Show lyrics</summary>
+                          <pre className="mt-1 text-foreground whitespace-pre-wrap max-h-40 overflow-y-auto p-2 rounded bg-secondary border border-border">{job.lyrics}</pre>
+                        </details>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Audio tracks */}
                   {isUploading ? (
                     <div className="flex items-center gap-2 text-sm text-primary">
                       <RefreshCw className="w-4 h-4 animate-spin" /> {autoPublishStep}
@@ -1370,6 +1391,7 @@ export default function YouTubePage() {
                       {job.audioUrls.map((url, i) => (
                         <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-secondary border border-border">
                           <span className="text-xs text-muted-foreground w-14 flex-shrink-0 font-mono">Track {i + 1}</span>
+                          <audio controls src={url} className="h-8 flex-1" style={{ maxWidth: 200 }} />
                           <button
                             onClick={() => handleApprove(job, url)}
                             disabled={isBlocked}
