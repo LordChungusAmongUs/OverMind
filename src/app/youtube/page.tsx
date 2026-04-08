@@ -82,6 +82,7 @@ export default function YouTubePage() {
   const [trackTheme, setTrackTheme] = useState("");
   const [lyricsPrompt, setLyricsPrompt] = useState("");
   const [artPrompt, setArtPrompt] = useState("");
+  const [metadataPrompt, setMetadataPrompt] = useState("");
   const [lyrics, setLyrics] = useState("");
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [artFile, setArtFile] = useState<File | null>(null);
@@ -333,8 +334,8 @@ export default function YouTubePage() {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const buildConcept = (theme: string) => {
-    const persona = pickPersona();
+  const buildConcept = (theme: string, persona?: typeof PERSONAS[0]) => {
+    if (!persona) persona = pickPersona();
     const tag = generateStyleTagForPersona(persona);
     const rhymeSchemes = ["AAAB AAAB", "AAAB CCCB", "ABAB", "ABCB", "ABBB"];
     const rhyme = rhymeSchemes[Math.floor(Math.random() * rhymeSchemes.length)];
@@ -399,7 +400,21 @@ export default function YouTubePage() {
 
     const newJobIds: string[] = [];
     for (let i = 0; i < batchCount; i++) {
-      const { persona, tag, lyricsPrompt: lp, artPrompt: ap, metadataPrompt: mp } = buildConcept(trackTheme.trim());
+      // If the user already generated a concept (styleTag is set), use those stored prompts.
+      // Only generate fresh prompts if no concept has been built yet.
+      let tag: string, lp: string, ap: string, mp: string;
+      if (styleTag && lyricsPrompt && artPrompt && metadataPrompt) {
+        tag = styleTag;
+        lp = lyricsPrompt;
+        ap = artPrompt;
+        mp = metadataPrompt;
+      } else {
+        const built = buildConcept(trackTheme.trim(), selectedPersona);
+        tag = built.tag;
+        lp = built.lyricsPrompt;
+        ap = built.artPrompt;
+        mp = built.metadataPrompt;
+      }
       const autoApproveStepsStr = Object.entries(autoApproveSteps)
         .filter(([, v]) => v).map(([k]) => k).join(",");
       const { data, error } = await supabase.from("pipeline_jobs").insert({
@@ -424,9 +439,20 @@ export default function YouTubePage() {
     setDebugRunning(step);
     setDebugResult(null);
 
-    const { persona, tag, lyricsPrompt: lp, artPrompt: ap, metadataPrompt: mp } = buildConcept(trackTheme.trim());
-    setSelectedPersona(persona);
-    setStyleTag(tag);
+    let tag: string, lp: string, ap: string, mp: string;
+    if (styleTag && lyricsPrompt && artPrompt && metadataPrompt) {
+      tag = styleTag;
+      lp = lyricsPrompt;
+      ap = artPrompt;
+      mp = metadataPrompt;
+    } else {
+      const built = buildConcept(trackTheme.trim(), selectedPersona);
+      tag = built.tag;
+      lp = built.lyricsPrompt;
+      ap = built.artPrompt;
+      mp = built.metadataPrompt;
+      setStyleTag(tag);
+    }
 
     // Build a minimal job — pre-set audio_url="[]" to skip Suno for non-audio steps
     const jobData: Record<string, string> = {
@@ -693,11 +719,12 @@ export default function YouTubePage() {
   };
 
   const generateConcept = () => {
-    const { persona, tag, lyricsPrompt: lp, artPrompt: ap } = buildConcept(trackTheme.trim());
+    const { persona, tag, lyricsPrompt: lp, artPrompt: ap, metadataPrompt: mp } = buildConcept(trackTheme.trim(), selectedPersona);
     setSelectedPersona(persona);
     setStyleTag(tag);
     setLyricsPrompt(lp);
     setArtPrompt(ap);
+    setMetadataPrompt(mp);
   };
 
   const handleArtUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -760,13 +787,20 @@ export default function YouTubePage() {
       case "concept":
         return (
           <div className="space-y-4">
-            {styleTag && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
-                <span className="text-xs text-muted-foreground">Persona:</span>
-                <span className="text-sm font-semibold text-primary">{selectedPersona.name}</span>
-                <span className="text-xs text-muted-foreground ml-auto">{selectedPersona.instrumental ? "Instrumental" : selectedPersona.vocals}</span>
-              </div>
-            )}
+            <div>
+              <label className="text-sm text-muted-foreground mb-1 block">Artist</label>
+              <select
+                value={selectedPersona.name}
+                onChange={e => setSelectedPersona(PERSONAS.find(p => p.name === e.target.value) ?? PERSONAS[0])}
+                className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                {PERSONAS.map(p => (
+                  <option key={p.name} value={p.name}>
+                    {p.name} — {p.instrumental ? "Instrumental" : p.vocals}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">Track theme (optional)</label>
               <input
