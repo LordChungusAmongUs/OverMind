@@ -511,9 +511,10 @@ export default function YouTubePage() {
     }
     if (!audioUrl) { alert("No audio URL found. Cannot auto-publish."); return; }
 
-    // Instrumental 2nd+ approval: spin up a new job to generate fresh art/title/metadata
-    // for this specific audio track, then come back through the approval queue
-    if (job.isInstrumental && job.approvedUrls.length >= 1) {
+    // Instrumental multi-track: each approval spins up a new job with fresh art/title/metadata
+    // for that specific audio, then comes back through the approval queue for final publish.
+    // Single-audio jobs (already re-queued) fall through to the normal publish path below.
+    if (job.isInstrumental && job.audioUrls.length > 1) {
       const { data: origJob } = await supabase.from("pipeline_jobs")
         .select("art_prompt, metadata_prompt, style_tags, track_theme")
         .eq("id", job.jobId).single();
@@ -535,9 +536,16 @@ export default function YouTubePage() {
           setAutomating(true);
         }
       }
-      setApprovalQueue(prev => prev.map(j =>
-        j.jobId !== job.jobId ? j : { ...j, approvedUrls: [...j.approvedUrls, audioUrl] }
-      ));
+      setApprovalQueue(prev => {
+        const updated = prev.map(j =>
+          j.jobId !== job.jobId ? j : { ...j, approvedUrls: [...j.approvedUrls, audioUrl] }
+        );
+        // Remove original job from queue once every track has been approved or skipped
+        return updated.filter(j => {
+          if (j.jobId !== job.jobId) return true;
+          return j.approvedUrls.length + j.skippedUrls.length < j.audioUrls.length;
+        });
+      });
       return;
     }
 
