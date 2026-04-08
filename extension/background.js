@@ -510,19 +510,16 @@ async function runSuno(lyrics, styleTags) {
         el.textContent = "";
         document.execCommand("insertText", false, val);
       } else {
-        el.select?.();
-        const ok = document.execCommand("insertText", false, val);
-        if (!ok || el.value !== val) {
-          const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-          Object.getOwnPropertyDescriptor(proto, "value").set.call(el, val);
-          el.dispatchEvent(new Event("input",  { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
-        }
+        // Use the PAGE's native prototype setter (MAIN world) so React's fiber sees the change
+        const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, "value").set.call(el, val);
+        el.dispatchEvent(new Event("input",  { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
       }
-      el.blur();
+      // Do NOT call el.blur() — Suno's onBlur handler resets the field
       const final = el.isContentEditable ? el.textContent : el.value;
       return final === val ? "ok" : `wrong_val got="${final.slice(0,40)}"`;
-    }, [value, lyrPH, stylPH, titPH, mode]).catch(e => `exc:${e}`);
+    }, [value, lyrPH, stylPH, titPH, mode], "MAIN").catch(e => `exc:${e}`);
     return result;
   };
 
