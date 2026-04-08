@@ -277,16 +277,30 @@ async function runChatGPTImage(prompt) {
     await sleep(3000);
   }
 
-  // ── Poll window.__artCapture (set by MutationObserver) — up to 3 min ──
-  // Also scroll to bottom each iteration to trigger lazy-loading
+  // Generation is done. Reset capture so any placeholder grabbed during generation
+  // is discarded — we only want the fully-rendered final image.
+  await injectAndRun(tabId, () => { window.__artCapture = null; }, [], "MAIN").catch(() => {});
+
+  // Give ChatGPT time to swap in the final high-res image after the stop button clears
+  await sleep(10000);
+
+  // Scroll to bottom to trigger lazy-loading of the final image
+  await injectAndRun(tabId, () => {
+    (document.querySelector("main") || document.body).scrollTo(0, 999999);
+  }).catch(() => {});
+  await sleep(3000);
+
+  // ── Poll window.__artCapture — up to 3 min ──
   let imgSrc = "";
   for (let i = 0; i < 60 && !imgSrc; i++) {
-    await injectAndRun(tabId, () => {
-      (document.querySelector("main") || document.body).scrollTo(0, 999999);
-    }).catch(() => {});
-
     imgSrc = await injectAndRun(tabId, () => window.__artCapture || "", [], "MAIN").catch(() => "");
-    if (!imgSrc) await sleep(3000);
+    if (!imgSrc) {
+      // Keep scrolling so new images lazy-load into the observer's view
+      await injectAndRun(tabId, () => {
+        (document.querySelector("main") || document.body).scrollTo(0, 999999);
+      }).catch(() => {});
+      await sleep(3000);
+    }
   }
 
   const artLog = { imgSrc: imgSrc?.slice(0, 200), isCDN: !!(imgSrc?.includes("oaiusercontent") || imgSrc?.includes("blob.core")), fetch: null };
