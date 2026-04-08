@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Youtube, Music, Wand2, ImageIcon, Video,
   FileText, Upload, RefreshCw, Copy, Check,
-  ChevronRight, Calendar, BarChart2,
+  ChevronRight, Calendar, BarChart2, Clock, Plus, Trash2,
 } from "lucide-react";
 
 // ── PERSONAS ─────────────────────────────────────────────────
@@ -109,6 +109,15 @@ export default function YouTubePage() {
       return next;
     });
   };
+  const [autoNext, setAutoNext] = useState(() => { try { return JSON.parse(localStorage.getItem("autoNext") || "false"); } catch { return false; } });
+  const [schedule, setSchedule] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("schedule") || "[]"); } catch { return []; } });
+  const [scheduleEnabled, setScheduleEnabled] = useState(() => { try { return JSON.parse(localStorage.getItem("scheduleEnabled") || "false"); } catch { return false; } });
+  const [newScheduleTime, setNewScheduleTime] = useState("09:00");
+  const autoNextRef = useRef(autoNext);
+  const scheduleRef = useRef(schedule);
+  const scheduleEnabledRef = useRef(scheduleEnabled);
+  const lastScheduledRunRef = useRef<string | null>(null);
+  const runAutomationRef = useRef<(() => Promise<void>) | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [activeJobs, setActiveJobs] = useState<Record<string, { step: string; status: string }>>({});
@@ -139,6 +148,25 @@ export default function YouTubePage() {
     };
     check();
     const interval = setInterval(check, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Keep refs in sync so callbacks always see latest values
+  useEffect(() => { autoNextRef.current = autoNext; }, [autoNext]);
+  useEffect(() => { scheduleRef.current = schedule; }, [schedule]);
+  useEffect(() => { scheduleEnabledRef.current = scheduleEnabled; }, [scheduleEnabled]);
+
+  // Scheduler — checks every 30s if it's time to run a job
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!scheduleEnabledRef.current || !scheduleRef.current.length) return;
+      const now = new Date();
+      const t = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+      if (scheduleRef.current.includes(t) && lastScheduledRunRef.current !== t) {
+        lastScheduledRunRef.current = t;
+        runAutomationRef.current?.();
+      }
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -356,6 +384,7 @@ export default function YouTubePage() {
 
   const runAutomation = async () => {
     if (submitting || automating) return;
+    runAutomationRef.current = runAutomation;
     setSubmitting(true);
     setAutomating(true);
     setAutomationStep("queued");
@@ -604,6 +633,17 @@ export default function YouTubePage() {
       setPublishedUrl(`https://www.youtube.com/watch?v=${videoId}`);
       setCurrentStep("publish");
 
+      // Auto-next: after a short delay to let the user see the success screen, start next job
+      if (autoNextRef.current) {
+        setTimeout(() => {
+          setPublishedUrl(null);
+          setCurrentStep("concept");
+          setStyleTag(""); setLyrics(""); setArtFile(null); setArtPreview(null);
+          setAudioFile(null); setVideoUrl(null); setTitle(""); setDescription("");
+          runAutomationRef.current?.();
+        }, 5000);
+      }
+
       // Approve this track and auto-skip all remaining tracks in this job — one decision per job
       setApprovalQueue(prev => {
         const updated = prev.map(j => {
@@ -786,6 +826,16 @@ export default function YouTubePage() {
                           </button>
                         </div>
                       </div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <button
+                          onClick={() => { const v = !autoNext; setAutoNext(v); try { localStorage.setItem("autoNext", JSON.stringify(v)); } catch {} }}
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border transition-colors ${autoNext ? "bg-green-600/20 border-green-500/40 text-green-400" : "bg-secondary border-border text-muted-foreground hover:border-primary/40"}`}
+                        >
+                          <span className={`w-3 h-3 rounded-full ${autoNext ? "bg-green-400" : "bg-muted-foreground/40"}`} />
+                          Auto-next {autoNext ? "ON" : "OFF"}
+                        </button>
+                        <span className="text-xs text-muted-foreground">Auto-start next track after each publish</span>
+                      </div>
                       <button
                         onClick={runAutomation}
                         disabled={submitting}
@@ -827,6 +877,69 @@ export default function YouTubePage() {
                 )}
               </div>
             )}
+
+            {/* ── SCHEDULE ─────────────────────────────────── */}
+            <div className="p-4 rounded-xl border border-border bg-card space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-semibold">Auto-Schedule</span>
+                </div>
+                <button
+                  onClick={() => { const v = !scheduleEnabled; setScheduleEnabled(v); try { localStorage.setItem("scheduleEnabled", JSON.stringify(v)); } catch {} }}
+                  className={`flex items-center gap-2 px-3 py-1 rounded-lg text-xs border transition-colors ${scheduleEnabled ? "bg-green-600/20 border-green-500/40 text-green-400" : "bg-secondary border-border text-muted-foreground hover:border-primary/40"}`}
+                >
+                  <span className={`w-2.5 h-2.5 rounded-full ${scheduleEnabled ? "bg-green-400" : "bg-muted-foreground/40"}`} />
+                  {scheduleEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">Set times to automatically run a track each day.</p>
+
+              {/* Add time */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="time"
+                  value={newScheduleTime}
+                  onChange={e => setNewScheduleTime(e.target.value)}
+                  className="px-2 py-1.5 text-sm rounded-lg bg-secondary border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+                <button
+                  onClick={() => {
+                    if (!newScheduleTime || schedule.includes(newScheduleTime)) return;
+                    const next = [...schedule, newScheduleTime].sort();
+                    setSchedule(next);
+                    try { localStorage.setItem("schedule", JSON.stringify(next)); } catch {}
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add
+                </button>
+              </div>
+
+              {/* Scheduled times list */}
+              {schedule.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {schedule.map(t => (
+                    <div key={t} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-secondary border border-border text-sm">
+                      <Clock className="w-3 h-3 text-muted-foreground" />
+                      <span>{t}</span>
+                      <button
+                        onClick={() => {
+                          const next = schedule.filter(s => s !== t);
+                          setSchedule(next);
+                          try { localStorage.setItem("schedule", JSON.stringify(next)); } catch {}
+                        }}
+                        className="text-muted-foreground hover:text-red-400 ml-0.5"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">No times set.</p>
+              )}
+            </div>
           </div>
         );
 
