@@ -95,7 +95,7 @@ export default function YouTubePage() {
   const [automating, setAutomating] = useState(false);
   const [automationStep, setAutomationStep] = useState<string | null>(null);
   const [batchCount, setBatchCount] = useState(1);
-  const [autoApprove, setAutoApprove] = useState(false);
+  const [autoApproveSteps, setAutoApproveSteps] = useState({ lyrics: false, art: false, audio: false, metadata: false });
   const [submitting, setSubmitting] = useState(false);
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [activeJobs, setActiveJobs] = useState<Record<string, { step: string; status: string }>>({});
@@ -355,6 +355,8 @@ export default function YouTubePage() {
     const newJobIds: string[] = [];
     for (let i = 0; i < batchCount; i++) {
       const { persona, tag, lyricsPrompt: lp, artPrompt: ap, metadataPrompt: mp } = buildConcept(trackTheme.trim());
+      const autoApproveStepsStr = Object.entries(autoApproveSteps)
+        .filter(([, v]) => v).map(([k]) => k).join(",");
       const { data, error } = await supabase.from("pipeline_jobs").insert({
         status: "pending",
         style_tags: tag,
@@ -362,7 +364,8 @@ export default function YouTubePage() {
         lyrics_prompt: lp,
         art_prompt: ap,
         metadata_prompt: mp,
-        auto_approve: autoApprove,
+        auto_approve: Object.values(autoApproveSteps).every(Boolean),
+        auto_approve_steps: autoApproveStepsStr || null,
       }).select().single();
       if (!error && data) newJobIds.push(data.id);
     }
@@ -744,17 +747,31 @@ export default function YouTubePage() {
                             className="w-16 px-2 py-1 text-sm rounded-lg bg-secondary border border-border text-foreground text-center focus:outline-none focus:ring-1 focus:ring-ring"
                           />
                         </div>
-                        <button
-                          onClick={() => setAutoApprove(v => !v)}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border transition-colors ${
-                            autoApprove
-                              ? "bg-green-600/20 border-green-500/40 text-green-400"
-                              : "bg-secondary border-border text-muted-foreground hover:border-primary/40"
-                          }`}
-                        >
-                          <span className={`w-3 h-3 rounded-full ${autoApprove ? "bg-green-400" : "bg-muted-foreground/40"}`} />
-                          Auto-approve {autoApprove ? "ON" : "OFF"}
-                        </button>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-xs text-muted-foreground mr-1">Auto-approve:</span>
+                          {(["lyrics", "art", "audio", "metadata"] as const).map(step => (
+                            <button
+                              key={step}
+                              onClick={() => setAutoApproveSteps(prev => ({ ...prev, [step]: !prev[step] }))}
+                              className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors capitalize ${
+                                autoApproveSteps[step]
+                                  ? "bg-green-600/20 border-green-500/40 text-green-400"
+                                  : "bg-secondary border-border text-muted-foreground hover:border-primary/40"
+                              }`}
+                            >
+                              {autoApproveSteps[step] ? "✓ " : ""}{step}
+                            </button>
+                          ))}
+                          <button
+                            onClick={() => {
+                              const allOn = Object.values(autoApproveSteps).every(Boolean);
+                              setAutoApproveSteps({ lyrics: !allOn, art: !allOn, audio: !allOn, metadata: !allOn });
+                            }}
+                            className="px-2.5 py-1 rounded-md text-xs font-medium border border-border text-muted-foreground hover:border-primary/40 bg-secondary ml-1"
+                          >
+                            {Object.values(autoApproveSteps).every(Boolean) ? "Clear all" : "All"}
+                          </button>
+                        </div>
                       </div>
                       <button
                         onClick={runAutomation}

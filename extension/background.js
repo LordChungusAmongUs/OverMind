@@ -194,55 +194,6 @@ async function runChatGPTImage(prompt) {
   await waitForTab(tabId);
   await sleep(4000);
 
-  // ── Inject MutationObserver into MAIN world BEFORE sending prompt ──
-  // This captures the generated image URL the instant it appears in the DOM,
-  // regardless of how ChatGPT structures its messages or which CDN it uses.
-  await injectAndRun(tabId, () => {
-    window.__artCapture = null;
-    // Baseline: every img src currently on the page
-    const baseline = new Set(
-      Array.from(document.querySelectorAll("img"))
-        .map(i => i.currentSrc || i.src || "")
-        .filter(s => s && !s.startsWith("data:") && !s.endsWith(".svg"))
-    );
-
-    const check = (img) => {
-      if (window.__artCapture) return;            // already have one
-      const src = img.currentSrc || img.src || "";
-      if (!src || src.startsWith("data:") || src.endsWith(".svg")) return;
-      if (baseline.has(src)) return;              // existed before prompt
-      // Accept immediately if it looks like a ChatGPT image CDN URL
-      const isCDN = src.includes("oaiusercontent.com") ||
-                    src.includes("blob.core.windows.net") ||
-                    src.includes("oaidalle");
-      // Or accept if it's rendered large (>150px wide) — DALL-E images are big
-      const r = img.getBoundingClientRect();
-      const isLarge = r.width > 150 && r.height > 150;
-      if (isCDN || isLarge) {
-        window.__artCapture = src;
-        baseline.add(src); // don't capture same URL twice
-      }
-    };
-
-    // Observe any new img added OR any src attribute changed
-    const obs = new MutationObserver(mutations => {
-      for (const m of mutations) {
-        if (m.type === "childList") {
-          m.addedNodes.forEach(n => {
-            if (n.nodeName === "IMG") check(n);
-            if (n.querySelectorAll) n.querySelectorAll("img").forEach(check);
-          });
-        } else if (m.type === "attributes" && m.target.nodeName === "IMG") {
-          check(m.target);
-        }
-      }
-    });
-    obs.observe(document.body, {
-      childList: true, subtree: true,
-      attributes: true, attributeFilter: ["src", "srcset"],
-    });
-  }, [], "MAIN");
-
   // ── Send the art prompt ──
   await injectAndRun(tabId, (p) => {
     const input = document.querySelector("#prompt-textarea") || document.querySelector('[contenteditable="true"]');
@@ -277,30 +228,37 @@ async function runChatGPTImage(prompt) {
     await sleep(3000);
   }
 
-  // Generation is done. Reset capture so any placeholder grabbed during generation
-  // is discarded — we only want the fully-rendered final image.
-  await injectAndRun(tabId, () => { window.__artCapture = null; }, [], "MAIN").catch(() => {});
+  // ── Wait 75 seconds for the final image to fully render ──
+  // No MutationObserver — we scan the conversation directly so we only
+  // ever pick up images from ChatGPT's reply, not UI chrome / suggestions.
+  await sleep(75000);
 
-  // Give ChatGPT 2 minutes to fully render the final image after generation completes
-  await sleep(120000);
-
-  // Scroll to bottom to trigger lazy-loading of the final image
-  await injectAndRun(tabId, () => {
-    (document.querySelector("main") || document.body).scrollTo(0, 999999);
-  }).catch(() => {});
-  await sleep(3000);
-
-  // ── Poll window.__artCapture — up to 3 min ──
+  // ── Direct scan: walk imgs inside <main> in reverse, take the last large one ──
+  // On a fresh tab with a single conversation, the only large image in <main>
+  // is the DALL-E art ChatGPT just generated. Sidebars and suggestions live
+  // outside <main> so they're invisible to this query.
   let imgSrc = "";
-  for (let i = 0; i < 60 && !imgSrc; i++) {
-    imgSrc = await injectAndRun(tabId, () => window.__artCapture || "", [], "MAIN").catch(() => "");
-    if (!imgSrc) {
-      // Keep scrolling so new images lazy-load into the observer's view
-      await injectAndRun(tabId, () => {
-        (document.querySelector("main") || document.body).scrollTo(0, 999999);
-      }).catch(() => {});
-      await sleep(3000);
-    }
+  for (let i = 0; i < 20 && !imgSrc; i++) {
+    // Scroll to bottom so lazy-loaded image is in view
+    await injectAndRun(tabId, () => {
+      (document.querySelector("main") || document.body).scrollTo(0, 999999);
+    }).catch(() => {});
+    await sleep(2000);
+
+    imgSrc = await injectAndRun(tabId, () => {
+      const main = document.querySelector("main");
+      if (!main) return "";
+      const imgs = Array.from(main.querySelectorAll("img")).reverse();
+      for (const img of imgs) {
+        const src = img.currentSrc || img.src || "";
+        if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
+        const r = img.getBoundingClientRect();
+        if (r.width > 150 && r.height > 150) return src;
+      }
+      return "";
+    }).catch(() => "");
+
+    if (!imgSrc) await sleep(3000);
   }
 
   const artLog = { imgSrc: imgSrc?.slice(0, 200), isCDN: !!(imgSrc?.includes("oaiusercontent") || imgSrc?.includes("blob.core")), fetch: null };
@@ -428,108 +386,174 @@ async function runSuno(lyrics, styleTags) {
   // ── Fill style + title fields ────────────────────────────────────
   const titleFromLyrics = (lyrics || "").match(/^TITLE:\s*(.+)/im)?.[1]?.trim() ?? "";
 
-  // Poll up to 10s for the style field to be present in the DOM before filling
-  let styleFilled = false, titleFilled = false;
-  for (let attempt = 0; attempt < 5 && !styleFilled; attempt++) {
-    styleFilled = await injectAndRun(tabId, (style) => {
-      const LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics", "optional"];
-      const STYLE_PH  = ["style of music", "enter style", "style tags", "genre", "style", "music style"];
+  // ── Fill style + title fields ────────────────────────────────────
+  // Uses execCommand("insertText") which works with React's synthetic event system.
+  // Also covers contenteditable divs in case Suno doesn't use plain input/textarea.
+  // NOTE: "optional" is intentionally excluded from lyrics PH matching — Suno's style
+  // field may say "Style tags (optional)" and we don't want to mistake it for lyrics.
+  const SUNO_LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics"];
+  const SUNO_STYLE_PH  = ["style of music", "enter style", "style tags", "genre", "style", "music style"];
+  const SUNO_TITLE_PH  = ["song name", "title", "track name", "track title", "name"];
 
-      // Use getBoundingClientRect — more reliable than offsetParent/offsetWidth on Suno
-      const allFields = Array.from(document.querySelectorAll("input, textarea"))
+  // Fills a field using execCommand which triggers React's synthetic events.
+  // Falls back to native setter + dispatch if execCommand returns false.
+  const fillField = (el, value) => {
+    el.focus();
+    el.click();
+    if (el.isContentEditable) {
+      el.textContent = "";
+      document.execCommand("insertText", false, value);
+    } else {
+      // Select all then replace — works for both empty and pre-filled fields
+      el.select?.();
+      const filled = document.execCommand("insertText", false, value);
+      if (!filled || el.value !== value) {
+        // execCommand fallback: React native setter + bubbling events
+        const proto = el.tagName === "TEXTAREA"
+          ? window.HTMLTextAreaElement.prototype
+          : window.HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
+        el.dispatchEvent(new Event("input",  { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    }
+    el.blur();
+    return (el.isContentEditable ? el.textContent : el.value) === value;
+  };
+
+  // Collect all fillable candidates: inputs, textareas, AND contenteditable divs
+  const getFields = () =>
+    Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
+      .filter(el => {
+        if (el.disabled || el.readOnly) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 50 && r.height > 10;
+      });
+
+  const label = el =>
+    ((el.placeholder || "") + " " + (el.getAttribute("aria-label") || "") + " " +
+     (el.getAttribute("aria-placeholder") || "") + " " + (el.getAttribute("data-placeholder") || "")
+    ).toLowerCase();
+
+  let styleFilled = false, titleFilled = false;
+
+  for (let attempt = 0; attempt < 8 && !styleFilled; attempt++) {
+    styleFilled = await injectAndRun(tabId, (style, lyrPH, stylPH) => {
+      const fields = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
         .filter(el => {
           if (el.disabled || el.readOnly) return false;
           const r = el.getBoundingClientRect();
-          return r.width > 0 && r.height > 0;
+          return r.width > 50 && r.height > 10;
         });
 
-      // Identify and exclude the lyrics field first
-      const lyricsField = allFields.find(el =>
-        LYRICS_PH.some(ph => (el.placeholder || "").toLowerCase().includes(ph))
-      );
-      const candidates = allFields.filter(el => el !== lyricsField);
+      const lbl = el =>
+        ((el.placeholder || "") + " " + (el.getAttribute("aria-label") || "") + " " +
+         (el.getAttribute("aria-placeholder") || "") + " " + (el.getAttribute("data-placeholder") || "")
+        ).toLowerCase();
 
-      // 1. Placeholder / aria-label contains "style" or "genre"
-      let el = candidates.find(el => {
-        const ph = (el.placeholder || "").toLowerCase();
-        const al = (el.getAttribute("aria-label") || "").toLowerCase();
-        return ph.includes("style") || ph.includes("genre") ||
-               al.includes("style") || al.includes("genre");
-      });
+      // Exclude the lyrics textarea
+      const lyricsField = fields.find(el => lyrPH.some(ph => lbl(el).includes(ph)));
+      const candidates  = fields.filter(el => el !== lyricsField);
 
-      // 2. Any textarea that isn't the lyrics field
+      // 1. Explicit style/genre label match
+      let el = candidates.find(el => stylPH.some(s => lbl(el).includes(s)));
+
+      // 2. Any textarea that isn't lyrics (style fields are often textareas in Suno)
       if (!el) el = candidates.find(el => el.tagName === "TEXTAREA");
 
-      // 3. Any non-search/title/name input
+      // 3. Any contenteditable that isn't lyrics
+      if (!el) el = candidates.find(el => el.getAttribute("contenteditable") === "true");
+
+      // 4. Any input that isn't search/title/name
       if (!el) el = candidates.find(el => {
         if (el.tagName !== "INPUT") return false;
-        const ph = (el.placeholder || "").toLowerCase();
-        return el.type !== "search" &&
-               !ph.includes("search") && !ph.includes("title") && !ph.includes("name");
+        const l = lbl(el);
+        return el.type !== "search" && !l.includes("search") && !l.includes("title") && !l.includes("name");
       });
 
-      if (!el) return false;
-      const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-      Object.getOwnPropertyDescriptor(proto, "value").set.call(el, style);
-      el.dispatchEvent(new Event("input",  { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-      return true;
-    }, [styleTags]).catch(() => false);
+      if (!el) return `no_field lyricsFieldFound=${!!lyricsField} totalFields=${fields.length} labels=${fields.map(lbl).join("|")}`;
 
-    if (!styleFilled) await sleep(2000);
+      el.focus(); el.click();
+      if (el.isContentEditable) {
+        el.textContent = "";
+        document.execCommand("insertText", false, style);
+      } else {
+        el.select?.();
+        const ok = document.execCommand("insertText", false, style);
+        if (!ok || el.value !== style) {
+          const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+          Object.getOwnPropertyDescriptor(proto, "value").set.call(el, style);
+          el.dispatchEvent(new Event("input",  { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+      el.blur();
+      return "ok";
+    }, [styleTags, SUNO_LYRICS_PH, SUNO_STYLE_PH]).catch(e => `exc:${e.message}`);
+
+    if (styleFilled === "ok") { styleFilled = true; break; }
+    else { styleFilled = false; }
+    await sleep(2000);
   }
 
   await sleep(1000);
 
-  // Fill Suno's title/song-name field
   if (titleFromLyrics) {
-    for (let attempt = 0; attempt < 5 && !titleFilled; attempt++) {
-      titleFilled = await injectAndRun(tabId, (titleText) => {
-        const LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics", "optional"];
-        const STYLE_PH  = ["style of music", "enter style", "style tags", "genre", "style", "music style"];
-        const TITLE_PH  = ["song name", "title", "track name", "track title", "name"];
+    for (let attempt = 0; attempt < 8 && !titleFilled; attempt++) {
+      titleFilled = await injectAndRun(tabId, (titleText, lyrPH, stylPH, titPH) => {
+        const fields = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
+          .filter(el => {
+            if (el.disabled || el.readOnly) return false;
+            const r = el.getBoundingClientRect();
+            return r.width > 50 && r.height > 10;
+          });
 
-        const visible = Array.from(document.querySelectorAll("input, textarea"))
-          .filter(el => el.offsetParent !== null && !el.disabled && el.offsetWidth > 0);
+        const lbl = el =>
+          ((el.placeholder || "") + " " + (el.getAttribute("aria-label") || "") + " " +
+           (el.getAttribute("aria-placeholder") || "") + " " + (el.getAttribute("data-placeholder") || "")
+          ).toLowerCase();
 
-        // 1. Placeholder/aria-label title match (exclude style and lyrics fields)
-        let el = visible.find(el => {
-          const ph  = (el.placeholder || "").toLowerCase();
-          const al  = (el.getAttribute("aria-label") || "").toLowerCase();
-          const isTitle = TITLE_PH.some(tp => ph.includes(tp) || al.includes(tp));
-          const isStyle = STYLE_PH.some(sp => ph.includes(sp) || al.includes(sp));
-          const isLyrics = LYRICS_PH.some(lp => ph.includes(lp));
-          return isTitle && !isStyle && !isLyrics;
+        // 1. Explicit title label match (exclude style/lyrics)
+        let el = fields.find(el => {
+          const l = lbl(el);
+          return titPH.some(t => l.includes(t)) &&
+                 !stylPH.some(s => l.includes(s)) &&
+                 !lyrPH.some(lp => l.includes(lp));
         });
 
-        // 2. Any single-line input not already matched as style/lyrics
-        if (!el) {
-          el = visible.find(el => {
-            if (el.tagName !== "INPUT") return false;
-            const ph = (el.placeholder || "").toLowerCase();
-            return !LYRICS_PH.some(lp => ph.includes(lp)) &&
-                   !STYLE_PH.some(sp => ph.includes(sp)) &&
-                   el.type !== "search";
-          });
-        }
+        // 2. Any single-line input not matched as style/lyrics
+        if (!el) el = fields.find(el => {
+          if (el.tagName !== "INPUT") return false;
+          const l = lbl(el);
+          return el.type !== "search" &&
+                 !lyrPH.some(lp => l.includes(lp)) &&
+                 !stylPH.some(s => l.includes(s)) &&
+                 !l.includes("search");
+        });
 
         if (!el) return false;
-        const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-        Object.getOwnPropertyDescriptor(proto, "value").set.call(el, titleText);
-        el.dispatchEvent(new Event("input",  { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
+        el.focus(); el.click();
+        el.select?.();
+        const ok = document.execCommand("insertText", false, titleText);
+        if (!ok || el.value !== titleText) {
+          const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+          Object.getOwnPropertyDescriptor(proto, "value").set.call(el, titleText);
+          el.dispatchEvent(new Event("input",  { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        el.blur();
         return true;
-      }, [titleFromLyrics]).catch(() => false);
+      }, [titleFromLyrics, SUNO_LYRICS_PH, SUNO_STYLE_PH, SUNO_TITLE_PH]).catch(() => false);
 
       if (!titleFilled) await sleep(2000);
     }
   }
 
-  // Debug log — visible in chrome.storage via the extension popup console
+  // Debug log — open chrome://extensions → service worker → Application → Storage → Local to inspect
   const allPH = await injectAndRun(tabId, () =>
-    Array.from(document.querySelectorAll("input, textarea"))
-      .filter(el => el.offsetParent !== null)
-      .map(el => `${el.tagName}[ph="${el.placeholder}"][al="${el.getAttribute("aria-label") || ""}"]`)
+    Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
+      .filter(el => { const r = el.getBoundingClientRect(); return r.width > 50 && r.height > 10; })
+      .map(el => `${el.tagName}[ph="${el.placeholder || ""}"][al="${el.getAttribute("aria-label") || ""}"][ce="${el.getAttribute("contenteditable") || ""}"]`)
   ).catch(() => []);
   await chrome.storage.local.set({ __sunoFill: { styleFilled, titleFilled, titleFromLyrics, styleTags, allPH } });
 
@@ -657,7 +681,7 @@ async function runSuno(lyrics, styleTags) {
 
   // Phase 1: wait for 2 blob URLs (up to ~3 min). If blobs aren't firing,
   // CDN URLs from the API interceptor cover us in Phase 2.
-  while (attempts < 60 && audioUrls.length < 2) {
+  while (attempts < 40 && audioUrls.length < 2) {
     const blobs = await injectAndRun(tabId, () => window.__sunoBlobUrls ? [...window.__sunoBlobUrls] : [], [], "MAIN").catch(() => []);
     if ((blobs || []).length > audioUrls.length) audioUrls = (blobs || []).slice(0, 2);
     if (audioUrls.length >= 2) break;
@@ -785,9 +809,14 @@ async function runPipeline(job) {
   const { id, lyrics_prompt, art_prompt, metadata_prompt, lyrics: existingLyrics } = job;
   // style_tags may be updated after step 1 if ChatGPT returns a STYLE: line
   let style_tags = job.style_tags;
-  // Debug jobs and auto-approve jobs skip approval gates and run straight through
-  const isDebug      = (job.track_theme || "").startsWith("__debug:");
-  const skipApproval = isDebug || !!job.auto_approve;
+  // Debug jobs skip all approval gates. Per-step auto_approve_steps controls individual steps.
+  const isDebug         = (job.track_theme || "").startsWith("__debug:");
+  const approvedSteps   = new Set(
+    (job.auto_approve_steps || "").split(",").map(s => s.trim()).filter(Boolean)
+  );
+  // If the old boolean auto_approve is set, treat all steps as approved
+  if (job.auto_approve) ["lyrics", "art", "audio", "metadata"].forEach(s => approvedSteps.add(s));
+  const shouldSkip = (step) => isDebug || approvedSteps.has(step);
 
   try {
     await updateJob(id, { status: "running", step: "lyrics" });
@@ -802,11 +831,11 @@ async function runPipeline(job) {
       const styleFromLyrics = lyricsResult.match(/^STYLE:\s*(.+)/im)?.[1]?.trim();
       const titleFromLyrics = lyricsResult.match(/^TITLE:\s*(.+)/im)?.[1]?.trim();
       if (styleFromLyrics) style_tags = styleFromLyrics;
-      const step1Update = { lyrics, step: skipApproval ? "art" : "lyrics_review" };
+      const step1Update = { lyrics, step: shouldSkip("lyrics") ? "art" : "lyrics_review" };
       if (styleFromLyrics) step1Update.style_tags = styleFromLyrics;
       if (titleFromLyrics)  step1Update.title       = titleFromLyrics;
       await updateJob(id, step1Update);
-      if (!skipApproval) {
+      if (!shouldSkip("lyrics")) {
         await waitForApproval(id, "lyrics_review");
         if (await isCancelled(id)) return;
       }
@@ -818,8 +847,8 @@ async function runPipeline(job) {
       if (await isCancelled(id)) return;
       await updateJob(id, { step: "art" });
       artUrl = await runChatGPTImage(art_prompt);
-      await updateJob(id, { art_url: artUrl, step: skipApproval ? "audio" : "art_review" });
-      if (!skipApproval) {
+      await updateJob(id, { art_url: artUrl, step: shouldSkip("art") ? "audio" : "art_review" });
+      if (!shouldSkip("art")) {
         await waitForApproval(id, "art_review");
         if (await isCancelled(id)) return;
       }
@@ -830,8 +859,8 @@ async function runPipeline(job) {
     let audioUrl;
     if (prefilledAudio) {
       audioUrl = prefilledAudio;
-      await updateJob(id, { step: skipApproval ? "metadata" : "audio_review" });
-      if (!skipApproval) {
+      await updateJob(id, { step: shouldSkip("audio") ? "metadata" : "audio_review" });
+      if (!shouldSkip("audio")) {
         await waitForApproval(id, "audio_review");
         if (await isCancelled(id)) return;
       }
@@ -846,8 +875,8 @@ async function runPipeline(job) {
       const allAudioUrls = [...run1, ...run2];
       await chrome.storage.local.set({ __audioDebug: { run1, run2, allAudioUrls } });
       audioUrl = JSON.stringify(allAudioUrls);
-      await updateJob(id, { audio_url: audioUrl, step: skipApproval ? "metadata" : "audio_review" });
-      if (!skipApproval) {
+      await updateJob(id, { audio_url: audioUrl, step: shouldSkip("audio") ? "metadata" : "audio_review" });
+      if (!shouldSkip("audio")) {
         await waitForApproval(id, "audio_review");
         if (await isCancelled(id)) return;
       }
@@ -863,9 +892,9 @@ async function runPipeline(job) {
       await updateJob(id, {
         title: titleMatch?.[1]?.trim() ?? "",
         description: descMatch?.[1]?.trim() ?? metaResult,
-        step: skipApproval ? "approval" : "metadata_review",
+        step: shouldSkip("metadata") ? "approval" : "metadata_review",
       });
-      if (!skipApproval) {
+      if (!shouldSkip("metadata")) {
         await waitForApproval(id, "metadata_review");
         if (await isCancelled(id)) return;
       }
