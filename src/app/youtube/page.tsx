@@ -789,17 +789,21 @@ export default function YouTubePage() {
           <div className="space-y-4">
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">Artist</label>
-              <select
-                value={selectedPersona.name}
-                onChange={e => setSelectedPersona(PERSONAS.find(p => p.name === e.target.value) ?? PERSONAS[0])}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              >
+              <div className="flex flex-wrap gap-2">
                 {PERSONAS.map(p => (
-                  <option key={p.name} value={p.name}>
-                    {p.name} — {p.instrumental ? "Instrumental" : p.vocals}
-                  </option>
+                  <button
+                    key={p.name}
+                    onClick={() => { setSelectedPersona(p); setStyleTag(""); setLyricsPrompt(""); setArtPrompt(""); setMetadataPrompt(""); }}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                      selectedPersona.name === p.name
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary border-border text-foreground hover:border-primary/40"
+                    }`}
+                  >
+                    {p.name}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">Track theme (optional)</label>
