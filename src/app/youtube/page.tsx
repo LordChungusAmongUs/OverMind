@@ -95,7 +95,20 @@ export default function YouTubePage() {
   const [automating, setAutomating] = useState(false);
   const [automationStep, setAutomationStep] = useState<string | null>(null);
   const [batchCount, setBatchCount] = useState(1);
-  const [autoApproveSteps, setAutoApproveSteps] = useState({ lyrics: false, art: false, audio: false, metadata: false });
+  const [autoApproveSteps, setAutoApproveSteps] = useState<{ lyrics: boolean; art: boolean; audio: boolean; metadata: boolean }>(() => {
+    try {
+      const saved = localStorage.getItem("autoApproveSteps");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { lyrics: false, art: false, audio: false, metadata: false };
+  });
+  const updateAutoApproveSteps = (fn: (prev: { lyrics: boolean; art: boolean; audio: boolean; metadata: boolean }) => { lyrics: boolean; art: boolean; audio: boolean; metadata: boolean }) => {
+    setAutoApproveSteps(prev => {
+      const next = fn(prev);
+      try { localStorage.setItem("autoApproveSteps", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
   const [submitting, setSubmitting] = useState(false);
   const [activeJobIds, setActiveJobIds] = useState<string[]>([]);
   const [activeJobs, setActiveJobs] = useState<Record<string, { step: string; status: string }>>({});
@@ -121,7 +134,7 @@ export default function YouTubePage() {
       .lt("updated_at", staleThreshold);
 
     const check = async () => {
-      const { count } = await supabase.from("pipeline_jobs").select("*", { count: "exact", head: true }).in("status", ["pending", "running"]);
+      const { count } = await supabase.from("pipeline_jobs").select("*", { count: "exact", head: true }).in("status", ["pending", "running"]).not("step", "in", '("approval","complete")');
       setPendingCount(count ?? 0);
     };
     check();
@@ -752,7 +765,7 @@ export default function YouTubePage() {
                           {(["lyrics", "art", "audio", "metadata"] as const).map(step => (
                             <button
                               key={step}
-                              onClick={() => setAutoApproveSteps(prev => ({ ...prev, [step]: !prev[step] }))}
+                              onClick={() => updateAutoApproveSteps(prev => ({ ...prev, [step]: !prev[step] }))}
                               className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors capitalize ${
                                 autoApproveSteps[step]
                                   ? "bg-green-600/20 border-green-500/40 text-green-400"
@@ -765,7 +778,7 @@ export default function YouTubePage() {
                           <button
                             onClick={() => {
                               const allOn = Object.values(autoApproveSteps).every(Boolean);
-                              setAutoApproveSteps({ lyrics: !allOn, art: !allOn, audio: !allOn, metadata: !allOn });
+                              updateAutoApproveSteps(() => ({ lyrics: !allOn, art: !allOn, audio: !allOn, metadata: !allOn }));
                             }}
                             className="px-2.5 py-1 rounded-md text-xs font-medium border border-border text-muted-foreground hover:border-primary/40 bg-secondary ml-1"
                           >
