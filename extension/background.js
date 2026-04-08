@@ -281,8 +281,8 @@ async function runChatGPTImage(prompt) {
   // is discarded — we only want the fully-rendered final image.
   await injectAndRun(tabId, () => { window.__artCapture = null; }, [], "MAIN").catch(() => {});
 
-  // Give ChatGPT time to swap in the final high-res image after the stop button clears
-  await sleep(10000);
+  // Give ChatGPT 2 minutes to fully render the final image after generation completes
+  await sleep(120000);
 
   // Scroll to bottom to trigger lazy-loading of the final image
   await injectAndRun(tabId, () => {
