@@ -505,6 +505,8 @@ async function runSuno(lyrics, styleTags) {
 
       if (!el) return `no_field mode=${mode} lyricsFound=${!!lyricsField} total=${fields.length} labels=${fields.map(lbl).join("|")}`;
 
+      const elDesc = `${el.tagName}[ph="${(el.placeholder||"").slice(0,40)}"][al="${(el.getAttribute("aria-label")||"").slice(0,40)}"][id="${el.id||""}"]`;
+
       el.focus(); el.click();
       if (el.isContentEditable) {
         el.textContent = "";
@@ -518,7 +520,7 @@ async function runSuno(lyrics, styleTags) {
       }
       // Do NOT call el.blur() — Suno's onBlur handler resets the field
       const final = el.isContentEditable ? el.textContent : el.value;
-      return final === val ? "ok" : `wrong_val got="${final.slice(0,40)}"`;
+      return final === val ? `ok:${elDesc}` : `wrong_val got="${final.slice(0,40)}" el=${elDesc}`;
     }, [value, lyrPH, stylPH, titPH, mode], "MAIN").catch(e => `exc:${e}`);
     return result;
   };
@@ -538,7 +540,33 @@ async function runSuno(lyrics, styleTags) {
       await sleep(1000);
     }
   }
-  await chrome.storage.local.set({ __sunoFill: { styleFilled, titleFilled, styleTags, titleFromLyrics } });
+  // Verify the style value is still present right before clicking Create.
+  // If React reset it, try one more fill.
+  let stylePreCreate = "skipped";
+  if (styleTags) {
+    stylePreCreate = await injectAndRun(tabId, (val, lyrPH, stylPH) => {
+      const fields = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
+        .filter(el => { if (el.disabled || el.readOnly) return false; const r = el.getBoundingClientRect(); return r.width > 50 && r.height > 10; });
+      const lbl = el => ((el.placeholder || "") + " " + (el.getAttribute("aria-label") || "")).toLowerCase();
+      const lyricsField = fields.find(el => lyrPH.some(ph => lbl(el).includes(ph)));
+      const nonLyrics = fields.filter(el => el !== lyricsField);
+      const el = nonLyrics.find(el => stylPH.some(s => lbl(el).includes(s)))
+        ?? nonLyrics.find(el => el.tagName === "TEXTAREA")
+        ?? nonLyrics.find(el => el.getAttribute("contenteditable") === "true");
+      if (!el) return "field_gone";
+      const cur = el.isContentEditable ? el.textContent : el.value;
+      if (cur === val) return `still_ok`;
+      // Re-fill
+      const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value").set.call(el, val);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      const after = el.value;
+      return `refilled was="${cur.slice(0,30)}" now="${after.slice(0,30)}"`;
+    }, [styleTags, SUNO_LYRICS_PH, SUNO_STYLE_PH], "MAIN").catch(e => `exc:${e}`);
+  }
+
+  await chrome.storage.local.set({ __sunoFill: { styleFilled, titleFilled, styleTags, titleFromLyrics, stylePreCreate } });
 
   // Click Create immediately after filling — minimizes window for React to reset fields
   const createClicked = await injectAndRun(tabId, () => {
