@@ -195,19 +195,19 @@ async function runChatGPTImage(prompt) {
   await waitForTab(tabId);
   await sleep(4000);
 
-  // ── Helper: collect image srcs from INSIDE assistant messages only ──
-  const getAssistantImages = () => injectAndRun(tabId, () => {
+  // ── Snapshot ALL page images before sending prompt ──
+  // Using all-page baseline (not just assistant messages) avoids dependency on
+  // ChatGPT's internal DOM attribute names which change frequently.
+  const getAllImgSrcs = () => injectAndRun(tabId, () => {
     const srcs = [];
-    document.querySelectorAll('[data-message-author-role="assistant"] img').forEach(img => {
+    document.querySelectorAll("img").forEach(img => {
       const src = img.currentSrc || img.src || "";
-      if (!src || src.startsWith("data:") || src.endsWith(".svg")) return;
-      srcs.push(src);
+      if (src && !src.startsWith("data:") && !src.endsWith(".svg")) srcs.push(src);
     });
     return srcs;
   }).catch(() => []);
 
-  // Snapshot any images already on the page before we send our prompt
-  const baseline = new Set(await getAssistantImages());
+  const baseline = new Set(await getAllImgSrcs());
 
   // ── Step 1: Type and send the art prompt ──
   await injectAndRun(tabId, (p) => {
@@ -223,7 +223,7 @@ async function runChatGPTImage(prompt) {
     if (btn) btn.click();
   });
 
-  // ── Step 2: Wait for the stop button to appear (generation started) ──
+  // ── Step 2: Wait for stop button to appear (generation started) ──
   for (let i = 0; i < 30; i++) {
     const appeared = await injectAndRun(tabId, () =>
       !!document.querySelector('[data-testid="stop-button"]') ||
@@ -245,32 +245,32 @@ async function runChatGPTImage(prompt) {
     await sleep(3000);
   }
 
-  // ── Step 4: Poll for a NEW image inside the last assistant message ──
-  // Poll up to ~3 min for the image to appear. We specifically look for images
-  // INSIDE the last assistant message that weren't there before we sent the prompt.
+  // ── Step 4: Poll for a NEW large image that wasn't on the page before ──
+  // "New" = not in the baseline snapshot. "Large" = oaiusercontent CDN or >200px.
+  // ChatGPT CDN for generated images: files.oaiusercontent.com
   let imgSrc = "";
   for (let i = 0; i < 60 && !imgSrc; i++) {
-    const current = await getAssistantImages();
+    const current = await getAllImgSrcs();
     const newImgs = current.filter(src => !baseline.has(src));
+    // Prefer oaiusercontent CDN URLs — that's where DALL-E images live
+    const cdnImg = newImgs.find(src => src.includes("oaiusercontent.com") || src.includes("oaistatic.com"));
+    if (cdnImg) { imgSrc = cdnImg; break; }
+    // Fallback to any new large image (rendered >200px)
     if (newImgs.length > 0) {
-      imgSrc = newImgs[newImgs.length - 1]; // last new image = the generated art
+      const large = await injectAndRun(tabId, (srcs) => {
+        for (let i = srcs.length - 1; i >= 0; i--) {
+          const imgs = Array.from(document.querySelectorAll("img"));
+          const el = imgs.find(img => (img.currentSrc || img.src) === srcs[i]);
+          if (el) {
+            const r = el.getBoundingClientRect();
+            if (r.width > 100 && r.height > 100) return srcs[i];
+          }
+        }
+        return "";
+      }, [newImgs]).catch(() => "");
+      if (large) { imgSrc = large; break; }
     }
-    if (!imgSrc) await sleep(3000);
-  }
-
-  // Fallback: if no image found in assistant messages, scan page for any large image
-  if (!imgSrc) {
-    imgSrc = await injectAndRun(tabId, () => {
-      let best = "";
-      document.querySelectorAll("img").forEach(img => {
-        const src = img.currentSrc || img.src || "";
-        if (!src || src.startsWith("data:") || src.endsWith(".svg")) return;
-        const w = img.naturalWidth || img.width || 0;
-        const h = img.naturalHeight || img.height || 0;
-        if (w > 200 && h > 200) best = src; // keep last large image found
-      });
-      return best;
-    }).catch(() => "") || "";
+    await sleep(3000);
   }
 
   const artLog = { imgSrc: imgSrc?.slice(0, 120), fetch: null };
