@@ -298,7 +298,7 @@ export default function YouTubePage() {
             title: j.title ?? "",
             description: j.description ?? "",
             lyrics: j.lyrics ?? "",
-            isInstrumental: !j.lyrics,
+            isInstrumental: !(j.lyrics || "").replace(/^TITLE:\s*.+\r?\n?/im, "").replace(/^STYLE:\s*.+\r?\n?/im, "").trim(),
             approvedUrls: [],
             skippedUrls: [],
           }));
@@ -478,18 +478,45 @@ export default function YouTubePage() {
   };
 
   const handleApprove = async (job: ApprovalJob, audioUrl: string) => {
-    // Vocal dedup: if vocal track and already approved one, block
+    // Vocal tracks: only one approval allowed
     if (!job.isInstrumental && job.approvedUrls.length > 0) {
       alert("Already approved a track with this title — skip or disapprove the job.");
       return;
     }
     if (!audioUrl) { alert("No audio URL found. Cannot auto-publish."); return; }
-    setPublishingJobId(job.jobId);
 
-    // Determine title — append " (Alt)" for 2nd+ instrumental approval
-    const trackTitle = (job.isInstrumental && job.approvedUrls.length >= 1)
-      ? job.title + " (Alt)"
-      : job.title;
+    // Instrumental 2nd+ approval: spin up a new job to generate fresh art/title/metadata
+    // for this specific audio track, then come back through the approval queue
+    if (job.isInstrumental && job.approvedUrls.length >= 1) {
+      const { data: origJob } = await supabase.from("pipeline_jobs")
+        .select("art_prompt, metadata_prompt, style_tags, track_theme")
+        .eq("id", job.jobId).single();
+      if (origJob) {
+        const autoApproveStepsStr = Object.entries(autoApproveSteps).filter(([, v]) => v).map(([k]) => k).join(",");
+        const { data: newJob } = await supabase.from("pipeline_jobs").insert({
+          status: "pending",
+          style_tags: origJob.style_tags,
+          track_theme: origJob.track_theme,
+          art_prompt: origJob.art_prompt,
+          metadata_prompt: origJob.metadata_prompt,
+          lyrics: "",
+          audio_url: JSON.stringify([audioUrl]),
+          auto_approve: Object.values(autoApproveSteps).every(Boolean),
+          auto_approve_steps: autoApproveStepsStr || null,
+        }).select().single();
+        if (newJob) {
+          setActiveJobIds(prev => [...prev, newJob.id]);
+          setAutomating(true);
+        }
+      }
+      setApprovalQueue(prev => prev.map(j =>
+        j.jobId !== job.jobId ? j : { ...j, approvedUrls: [...j.approvedUrls, audioUrl] }
+      ));
+      return;
+    }
+
+    setPublishingJobId(job.jobId);
+    const trackTitle = job.title;
 
     try {
       // Fetch audio (30s timeout — Suno CDN URLs may hang without auth)
@@ -1325,7 +1352,7 @@ export default function YouTubePage() {
                       <p className="text-xs text-yellow-500/70 font-medium mb-0.5">Job {jobIdx + 1} of {approvalQueue.length}</p>
                       <p className="text-sm font-semibold text-foreground">{job.title || "Untitled"}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {job.isInstrumental ? "Instrumental" : "Vocal"} · {job.audioUrls.length} tracks · pick one to publish, rest will be skipped
+                        {job.isInstrumental ? "Instrumental" : "Vocal"} · {job.audioUrls.length} tracks · {job.isInstrumental ? "approve multiple — each gets new art & title" : "pick one to publish, rest will be skipped"}
                       </p>
                     </div>
                     <button onClick={() => handleDisapproveJob(job.jobId)}
