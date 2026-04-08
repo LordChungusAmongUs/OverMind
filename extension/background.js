@@ -190,26 +190,60 @@ async function runChatGPT(prompt) {
 
 // ── CHATGPT IMAGE GENERATION ─────────────────────────────────────
 async function runChatGPTImage(prompt) {
-  // Always open a FRESH tab — reusing an existing tab risks capturing old images
   const tabId = await openTab("https://chatgpt.com/");
   await waitForTab(tabId);
   await sleep(4000);
 
-  // ── Snapshot ALL page images before sending prompt ──
-  // Using all-page baseline (not just assistant messages) avoids dependency on
-  // ChatGPT's internal DOM attribute names which change frequently.
-  const getAllImgSrcs = () => injectAndRun(tabId, () => {
-    const srcs = [];
-    document.querySelectorAll("img").forEach(img => {
+  // ── Inject MutationObserver into MAIN world BEFORE sending prompt ──
+  // This captures the generated image URL the instant it appears in the DOM,
+  // regardless of how ChatGPT structures its messages or which CDN it uses.
+  await injectAndRun(tabId, () => {
+    window.__artCapture = null;
+    // Baseline: every img src currently on the page
+    const baseline = new Set(
+      Array.from(document.querySelectorAll("img"))
+        .map(i => i.currentSrc || i.src || "")
+        .filter(s => s && !s.startsWith("data:") && !s.endsWith(".svg"))
+    );
+
+    const check = (img) => {
+      if (window.__artCapture) return;            // already have one
       const src = img.currentSrc || img.src || "";
-      if (src && !src.startsWith("data:") && !src.endsWith(".svg")) srcs.push(src);
+      if (!src || src.startsWith("data:") || src.endsWith(".svg")) return;
+      if (baseline.has(src)) return;              // existed before prompt
+      // Accept immediately if it looks like a ChatGPT image CDN URL
+      const isCDN = src.includes("oaiusercontent.com") ||
+                    src.includes("blob.core.windows.net") ||
+                    src.includes("oaidalle");
+      // Or accept if it's rendered large (>150px wide) — DALL-E images are big
+      const r = img.getBoundingClientRect();
+      const isLarge = r.width > 150 && r.height > 150;
+      if (isCDN || isLarge) {
+        window.__artCapture = src;
+        baseline.add(src); // don't capture same URL twice
+      }
+    };
+
+    // Observe any new img added OR any src attribute changed
+    const obs = new MutationObserver(mutations => {
+      for (const m of mutations) {
+        if (m.type === "childList") {
+          m.addedNodes.forEach(n => {
+            if (n.nodeName === "IMG") check(n);
+            if (n.querySelectorAll) n.querySelectorAll("img").forEach(check);
+          });
+        } else if (m.type === "attributes" && m.target.nodeName === "IMG") {
+          check(m.target);
+        }
+      }
     });
-    return srcs;
-  }).catch(() => []);
+    obs.observe(document.body, {
+      childList: true, subtree: true,
+      attributes: true, attributeFilter: ["src", "srcset"],
+    });
+  }, [], "MAIN");
 
-  const baseline = new Set(await getAllImgSrcs());
-
-  // ── Step 1: Type and send the art prompt ──
+  // ── Send the art prompt ──
   await injectAndRun(tabId, (p) => {
     const input = document.querySelector("#prompt-textarea") || document.querySelector('[contenteditable="true"]');
     if (!input) return;
@@ -223,7 +257,7 @@ async function runChatGPTImage(prompt) {
     if (btn) btn.click();
   });
 
-  // ── Step 2: Wait for stop button to appear (generation started) ──
+  // ── Wait for stop button to appear then disappear ──
   for (let i = 0; i < 30; i++) {
     const appeared = await injectAndRun(tabId, () =>
       !!document.querySelector('[data-testid="stop-button"]') ||
@@ -233,8 +267,6 @@ async function runChatGPTImage(prompt) {
     if (appeared) break;
     await sleep(2000);
   }
-
-  // ── Step 3: Wait for stop button to disappear (generation finished) ──
   for (let i = 0; i < 90; i++) {
     const done = await injectAndRun(tabId, () =>
       !document.querySelector('[data-testid="stop-button"]') &&
@@ -245,54 +277,19 @@ async function runChatGPTImage(prompt) {
     await sleep(3000);
   }
 
-  // Extra buffer — give the image time to fully render after generation
-  await sleep(6000);
-
-  // Scroll to bottom so lazy-loaded images render
-  await injectAndRun(tabId, () => {
-    (document.querySelector("main") || document.body).scrollTo(0, 999999);
-  }).catch(() => {});
-  await sleep(2000);
-
-  // ── Step 4: Poll for the generated image ──
-  // Strategy: look for a NEW image (not in baseline) inside the main chat area
-  // that is rendered large. Also check known ChatGPT CDN domains as a fast path.
+  // ── Poll window.__artCapture (set by MutationObserver) — up to 3 min ──
+  // Also scroll to bottom each iteration to trigger lazy-loading
   let imgSrc = "";
-  for (let i = 0; i < 40 && !imgSrc; i++) {
-    imgSrc = await injectAndRun(tabId, (baselineArr) => {
-      const baseline = new Set(baselineArr);
-      const allImgs = Array.from(document.querySelectorAll("img"));
+  for (let i = 0; i < 60 && !imgSrc; i++) {
+    await injectAndRun(tabId, () => {
+      (document.querySelector("main") || document.body).scrollTo(0, 999999);
+    }).catch(() => {});
 
-      // Fast path: any new oaiusercontent / Azure CDN URL (DALL-E lives here)
-      for (const img of allImgs) {
-        const src = img.currentSrc || img.src || "";
-        if (!src || baseline.has(src)) continue;
-        if (src.includes("oaiusercontent.com") ||
-            src.includes("blob.core.windows.net") ||
-            src.includes("oaidalle")) {
-          return src;
-        }
-      }
-
-      // Slow path: last new image rendered large (>150px) inside the main area
-      const container = document.querySelector("main") ||
-                        document.querySelector('[class*="conversation"]') ||
-                        document.body;
-      const containerImgs = Array.from(container.querySelectorAll("img")).reverse();
-      for (const img of containerImgs) {
-        const src = img.currentSrc || img.src || "";
-        if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
-        if (baseline.has(src)) continue;
-        const r = img.getBoundingClientRect();
-        if (r.width > 150 && r.height > 150) return src;
-      }
-      return "";
-    }, [Array.from(baseline)]).catch(() => "");
-
-    if (!imgSrc) await sleep(4000);
+    imgSrc = await injectAndRun(tabId, () => window.__artCapture || "", [], "MAIN").catch(() => "");
+    if (!imgSrc) await sleep(3000);
   }
 
-  const artLog = { imgSrc: imgSrc?.slice(0, 200), isCDN: !!(imgSrc?.includes("oaiusercontent") || imgSrc?.includes("blob.core.windows")), fetch: null };
+  const artLog = { imgSrc: imgSrc?.slice(0, 200), isCDN: !!(imgSrc?.includes("oaiusercontent") || imgSrc?.includes("blob.core")), fetch: null };
   await chrome.storage.local.set({ __artLog: artLog });
 
   if (imgSrc) {
