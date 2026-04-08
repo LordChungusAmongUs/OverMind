@@ -383,179 +383,8 @@ async function runSuno(lyrics, styleTags) {
 
   await sleep(1000);
 
-  // ── Fill style + title fields ────────────────────────────────────
+  // titleFromLyrics is extracted here so it's available when we fill just before Create
   const titleFromLyrics = (lyrics || "").match(/^TITLE:\s*(.+)/im)?.[1]?.trim() ?? "";
-
-  // ── Fill style + title fields ────────────────────────────────────
-  // Uses execCommand("insertText") which works with React's synthetic event system.
-  // Also covers contenteditable divs in case Suno doesn't use plain input/textarea.
-  // NOTE: "optional" is intentionally excluded from lyrics PH matching — Suno's style
-  // field may say "Style tags (optional)" and we don't want to mistake it for lyrics.
-  const SUNO_LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics"];
-  const SUNO_STYLE_PH  = ["style of music", "enter style", "style tags", "genre", "style", "music style"];
-  const SUNO_TITLE_PH  = ["song name", "title", "track name", "track title", "name"];
-
-  // Fills a field using execCommand which triggers React's synthetic events.
-  // Falls back to native setter + dispatch if execCommand returns false.
-  const fillField = (el, value) => {
-    el.focus();
-    el.click();
-    if (el.isContentEditable) {
-      el.textContent = "";
-      document.execCommand("insertText", false, value);
-    } else {
-      // Select all then replace — works for both empty and pre-filled fields
-      el.select?.();
-      const filled = document.execCommand("insertText", false, value);
-      if (!filled || el.value !== value) {
-        // execCommand fallback: React native setter + bubbling events
-        const proto = el.tagName === "TEXTAREA"
-          ? window.HTMLTextAreaElement.prototype
-          : window.HTMLInputElement.prototype;
-        Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
-        el.dispatchEvent(new Event("input",  { bubbles: true }));
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      }
-    }
-    el.blur();
-    return (el.isContentEditable ? el.textContent : el.value) === value;
-  };
-
-  // Collect all fillable candidates: inputs, textareas, AND contenteditable divs
-  const getFields = () =>
-    Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
-      .filter(el => {
-        if (el.disabled || el.readOnly) return false;
-        const r = el.getBoundingClientRect();
-        return r.width > 50 && r.height > 10;
-      });
-
-  const label = el =>
-    ((el.placeholder || "") + " " + (el.getAttribute("aria-label") || "") + " " +
-     (el.getAttribute("aria-placeholder") || "") + " " + (el.getAttribute("data-placeholder") || "")
-    ).toLowerCase();
-
-  let styleFilled = false, titleFilled = false;
-
-  for (let attempt = 0; attempt < 8 && !styleFilled; attempt++) {
-    styleFilled = await injectAndRun(tabId, (style, lyrPH, stylPH) => {
-      const fields = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
-        .filter(el => {
-          if (el.disabled || el.readOnly) return false;
-          const r = el.getBoundingClientRect();
-          return r.width > 50 && r.height > 10;
-        });
-
-      const lbl = el =>
-        ((el.placeholder || "") + " " + (el.getAttribute("aria-label") || "") + " " +
-         (el.getAttribute("aria-placeholder") || "") + " " + (el.getAttribute("data-placeholder") || "")
-        ).toLowerCase();
-
-      // Exclude the lyrics textarea
-      const lyricsField = fields.find(el => lyrPH.some(ph => lbl(el).includes(ph)));
-      const candidates  = fields.filter(el => el !== lyricsField);
-
-      // 1. Explicit style/genre label match
-      let el = candidates.find(el => stylPH.some(s => lbl(el).includes(s)));
-
-      // 2. Any textarea that isn't lyrics (style fields are often textareas in Suno)
-      if (!el) el = candidates.find(el => el.tagName === "TEXTAREA");
-
-      // 3. Any contenteditable that isn't lyrics
-      if (!el) el = candidates.find(el => el.getAttribute("contenteditable") === "true");
-
-      // 4. Any input that isn't search/title/name
-      if (!el) el = candidates.find(el => {
-        if (el.tagName !== "INPUT") return false;
-        const l = lbl(el);
-        return el.type !== "search" && !l.includes("search") && !l.includes("title") && !l.includes("name");
-      });
-
-      if (!el) return `no_field lyricsFieldFound=${!!lyricsField} totalFields=${fields.length} labels=${fields.map(lbl).join("|")}`;
-
-      el.focus(); el.click();
-      if (el.isContentEditable) {
-        el.textContent = "";
-        document.execCommand("insertText", false, style);
-      } else {
-        el.select?.();
-        const ok = document.execCommand("insertText", false, style);
-        if (!ok || el.value !== style) {
-          const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-          Object.getOwnPropertyDescriptor(proto, "value").set.call(el, style);
-          el.dispatchEvent(new Event("input",  { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
-        }
-      }
-      el.blur();
-      return "ok";
-    }, [styleTags, SUNO_LYRICS_PH, SUNO_STYLE_PH]).catch(e => `exc:${e.message}`);
-
-    if (styleFilled === "ok") { styleFilled = true; break; }
-    else { styleFilled = false; }
-    await sleep(2000);
-  }
-
-  await sleep(1000);
-
-  if (titleFromLyrics) {
-    for (let attempt = 0; attempt < 8 && !titleFilled; attempt++) {
-      titleFilled = await injectAndRun(tabId, (titleText, lyrPH, stylPH, titPH) => {
-        const fields = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
-          .filter(el => {
-            if (el.disabled || el.readOnly) return false;
-            const r = el.getBoundingClientRect();
-            return r.width > 50 && r.height > 10;
-          });
-
-        const lbl = el =>
-          ((el.placeholder || "") + " " + (el.getAttribute("aria-label") || "") + " " +
-           (el.getAttribute("aria-placeholder") || "") + " " + (el.getAttribute("data-placeholder") || "")
-          ).toLowerCase();
-
-        // 1. Explicit title label match (exclude style/lyrics)
-        let el = fields.find(el => {
-          const l = lbl(el);
-          return titPH.some(t => l.includes(t)) &&
-                 !stylPH.some(s => l.includes(s)) &&
-                 !lyrPH.some(lp => l.includes(lp));
-        });
-
-        // 2. Any single-line input not matched as style/lyrics
-        if (!el) el = fields.find(el => {
-          if (el.tagName !== "INPUT") return false;
-          const l = lbl(el);
-          return el.type !== "search" &&
-                 !lyrPH.some(lp => l.includes(lp)) &&
-                 !stylPH.some(s => l.includes(s)) &&
-                 !l.includes("search");
-        });
-
-        if (!el) return false;
-        el.focus(); el.click();
-        el.select?.();
-        const ok = document.execCommand("insertText", false, titleText);
-        if (!ok || el.value !== titleText) {
-          const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-          Object.getOwnPropertyDescriptor(proto, "value").set.call(el, titleText);
-          el.dispatchEvent(new Event("input",  { bubbles: true }));
-          el.dispatchEvent(new Event("change", { bubbles: true }));
-        }
-        el.blur();
-        return true;
-      }, [titleFromLyrics, SUNO_LYRICS_PH, SUNO_STYLE_PH, SUNO_TITLE_PH]).catch(() => false);
-
-      if (!titleFilled) await sleep(2000);
-    }
-  }
-
-  // Debug log — open chrome://extensions → service worker → Application → Storage → Local to inspect
-  const allPH = await injectAndRun(tabId, () =>
-    Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
-      .filter(el => { const r = el.getBoundingClientRect(); return r.width > 50 && r.height > 10; })
-      .map(el => `${el.tagName}[ph="${el.placeholder || ""}"][al="${el.getAttribute("aria-label") || ""}"][ce="${el.getAttribute("contenteditable") || ""}"]`)
-  ).catch(() => []);
-  await chrome.storage.local.set({ __sunoFill: { styleFilled, titleFilled, titleFromLyrics, styleTags, allPH } });
 
   // Inject audio URL collector into MAIN world BEFORE clicking Create.
   // Primary strategy: intercept Suno's own API polling responses — they contain
@@ -638,7 +467,83 @@ async function runSuno(lyrics, styleTags) {
     } catch (e) {}
   }, [], "MAIN").catch(() => {});
 
-  // Click Create
+  // ── Fill style + title RIGHT before clicking Create ──────────────
+  // Doing this here (not earlier) prevents Suno's React from resetting
+  // the fields during the interceptor injection above.
+  const SUNO_LYRICS_PH = ["leave blank for instrumental", "lyrics", "enter lyrics", "write lyrics"];
+  const SUNO_STYLE_PH  = ["style of music", "enter style", "style tags", "genre", "style", "music style"];
+  const SUNO_TITLE_PH  = ["song name", "title", "track name", "track title", "name"];
+
+  const sunoFillField = async (tabId, value, lyrPH, stylPH, titPH, mode) => {
+    const result = await injectAndRun(tabId, (val, lyrPH, stylPH, titPH, mode) => {
+      const fields = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'))
+        .filter(el => {
+          if (el.disabled || el.readOnly) return false;
+          const r = el.getBoundingClientRect();
+          return r.width > 50 && r.height > 10;
+        });
+      const lbl = el =>
+        ((el.placeholder || "") + " " + (el.getAttribute("aria-label") || "") + " " +
+         (el.getAttribute("aria-placeholder") || "") + " " + (el.getAttribute("data-placeholder") || "")
+        ).toLowerCase();
+
+      const lyricsField = fields.find(el => lyrPH.some(ph => lbl(el).includes(ph)));
+      const nonLyrics   = fields.filter(el => el !== lyricsField);
+
+      let el = null;
+      if (mode === "style") {
+        el = nonLyrics.find(el => stylPH.some(s => lbl(el).includes(s)))
+          ?? nonLyrics.find(el => el.tagName === "TEXTAREA")
+          ?? nonLyrics.find(el => el.getAttribute("contenteditable") === "true")
+          ?? nonLyrics.find(el => el.tagName === "INPUT" && el.type !== "search" && !lbl(el).includes("title") && !lbl(el).includes("name") && !lbl(el).includes("search"));
+      } else {
+        el = fields.find(el => {
+          const l = lbl(el);
+          return titPH.some(t => l.includes(t)) && !stylPH.some(s => l.includes(s)) && !lyrPH.some(lp => l.includes(lp));
+        }) ?? fields.find(el => el.tagName === "INPUT" && el.type !== "search" && !lyrPH.some(lp => lbl(el).includes(lp)) && !stylPH.some(s => lbl(el).includes(s)) && !lbl(el).includes("search"));
+      }
+
+      if (!el) return `no_field mode=${mode} lyricsFound=${!!lyricsField} total=${fields.length} labels=${fields.map(lbl).join("|")}`;
+
+      el.focus(); el.click();
+      if (el.isContentEditable) {
+        el.textContent = "";
+        document.execCommand("insertText", false, val);
+      } else {
+        el.select?.();
+        const ok = document.execCommand("insertText", false, val);
+        if (!ok || el.value !== val) {
+          const proto = el.tagName === "TEXTAREA" ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+          Object.getOwnPropertyDescriptor(proto, "value").set.call(el, val);
+          el.dispatchEvent(new Event("input",  { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+      el.blur();
+      const final = el.isContentEditable ? el.textContent : el.value;
+      return final === val ? "ok" : `wrong_val got="${final.slice(0,40)}"`;
+    }, [value, lyrPH, stylPH, titPH, mode]).catch(e => `exc:${e}`);
+    return result;
+  };
+
+  let styleFilled = "not_attempted", titleFilled = "not_attempted";
+  if (styleTags) {
+    for (let i = 0; i < 5; i++) {
+      styleFilled = await sunoFillField(tabId, styleTags, SUNO_LYRICS_PH, SUNO_STYLE_PH, SUNO_TITLE_PH, "style");
+      if (styleFilled === "ok") break;
+      await sleep(1000);
+    }
+  }
+  if (titleFromLyrics) {
+    for (let i = 0; i < 5; i++) {
+      titleFilled = await sunoFillField(tabId, titleFromLyrics, SUNO_LYRICS_PH, SUNO_STYLE_PH, SUNO_TITLE_PH, "title");
+      if (titleFilled === "ok") break;
+      await sleep(1000);
+    }
+  }
+  await chrome.storage.local.set({ __sunoFill: { styleFilled, titleFilled, styleTags, titleFromLyrics } });
+
+  // Click Create immediately after filling — minimizes window for React to reset fields
   const createClicked = await injectAndRun(tabId, () => {
     const LABELS = ["Create", "Generate"];
     const btn = Array.from(document.querySelectorAll("button")).find(
@@ -681,12 +586,13 @@ async function runSuno(lyrics, styleTags) {
 
   // Phase 1: wait for 2 blob URLs (up to ~3 min). If blobs aren't firing,
   // CDN URLs from the API interceptor cover us in Phase 2.
-  while (attempts < 40 && audioUrls.length < 2) {
+  while (attempts < 50 && audioUrls.length < 2) {
     const blobs = await injectAndRun(tabId, () => window.__sunoBlobUrls ? [...window.__sunoBlobUrls] : [], [], "MAIN").catch(() => []);
     if ((blobs || []).length > audioUrls.length) audioUrls = (blobs || []).slice(0, 2);
     if (audioUrls.length >= 2) break;
 
-    if (attempts % 10 === 0) await clickPlay();
+    // Click play every 5 attempts (~15s) to trigger blob URL creation for both tracks
+    if (attempts % 5 === 0) await clickPlay();
     await sleep(3000);
     attempts++;
   }
