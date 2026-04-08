@@ -50,7 +50,6 @@ function generateStyleTagForPersona(persona: typeof PERSONAS[0]): string {
 
 // ── STEP CONFIG ──────────────────────────────────────────────
 const STEPS = [
-  { key: "concept",   label: "Track Concept",   icon: Wand2,      desc: "Generate style tags and track theme" },
   { key: "lyrics",    label: "Lyrics",           icon: Music,       desc: "Generate lyrics in ChatGPT" },
   { key: "art",       label: "Cover Art",        icon: ImageIcon,   desc: "Generate artwork in ChatGPT" },
   { key: "audio",     label: "Audio (Suno)",     icon: Music,       desc: "Generate audio in Suno, download & upload here" },
@@ -59,7 +58,7 @@ const STEPS = [
   { key: "publish",   label: "Publish",          icon: Upload,      desc: "Upload to YouTube" },
 ];
 
-type StepKey = "concept" | "lyrics" | "art" | "audio" | "video" | "metadata" | "publish";
+type StepKey = "lyrics" | "art" | "audio" | "video" | "metadata" | "publish";
 
 interface ApprovalJob {
   jobId: string;
@@ -76,7 +75,7 @@ interface ApprovalJob {
 
 export default function YouTubePage() {
   const [activeTab, setActiveTab] = useState<"pipeline" | "calendar" | "analytics">("pipeline");
-  const [currentStep, setCurrentStep] = useState<StepKey>("concept");
+  const [currentStep, setCurrentStep] = useState<StepKey>("lyrics");
   const [selectedPersona, setSelectedPersona] = useState(PERSONAS[0]);
   const [styleTag, setStyleTag] = useState("");
   const [trackTheme, setTrackTheme] = useState("");
@@ -693,7 +692,7 @@ export default function YouTubePage() {
       if (autoNextRef.current) {
         setTimeout(() => {
           setPublishedUrl(null);
-          setCurrentStep("concept");
+          setCurrentStep("lyrics");
           setStyleTag(""); setLyrics(""); setArtFile(null); setArtPreview(null);
           setAudioFile(null); setVideoUrl(null); setTitle(""); setDescription("");
           runAutomationRef.current?.();
@@ -784,233 +783,6 @@ export default function YouTubePage() {
   // ── RENDER STEP CONTENT ──────────────────────────────────────
   const renderStep = () => {
     switch (currentStep) {
-      case "concept":
-        return (
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Artist</label>
-              <div className="flex flex-wrap gap-2">
-                {PERSONAS.map(p => (
-                  <button
-                    key={p.name}
-                    onClick={() => { setSelectedPersona(p); setStyleTag(""); setLyricsPrompt(""); setArtPrompt(""); setMetadataPrompt(""); }}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                      selectedPersona.name === p.name
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-secondary border-border text-foreground hover:border-primary/40"
-                    }`}
-                  >
-                    {p.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Track theme (optional)</label>
-              <input
-                value={trackTheme}
-                onChange={e => setTrackTheme(e.target.value)}
-                placeholder="e.g. lost in the city, space travel, midnight rain..."
-                className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </div>
-            <button
-              onClick={generateConcept}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
-            >
-              <RefreshCw className="w-4 h-4" /> Generate Style
-            </button>
-            {styleTag && (
-              <div className="space-y-3">
-                <div className="p-3 rounded-lg bg-secondary border border-border">
-                  <p className="text-xs text-muted-foreground mb-1">Style tags</p>
-                  <p className="text-sm font-medium text-primary">{styleTag}</p>
-                </div>
-
-                {/* Automation button */}
-                <div className="p-4 rounded-xl border border-primary/20 bg-primary/5">
-                  <p className="text-sm font-semibold mb-1">Run Full Automation</p>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    The Overmind extension will handle ChatGPT + Suno automatically. Make sure the extension is installed and you are signed into ChatGPT and Suno.
-                  </p>
-                  {automating ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-sm text-primary">
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        {activeJobIds.length} job{activeJobIds.length !== 1 ? "s" : ""} in queue —{" "}
-                        {automationStep === "queued" ? "waiting for extension..." :
-                         automationStep === "lyrics" ? "generating lyrics..." :
-                         automationStep === "art" ? "generating cover art..." :
-                         automationStep === "audio" ? "generating audio in Suno..." :
-                         automationStep === "metadata" ? "writing metadata..." :
-                         `running: ${automationStep}...`}
-                      </div>
-                      <button
-                        onClick={async () => {
-                          await supabase.from("pipeline_jobs").update({ status: "error", error_message: "Cancelled by user" }).eq("status", "pending");
-                          setActiveJobIds([]);
-                          setAutomating(false);
-                          setAutomationStep(null);
-                        }}
-                        className="text-xs text-red-400 border border-red-400/30 px-3 py-1 rounded-lg hover:bg-red-400/10"
-                      >
-                        Stop &amp; Cancel All Pending
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-4 mb-3 flex-wrap">
-                        <div className="flex items-center gap-2">
-                          <label className="text-sm text-muted-foreground">Song ideas:</label>
-                          <input
-                            type="number" min={1} max={20} value={batchCount}
-                            onChange={e => setBatchCount(Math.max(1, Math.min(20, Number(e.target.value))))}
-                            className="w-16 px-2 py-1 text-sm rounded-lg bg-secondary border border-border text-foreground text-center focus:outline-none focus:ring-1 focus:ring-ring"
-                          />
-                        </div>
-                        <div className="flex items-center gap-1 flex-wrap">
-                          <span className="text-xs text-muted-foreground mr-1">Auto-approve:</span>
-                          {(["lyrics", "art", "audio", "metadata"] as const).map(step => (
-                            <button
-                              key={step}
-                              onClick={() => updateAutoApproveSteps(prev => ({ ...prev, [step]: !prev[step] }))}
-                              className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors capitalize ${
-                                autoApproveSteps[step]
-                                  ? "bg-green-600/20 border-green-500/40 text-green-400"
-                                  : "bg-secondary border-border text-muted-foreground hover:border-primary/40"
-                              }`}
-                            >
-                              {autoApproveSteps[step] ? "✓ " : ""}{step}
-                            </button>
-                          ))}
-                          <button
-                            onClick={() => {
-                              const allOn = Object.values(autoApproveSteps).every(Boolean);
-                              updateAutoApproveSteps(() => ({ lyrics: !allOn, art: !allOn, audio: !allOn, metadata: !allOn }));
-                            }}
-                            className="px-2.5 py-1 rounded-md text-xs font-medium border border-border text-muted-foreground hover:border-primary/40 bg-secondary ml-1"
-                          >
-                            {Object.values(autoApproveSteps).every(Boolean) ? "Clear all" : "All"}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <button
-                          onClick={() => { const v = !autoNext; setAutoNext(v); try { localStorage.setItem("autoNext", JSON.stringify(v)); } catch {} }}
-                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border transition-colors ${autoNext ? "bg-green-600/20 border-green-500/40 text-green-400" : "bg-secondary border-border text-muted-foreground hover:border-primary/40"}`}
-                        >
-                          <span className={`w-3 h-3 rounded-full ${autoNext ? "bg-green-400" : "bg-muted-foreground/40"}`} />
-                          Auto-next {autoNext ? "ON" : "OFF"}
-                        </button>
-                        <span className="text-xs text-muted-foreground">Auto-start next track after each publish</span>
-                      </div>
-                      <button
-                        onClick={runAutomation}
-                        disabled={submitting}
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
-                      >
-                        {submitting
-                          ? <><RefreshCw className="w-4 h-4 animate-spin" /> Creating jobs...</>
-                          : <><Wand2 className="w-4 h-4" /> Run {batchCount} Idea{batchCount > 1 ? "s" : ""} Automatically</>}
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                <p className="text-xs text-muted-foreground">— or go step by step manually —</p>
-                <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
-                  Next: Lyrics manually <ChevronRight className="w-4 h-4" />
-                </button>
-
-                {/* Debug results (shown here when triggered from the step panel above) */}
-                {debugResult && (
-                  <div className="mt-3 p-3 rounded-lg bg-secondary border border-border space-y-2">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{debugResult.type} result</p>
-                    {debugResult.type === "lyrics" && debugResult.lyrics && (
-                      <pre className="text-xs text-foreground whitespace-pre-wrap max-h-48 overflow-y-auto">{debugResult.lyrics}</pre>
-                    )}
-                    {debugResult.type === "art" && (
-                      debugResult.artUrl
-                        ? <img src={debugResult.artUrl} alt="Debug art" className="w-48 h-48 object-cover rounded-lg border border-border" />
-                        : <p className="text-xs text-red-400">No art captured — check extension logs.</p>
-                    )}
-                    {debugResult.type === "metadata" && (
-                      <div className="space-y-1">
-                        <p className="text-xs"><span className="text-muted-foreground">Title: </span>{debugResult.title || "(none)"}</p>
-                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">{debugResult.description || "(no description)"}</p>
-                      </div>
-                    )}
-                    <button onClick={() => setDebugResult(null)} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── SCHEDULE ─────────────────────────────────── */}
-            <div className="p-4 rounded-xl border border-border bg-card space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm font-semibold">Auto-Schedule</span>
-                </div>
-                <button
-                  onClick={() => { const v = !scheduleEnabled; setScheduleEnabled(v); try { localStorage.setItem("scheduleEnabled", JSON.stringify(v)); } catch {} }}
-                  className={`flex items-center gap-2 px-3 py-1 rounded-lg text-xs border transition-colors ${scheduleEnabled ? "bg-green-600/20 border-green-500/40 text-green-400" : "bg-secondary border-border text-muted-foreground hover:border-primary/40"}`}
-                >
-                  <span className={`w-2.5 h-2.5 rounded-full ${scheduleEnabled ? "bg-green-400" : "bg-muted-foreground/40"}`} />
-                  {scheduleEnabled ? "ON" : "OFF"}
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground">Set times to automatically run a track each day.</p>
-
-              {/* Add time */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="time"
-                  value={newScheduleTime}
-                  onChange={e => setNewScheduleTime(e.target.value)}
-                  className="px-2 py-1.5 text-sm rounded-lg bg-secondary border border-border text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-                <button
-                  onClick={() => {
-                    if (!newScheduleTime || schedule.includes(newScheduleTime)) return;
-                    const next = [...schedule, newScheduleTime].sort();
-                    setSchedule(next);
-                    try { localStorage.setItem("schedule", JSON.stringify(next)); } catch {}
-                  }}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add
-                </button>
-              </div>
-
-              {/* Scheduled times list */}
-              {schedule.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {schedule.map(t => (
-                    <div key={t} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-secondary border border-border text-sm">
-                      <Clock className="w-3 h-3 text-muted-foreground" />
-                      <span>{t}</span>
-                      <button
-                        onClick={() => {
-                          const next = schedule.filter(s => s !== t);
-                          setSchedule(next);
-                          try { localStorage.setItem("schedule", JSON.stringify(next)); } catch {}
-                        }}
-                        className="text-muted-foreground hover:text-red-400 ml-0.5"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground italic">No times set.</p>
-              )}
-            </div>
-          </div>
-        );
-
       case "lyrics":
         return (
           <div className="space-y-4">
@@ -1215,7 +987,7 @@ export default function YouTubePage() {
         };
 
         const resetPipeline = () => {
-          setCurrentStep("concept");
+          setCurrentStep("lyrics");
           setStyleTag(""); setTrackTheme(""); setLyrics("");
           setArtFile(null); setArtPreview(null); setAudioFile(null);
           setVideoUrl(null); setTitle(""); setDescription("");
@@ -1576,6 +1348,79 @@ export default function YouTubePage() {
             </div>
           );
         })()}
+
+        {/* TRACK CONCEPT CARD */}
+        {activeTab === "pipeline" && (
+          <Card className="mb-5">
+            <CardHeader><CardTitle className="flex items-center gap-2"><Wand2 className="w-4 h-4 text-primary" /> Track Concept</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="text-xs text-muted-foreground mb-2 block">Artist</label>
+                <div className="flex flex-wrap gap-2">
+                  {PERSONAS.map(p => (
+                    <button
+                      key={p.name}
+                      onClick={() => { setSelectedPersona(p); setStyleTag(""); setLyricsPrompt(""); setArtPrompt(""); setMetadataPrompt(""); }}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                        selectedPersona.name === p.name
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-secondary border-border text-foreground hover:border-primary/40"
+                      }`}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Theme (optional)</label>
+                <input
+                  value={trackTheme}
+                  onChange={e => setTrackTheme(e.target.value)}
+                  placeholder="e.g. lost in the city, space travel, midnight rain..."
+                  className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+              {styleTag && (
+                <div className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
+                  <span className="text-xs text-muted-foreground">Style: </span>
+                  <span className="text-xs text-primary font-medium">{styleTag}</span>
+                </div>
+              )}
+              <div className="flex gap-2 flex-wrap items-center">
+                <button
+                  onClick={generateConcept}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40"
+                >
+                  <RefreshCw className="w-4 h-4" /> Generate Style
+                </button>
+                <button
+                  onClick={runAutomation}
+                  disabled={submitting || automating}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {submitting ? <><RefreshCw className="w-4 h-4 animate-spin" /> Creating...</> : <><Wand2 className="w-4 h-4" /> Run Automatically</>}
+                </button>
+                {automating && (
+                  <button onClick={cancelAllPending} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-red-400/30 text-red-400 text-sm font-medium hover:bg-red-400/10">
+                    Stop
+                  </button>
+                )}
+              </div>
+              {automating && automationStep && (
+                <p className="text-xs text-primary flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  {automationStep === "queued" ? "Waiting for extension..." :
+                   automationStep === "lyrics" ? "Generating lyrics..." :
+                   automationStep === "art" ? "Generating cover art..." :
+                   automationStep === "audio" ? "Generating audio in Suno..." :
+                   automationStep === "metadata" ? "Writing metadata..." :
+                   `Running: ${automationStep}...`}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* PIPELINE TAB */}
         {activeTab === "pipeline" && (
