@@ -155,6 +155,8 @@ export default function YouTubePage() {
   useEffect(() => { autoNextRef.current = autoNext; }, [autoNext]);
   useEffect(() => { scheduleRef.current = schedule; }, [schedule]);
   useEffect(() => { scheduleEnabledRef.current = scheduleEnabled; }, [scheduleEnabled]);
+  // No dependency array — runs after every render so the scheduler always has the latest runAutomation
+  useEffect(() => { runAutomationRef.current = runAutomation; });
 
   // Scheduler — checks every 30s if it's time to run a job
   useEffect(() => {
@@ -384,7 +386,6 @@ export default function YouTubePage() {
 
   const runAutomation = async () => {
     if (submitting || automating) return;
-    runAutomationRef.current = runAutomation;
     setSubmitting(true);
     setAutomating(true);
     setAutomationStep("queued");
