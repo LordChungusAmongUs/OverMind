@@ -333,8 +333,7 @@ export default function YouTubePage() {
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const buildConcept = (theme: string, persona?: typeof PERSONAS[0]) => {
-    if (!persona) persona = pickPersona();
+  const buildConcept = (theme: string, persona: typeof PERSONAS[0] = pickPersona()) => {
     const tag = generateStyleTagForPersona(persona);
     const rhymeSchemes = ["AAAB AAAB", "AAAB CCCB", "ABAB", "ABCB", "ABBB"];
     const rhyme = rhymeSchemes[Math.floor(Math.random() * rhymeSchemes.length)];
