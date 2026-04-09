@@ -625,8 +625,9 @@ async function runSuno(lyrics, styleTags) {
     attempts++;
   }
 
-  // Phase 2: fall back to CDN URLs only if we couldn't get 2 blob URLs
-  if (audioUrls.length < 2) {
+  // Phase 2: supplement with CDN URLs from the API interceptor.
+  // Always run this — CDN URLs cover tracks whose blobs didn't fire.
+  {
     const intercepted = await injectAndRun(tabId, () => window.__sunoAudio ? [...window.__sunoAudio] : [], [], "MAIN").catch(() => []);
     const domUrls = await injectAndRun(tabId, () => {
       const urls = new Set();
@@ -637,8 +638,9 @@ async function runSuno(lyrics, styleTags) {
       document.querySelectorAll("a[href*='.mp3']").forEach(a => { if (a.href) urls.add(a.href); });
       return Array.from(urls);
     }).catch(() => []);
-    const needed = 2 - audioUrls.length;
     const cdnCandidates = [...new Set([...(intercepted || []), ...(domUrls || [])])].filter(u => !audioUrls.includes(u));
+    // Add up to 2 CDN URLs total (enough for a full Suno generation) to fill any gaps
+    const needed = Math.max(0, 2 - audioUrls.length);
     audioUrls = [...audioUrls, ...cdnCandidates.slice(0, needed)];
   }
 
@@ -657,12 +659,14 @@ async function runSuno(lyrics, styleTags) {
   const cookieHeader = (sunoCookies || []).map(c => `${c.name}=${c.value}`).join("; ");
 
   const storageUrls = [];
+  const runTs = Date.now();
   for (let i = 0; i < audioUrls.length; i++) {
     const url = audioUrls[i];
-    const storagePath = `audio/${Date.now()}-${i}.mp3`;
+    const storagePath = `audio/${runTs}-${i}.mp3`;
 
     // Try from within the Suno tab (MAIN world) — blob URLs work natively here,
-    // CDN URLs get the Clerk Bearer token which is what Suno's player uses
+    // CDN URLs get the Clerk Bearer token which is what Suno's player uses.
+    // Use PUT with x-upsert so re-runs never fail due to existing file conflict.
     const stored = await injectAndRun(tabId, async (src, sbUrl, sbKey, path, token) => {
       try {
         const fetchOpts = src.startsWith("blob:") ? {} : {
@@ -675,11 +679,19 @@ async function runSuno(lyrics, styleTags) {
         if (!src.startsWith("blob:") && ct.includes("text/html")) return null;
         const blob = await res.blob();
         if (blob.size < 50000) return null;
-        const up = await fetch(`${sbUrl}/storage/v1/object/pipeline-assets/${path}`, {
-          method: "POST",
-          headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}`, "Content-Type": "audio/mpeg" },
+        // Try PUT (upsert) first, fall back to POST
+        let up = await fetch(`${sbUrl}/storage/v1/object/pipeline-assets/${path}`, {
+          method: "PUT",
+          headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}`, "Content-Type": "audio/mpeg", "x-upsert": "true" },
           body: blob,
         });
+        if (!up.ok) {
+          up = await fetch(`${sbUrl}/storage/v1/object/pipeline-assets/${path}`, {
+            method: "POST",
+            headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}`, "Content-Type": "audio/mpeg" },
+            body: blob,
+          });
+        }
         if (!up.ok) return null;
         return `${sbUrl}/storage/v1/object/public/pipeline-assets/${path}`;
       } catch { return null; }
@@ -702,8 +714,8 @@ async function runSuno(lyrics, styleTags) {
       }
     } catch {}
 
-    // Last resort: store the raw URL. If it fails at approve time we'll know
-    // the CDN requires auth we can't replicate — but at least approval cards appear.
+    // Last resort: store the raw CDN URL so approval cards still appear.
+    // Blob URLs are tab-local and cannot be used after tab close — skip them.
     if (url && !url.startsWith("blob:")) storageUrls.push(url);
   }
 
