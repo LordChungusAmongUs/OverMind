@@ -1394,6 +1394,26 @@ export default function YouTubePage() {
                   <span className="text-xs text-primary font-medium">{styleTag}</span>
                 </div>
               )}
+              {/* Auto-approve controls */}
+              <div>
+                <label className="text-xs text-muted-foreground mb-2 block">Auto-approve steps (skip review)</label>
+                <div className="flex gap-2 flex-wrap">
+                  {(["lyrics", "art", "audio", "metadata"] as const).map(step => (
+                    <button
+                      key={step}
+                      onClick={() => updateAutoApproveSteps(prev => ({ ...prev, [step]: !prev[step] }))}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors capitalize ${
+                        autoApproveSteps[step]
+                          ? "bg-green-600/20 border-green-500/40 text-green-400"
+                          : "bg-secondary border-border text-muted-foreground hover:border-primary/40"
+                      }`}
+                    >
+                      {autoApproveSteps[step] ? "✓ " : ""}{step}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex gap-2 flex-wrap items-center">
                 <button
                   onClick={generateConcept}
