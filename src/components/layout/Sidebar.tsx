@@ -14,6 +14,7 @@ import {
   Activity,
   Star,
   Shirt,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,7 @@ const nav = [
   { href: "/health",     label: "Health",     icon: Activity,        exact: false },
   { href: "/astrology",  label: "Astrology",  icon: Star,            exact: false },
   { href: "/stylist",    label: "Stylist",    icon: Shirt,           exact: false },
+  { href: "/budget",     label: "Budget",     icon: Wallet,          exact: false },
   { href: "/roadmap",    label: "Roadmap",    icon: Map,             exact: false },
   { href: "/settings",   label: "Settings",   icon: Settings,        exact: false },
 ];
