@@ -625,21 +625,13 @@ async function runSuno(lyrics, styleTags) {
     attempts++;
   }
 
-  // Phase 2: supplement with CDN URLs from the API interceptor.
-  // Always run this — CDN URLs cover tracks whose blobs didn't fire.
+  // Phase 2: supplement with CDN URLs from the API interceptor only.
+  // Only use window.__sunoAudio (reset post-Create click) — never DOM audio elements,
+  // which include old/historical Suno tracks from the feed and cause duplicate URLs.
   {
     const intercepted = await injectAndRun(tabId, () => window.__sunoAudio ? [...window.__sunoAudio] : [], [], "MAIN").catch(() => []);
-    const domUrls = await injectAndRun(tabId, () => {
-      const urls = new Set();
-      document.querySelectorAll("audio").forEach(a => {
-        const s = a.src || a.currentSrc;
-        if (s && !s.startsWith("blob:") && !s.startsWith("data:")) urls.add(s);
-      });
-      document.querySelectorAll("a[href*='.mp3']").forEach(a => { if (a.href) urls.add(a.href); });
-      return Array.from(urls);
-    }).catch(() => []);
-    const cdnCandidates = [...new Set([...(intercepted || []), ...(domUrls || [])])].filter(u => !audioUrls.includes(u));
-    // Add up to 2 CDN URLs total (enough for a full Suno generation) to fill any gaps
+    const cdnCandidates = [...new Set(intercepted || [])].filter(u => !audioUrls.includes(u));
+    // Fill remaining slots up to 2 total
     const needed = Math.max(0, 2 - audioUrls.length);
     audioUrls = [...audioUrls, ...cdnCandidates.slice(0, needed)];
   }

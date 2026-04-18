@@ -14,26 +14,26 @@ import {
 import { cn } from "@/lib/utils";
 
 const nav = [
-  { href: "/", label: "Briefing", icon: Newspaper },
-  { href: "/restaurant", label: "Restaurant", icon: UtensilsCrossed },
-  { href: "/markets", label: "Markets", icon: TrendingUp },
-  { href: "/youtube", label: "YouTube", icon: Youtube },
-  { href: "/roadmap", label: "Roadmap", icon: Map },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/",          label: "Briefing",    icon: Newspaper },
+  { href: "/restaurant",label: "Restaurant",  icon: UtensilsCrossed },
+  { href: "/markets",   label: "Markets",     icon: TrendingUp },
+  { href: "/youtube",   label: "YouTube",     icon: Youtube },
+  { href: "/roadmap",   label: "Roadmap",     icon: Map },
+  { href: "/settings",  label: "Settings",    icon: Settings },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed left-0 top-0 h-full w-56 bg-card/80 backdrop-blur-md border-r border-border/60 flex flex-col z-50">
+    <aside className="fixed left-0 top-0 h-full w-56 bg-black/60 backdrop-blur-md border-r border-green-500/20 flex flex-col z-50">
+
       {/* Logo */}
-      <div className="flex items-center gap-3 px-5 py-5 border-b border-border/60">
+      <div className="flex items-center gap-3 px-5 py-5 border-b border-green-500/20">
         <div className="relative w-8 h-8 flex-shrink-0">
-          {/* Ping glow ring behind icon */}
-          <span className="ping-slow absolute inset-0 rounded-lg bg-primary/30" />
-          <div className="relative w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center border border-primary/30">
-            <Zap className="w-4 h-4 text-primary" />
+          <span className="ping-slow absolute inset-0 rounded-lg bg-green-500/30" />
+          <div className="relative w-8 h-8 rounded-lg bg-green-500/10 border border-green-500/40 flex items-center justify-center">
+            <Zap className="w-4 h-4 text-green-400" />
           </div>
         </div>
         <span className="gradient-text font-black text-lg tracking-tight">
@@ -50,13 +50,18 @@ export default function Sidebar() {
               key={href}
               href={href}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 border",
                 active
-                  ? "bg-primary/15 text-primary nav-active-glow border border-primary/20"
-                  : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground border border-transparent"
+                  ? "bg-green-500/10 text-green-400 border-green-500/30 nav-active-glow"
+                  : "text-green-500/60 hover:bg-green-500/5 hover:text-green-300 border-transparent"
               )}
             >
-              <Icon className={cn("w-4 h-4 transition-all", active && "drop-shadow-[0_0_6px_rgba(139,92,246,0.8)]")} />
+              <Icon className={cn(
+                "w-4 h-4 transition-all",
+                active
+                  ? "text-green-400 drop-shadow-[0_0_6px_rgba(0,255,65,0.8)]"
+                  : "text-green-600"
+              )} />
               {label}
             </Link>
           );
@@ -64,10 +69,11 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-5 py-4 border-t border-border/60">
-        <p className="text-xs text-muted-foreground">@djthirstyboy</p>
-        <p className="text-xs text-muted-foreground/50 mt-0.5">Powered by AI</p>
+      <div className="px-5 py-4 border-t border-green-500/20">
+        <p className="text-xs text-green-600">@djthirstyboy</p>
+        <p className="text-xs text-green-900 mt-0.5">Powered by AI</p>
       </div>
+
     </aside>
   );
 }
