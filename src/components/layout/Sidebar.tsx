@@ -15,6 +15,7 @@ import {
   Star,
   Shirt,
   Wallet,
+  CalendarDays,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +29,7 @@ const nav = [
   { href: "/astrology",  label: "Astrology",  icon: Star,            exact: false },
   { href: "/stylist",    label: "Stylist",    icon: Shirt,           exact: false },
   { href: "/budget",     label: "Budget",     icon: Wallet,          exact: false },
+  { href: "/planner",    label: "Planner",    icon: CalendarDays,    exact: false },
   { href: "/roadmap",    label: "Roadmap",    icon: Map,             exact: false },
   { href: "/settings",   label: "Settings",   icon: Settings,        exact: false },
 ];
