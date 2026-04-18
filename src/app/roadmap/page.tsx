@@ -106,10 +106,10 @@ const STATUS_CONFIG = {
 };
 
 const PHASE_COLORS: Record<string, { border: string; bg: string; badge: string; bar: string; num: string }> = {
-  violet:  { border: "border-violet-500/30",  bg: "bg-violet-500/5",  badge: "bg-violet-500/15 text-violet-300",  bar: "bg-violet-500", num: "text-violet-400" },
-  orange:  { border: "border-orange-500/30",  bg: "bg-orange-500/5",  badge: "bg-orange-500/15 text-orange-300",  bar: "bg-orange-500", num: "text-orange-400" },
-  emerald: { border: "border-emerald-500/30", bg: "bg-emerald-500/5", badge: "bg-emerald-500/15 text-emerald-300", bar: "bg-emerald-500", num: "text-emerald-400" },
-  yellow:  { border: "border-yellow-500/30",  bg: "bg-yellow-500/5",  badge: "bg-yellow-500/15 text-yellow-300",  bar: "bg-yellow-500", num: "text-yellow-400" },
+  violet:  { border: "border-green-400/30",  bg: "bg-green-400/5",  badge: "border border-green-400/30 bg-green-400/10 text-green-300",  bar: "bg-green-400", num: "text-green-400" },
+  orange:  { border: "border-yellow-500/30", bg: "bg-yellow-500/5", badge: "border border-yellow-500/30 bg-yellow-500/10 text-yellow-300", bar: "bg-yellow-500", num: "text-yellow-400" },
+  emerald: { border: "border-cyan-500/30",   bg: "bg-cyan-500/5",   badge: "border border-cyan-500/30 bg-cyan-500/10 text-cyan-300",       bar: "bg-cyan-500",   num: "text-cyan-400"  },
+  yellow:  { border: "border-red-500/30",    bg: "bg-red-500/5",    badge: "border border-red-500/30 bg-red-500/10 text-red-300",           bar: "bg-red-500",    num: "text-red-400"   },
 };
 
 function phaseProgress(phase: Phase) {
@@ -134,21 +134,24 @@ export default function RoadmapPage() {
   const overall = overallProgress(PHASES);
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-screen crt">
       <Sidebar />
       <main className="ml-56 flex-1 p-8 max-w-4xl">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-foreground">Project Roadmap</h1>
-          <p className="text-sm text-muted-foreground mt-1">Overmind — full automation across music, restaurant, life, and revenue</p>
+          <p className="text-xs text-green-600 font-mono tracking-widest uppercase mb-1">
+            <span className="text-red-500">&gt;</span> project_roadmap.exe
+          </p>
+          <h1 className="text-3xl font-black font-mono text-green-300">Roadmap</h1>
+          <p className="text-green-700 text-sm font-mono mt-1">Overmind — full automation across music, restaurant, life, and revenue</p>
         </div>
 
         {/* Overall progress */}
-        <div className="p-5 rounded-xl border border-border bg-card mb-8">
+        <div className="p-5 rounded-xl border border-green-500/20 bg-black/40 mb-8">
           <div className="flex items-end justify-between mb-3">
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">Overall Progress</p>
-              <p className="text-3xl font-bold text-foreground">{overall.pct}%</p>
+              <p className="text-xs text-green-700 font-mono uppercase tracking-widest mb-1"><span className="text-red-500">&gt;</span> Overall Progress</p>
+              <p className="text-3xl font-black font-mono text-green-300">{overall.pct}%</p>
             </div>
             <div className="flex gap-5 text-sm text-right">
               <div><p className="text-green-400 font-semibold">{overall.done}</p><p className="text-xs text-muted-foreground">Done</p></div>
@@ -157,8 +160,8 @@ export default function RoadmapPage() {
               <div><p className="text-foreground font-semibold">{overall.total}</p><p className="text-xs text-muted-foreground">Total</p></div>
             </div>
           </div>
-          <div className="h-2.5 rounded-full bg-secondary overflow-hidden">
-            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${overall.pct}%` }} />
+          <div className="h-2.5 rounded-full bg-black/60 border border-green-500/20 overflow-hidden">
+            <div className="h-full rounded-full bg-green-400 transition-all shadow-[0_0_8px_rgba(0,255,65,0.5)]" style={{ width: `${overall.pct}%` }} />
           </div>
         </div>
 
