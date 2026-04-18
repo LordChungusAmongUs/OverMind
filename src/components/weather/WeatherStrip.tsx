@@ -81,9 +81,9 @@ export default function WeatherStrip() {
           });
         }
 
-        // Show current hour + next 23 (24 total)
+        // Show current hour + next 11 (12 total)
         const nowIdx = points.findIndex(p => p.isNow);
-        const slice = nowIdx >= 0 ? points.slice(nowIdx, nowIdx + 24) : points.slice(0, 24);
+        const slice = nowIdx >= 0 ? points.slice(nowIdx, nowIdx + 12) : points.slice(0, 12);
 
         // Today high/low
         const todayTemps = points.filter((_, i) => {
