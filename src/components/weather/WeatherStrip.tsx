@@ -69,10 +69,8 @@ export default function WeatherStrip() {
         const points: WeatherPoint[] = [];
         for (let i = 0; i < h.time.length; i++) {
           const t = new Date(h.time[i]);
-          if (t.getDate() !== now.getDate() && points.length >= 18) break;
           const hr = t.getHours();
           const isToday = t.getDate() === now.getDate();
-          if (!isToday && points.length >= 18) break;
           points.push({
             hour: t.toLocaleTimeString("en-US", { hour: "numeric", hour12: true }),
             temp: Math.round(h.temperature_2m[i]),
@@ -83,9 +81,9 @@ export default function WeatherStrip() {
           });
         }
 
-        // Only show from current hour + next 15
+        // Show current hour + next 23 (24 total)
         const nowIdx = points.findIndex(p => p.isNow);
-        const slice = nowIdx >= 0 ? points.slice(nowIdx, nowIdx + 16) : points.slice(0, 16);
+        const slice = nowIdx >= 0 ? points.slice(nowIdx, nowIdx + 24) : points.slice(0, 24);
 
         // Today high/low
         const todayTemps = points.filter((_, i) => {
@@ -154,24 +152,33 @@ export default function WeatherStrip() {
       </div>
 
       {/* Hourly strip */}
-      <div className="flex gap-0 overflow-x-auto">
-        {hours.map((h, i) => (
-          <div
-            key={i}
-            className={`flex flex-col items-center gap-1 px-3 py-3 flex-shrink-0 border-r border-green-500/10 min-w-[64px] ${
-              h.isNow ? "bg-green-500/10" : "hover:bg-green-500/5"
-            }`}
-          >
-            <span className={`text-xs font-mono ${h.isNow ? "text-green-400 font-bold" : "text-green-700"}`}>
-              {h.isNow ? "NOW" : h.hour.replace(":00", "")}
-            </span>
-            <WeatherIcon code={h.code} className={`w-4 h-4 ${tempColor(h.temp)}`} />
-            <span className={`text-sm font-black font-mono ${tempColor(h.temp)}`}>{h.temp}°</span>
-            {h.precip > 20 && (
-              <span className="text-xs font-mono text-blue-400/70">{h.precip}%</span>
-            )}
-          </div>
-        ))}
+      <div className="flex gap-0 overflow-x-auto scrollbar-thin">
+        {hours.map((h, i) => {
+          const isMidnight = !h.isNow && h.hour === "12 AM";
+          return (
+            <div key={i} className="flex flex-col flex-shrink-0">
+              {isMidnight && (
+                <div className="px-2 py-1 bg-green-500/10 border-r border-green-500/20 text-center">
+                  <span className="text-xs font-mono text-green-500 font-bold uppercase tracking-widest">Tomorrow</span>
+                </div>
+              )}
+              <div
+                className={`flex flex-col items-center gap-1 px-3 py-3 border-r border-green-500/10 min-w-[64px] ${
+                  h.isNow ? "bg-green-500/10" : isMidnight ? "bg-green-500/5" : "hover:bg-green-500/5"
+                }`}
+              >
+                <span className={`text-xs font-mono ${h.isNow ? "text-green-400 font-bold" : "text-green-700"}`}>
+                  {h.isNow ? "NOW" : h.hour.replace(":00", "")}
+                </span>
+                <WeatherIcon code={h.code} className={`w-4 h-4 ${tempColor(h.temp)}`} />
+                <span className={`text-sm font-black font-mono ${tempColor(h.temp)}`}>{h.temp}°</span>
+                {h.precip > 20 && (
+                  <span className="text-xs font-mono text-blue-400/70">{h.precip}%</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
