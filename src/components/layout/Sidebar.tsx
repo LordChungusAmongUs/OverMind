@@ -10,6 +10,7 @@ import {
   Newspaper,
   Settings,
   Zap,
+  Map,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +19,7 @@ const nav = [
   { href: "/restaurant", label: "Restaurant", icon: UtensilsCrossed },
   { href: "/markets", label: "Markets", icon: TrendingUp },
   { href: "/youtube", label: "YouTube", icon: Youtube },
+  { href: "/roadmap", label: "Roadmap", icon: Map },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

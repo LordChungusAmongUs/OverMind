@@ -69,9 +69,14 @@ interface ApprovalJob {
   lyrics: string;
   styleTags: string;
   isInstrumental: boolean;
-  approvedUrls: string[];
+  approvedUrls: string[];   // sub-job created / single-audio upload started
   skippedUrls: string[];
+  uploadedUrls: string[];   // successfully uploaded to YouTube
+  errorUrls: Record<string, string>; // url → error message
 }
+
+// Per-track UI status (keyed by audio URL)
+type TrackStatus = "processing" | "uploading" | "uploaded" | string; // string = error message
 
 export default function YouTubePage() {
   const [activeTab, setActiveTab] = useState<"pipeline" | "calendar" | "analytics">("pipeline");
@@ -133,6 +138,13 @@ export default function YouTubePage() {
   const debugJobIdRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLInputElement>(null);
   const artRef = useRef<HTMLInputElement>(null);
+  // Sub-job auto-upload queue (instrumental per-track sub-jobs)
+  const subJobSeenRef = useRef<Set<string>>(new Set()); // dedup: sub-job IDs already queued
+  const [trackStatuses, setTrackStatuses] = useState<Record<string, TrackStatus>>({});
+  const [subJobQueue, setSubJobQueue] = useState<Array<{
+    subJobId: string; parentJobId: string; audioUrl: string;
+    artUrl: string | null; title: string; description: string;
+  }>>([]);
 
   // ── POLL PENDING JOB COUNT (always-on, survives page reload) ──
   useEffect(() => {
@@ -172,6 +184,17 @@ export default function YouTubePage() {
     }, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // ── SUB-JOB AUTO-UPLOAD QUEUE ─────────────────────────────────
+  // Processes one sub-job upload at a time. publishingJobId acts as the lock:
+  // the effect sets it before starting, clears it on completion → triggers the next.
+  useEffect(() => {
+    if (subJobQueue.length === 0 || publishingJobId !== null) return;
+    const [next, ...rest] = subJobQueue;
+    setSubJobQueue(rest);
+    setPublishingJobId(next.parentJobId); // acquire lock before async work
+    autoUploadTrack(next);
+  }, [subJobQueue, publishingJobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cancelAllPending = async () => {
     await supabase.from("pipeline_jobs")
@@ -277,33 +300,56 @@ export default function YouTubePage() {
       setActiveJobs(jobMap);
 
       // Keep the most recently updated job as the live preview (running, review, or errored)
-      // Skip jobs that have no step yet (pending, not yet picked up) — those can't render meaningfully
+      // Exclude approval-step jobs — those are handled by the approval queue card, not live preview
       const liveCandidate = [...jobs]
-        .filter(j => j.step != null)
+        .filter(j => j.step != null && j.step !== "approval")
         .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0] ?? null;
       if (liveCandidate) setLiveJob({ id: liveCandidate.id, step: liveCandidate.step, lyrics: liveCandidate.lyrics, art_url: liveCandidate.art_url, audio_url: liveCandidate.audio_url, title: liveCandidate.title, description: liveCandidate.description, error_message: liveCandidate.error_message, lyrics_prompt: liveCandidate.lyrics_prompt, art_prompt: liveCandidate.art_prompt, metadata_prompt: liveCandidate.metadata_prompt, style_tags: liveCandidate.style_tags, track_theme: liveCandidate.track_theme });
+      else setLiveJob(null);
 
       // Update step display from running jobs
       const running = jobs.find(j => j.status === "running");
       if (running) setAutomationStep(running.step);
 
-      // Add newly-approved jobs to queue
+      // Add newly-approved jobs to queue (or auto-upload if sub-job)
       const readyJobs = jobs.filter(j => j.step === "approval");
       if (readyJobs.length > 0) {
+        // Route sub-jobs (tagged __subjob:<parentId>) to the auto-upload queue
+        for (const j of readyJobs) {
+          if ((j.track_theme || "").startsWith("__subjob:") && !subJobSeenRef.current.has(j.id)) {
+            subJobSeenRef.current.add(j.id);
+            const parentJobId = (j.track_theme as string).replace("__subjob:", "");
+            const audioUrls: string[] = (() => { try { return JSON.parse(j.audio_url ?? "[]"); } catch { return []; } })();
+            const audioUrl = audioUrls[0];
+            if (audioUrl) {
+              setSubJobQueue(prev => [...prev, {
+                subJobId: j.id, parentJobId, audioUrl,
+                artUrl: j.art_url ?? null,
+                title: j.title ?? "",
+                description: j.description ?? "",
+              }]);
+            }
+          }
+        }
+        // Regular jobs (not sub-jobs) → approval queue
         setApprovalQueue(prev => {
           const existing = new Set(prev.map(a => a.jobId));
-          const toAdd = readyJobs.filter(j => !existing.has(j.id)).map(j => ({
-            jobId: j.id,
-            audioUrls: (() => { try { return JSON.parse(j.audio_url ?? "[]"); } catch { return []; } })(),
-            artUrl: j.art_url ?? null,
-            title: j.title ?? "",
-            description: j.description ?? "",
-            lyrics: j.lyrics ?? "",
-            styleTags: j.style_tags ?? "",
-            isInstrumental: !(j.lyrics || "").replace(/^TITLE:\s*.+\r?\n?/im, "").replace(/^STYLE:\s*.+\r?\n?/im, "").trim(),
-            approvedUrls: [],
-            skippedUrls: [],
-          }));
+          const toAdd = readyJobs
+            .filter(j => !existing.has(j.id) && !(j.track_theme || "").startsWith("__subjob:"))
+            .map(j => ({
+              jobId: j.id,
+              audioUrls: (() => { try { return JSON.parse(j.audio_url ?? "[]"); } catch { return []; } })(),
+              artUrl: j.art_url ?? null,
+              title: j.title ?? "",
+              description: j.description ?? "",
+              lyrics: j.lyrics ?? "",
+              styleTags: j.style_tags ?? "",
+              isInstrumental: !(j.lyrics || "").replace(/^TITLE:\s*.+\r?\n?/im, "").replace(/^STYLE:\s*.+\r?\n?/im, "").trim(),
+              approvedUrls: [],
+              skippedUrls: [],
+              uploadedUrls: [],
+              errorUrls: {},
+            }));
           return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
         });
       }
@@ -316,7 +362,7 @@ export default function YouTubePage() {
       if (doneIds.length > 0) {
         setActiveJobIds(prev => {
           const next = prev.filter(id => !doneIds.includes(id));
-          if (next.length === 0) { setAutomating(false); setAutomationStep(null); }
+          if (next.length === 0) { setAutomating(false); setAutomationStep(null); setLiveJob(null); }
           return next;
         });
       }
@@ -391,10 +437,14 @@ export default function YouTubePage() {
     setAutomating(true);
     setAutomationStep("queued");
 
-    // Cancel any leftover pending jobs from previous stuck runs
+    // Cancel any leftover pending/in-progress jobs from previous runs, then clear UI state
     await supabase.from("pipeline_jobs")
       .update({ status: "error", error_message: "Cancelled — new batch started" })
-      .eq("status", "pending");
+      .in("status", ["pending", "running"]);
+    setApprovalQueue([]);
+    setTrackStatuses({});
+    setLiveJob(null);
+    subJobSeenRef.current = new Set();
 
     const newJobIds: string[] = [];
     for (let i = 0; i < batchCount; i++) {
@@ -428,7 +478,7 @@ export default function YouTubePage() {
       if (!error && data) newJobIds.push(data.id);
     }
     setSubmitting(false);
-    if (newJobIds.length > 0) setActiveJobIds(prev => [...prev, ...newJobIds]);
+    if (newJobIds.length > 0) setActiveJobIds(newJobIds);
     else { setAutomating(false); setAutomationStep(null); }
   };
 
@@ -490,12 +540,189 @@ export default function YouTubePage() {
     }, 3000);
   };
 
+  // ── SHARED UPLOAD HELPER ────────────────────────────────────────
+  // Fetches audio + art, encodes video with FFmpeg, uploads to YouTube.
+  // Returns the YouTube video URL on success; throws on failure.
+  const uploadToYouTube = async (audioUrl: string, artUrl: string | null, title: string, description: string): Promise<string> => {
+    setAutoPublishStep("Fetching audio...");
+    let audioBlob: Blob;
+    try {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 30000);
+      const audioRes = await fetch(audioUrl, { signal: ac.signal });
+      clearTimeout(timer);
+      if (!audioRes.ok) throw new Error(`HTTP ${audioRes.status}`);
+      audioBlob = await audioRes.blob();
+    } catch (e) {
+      throw new Error(`Audio fetch failed — ${e instanceof Error ? e.message : e}. URL: ${audioUrl.slice(0, 80)}`);
+    }
+    if (audioBlob.size < 10000) throw new Error(`Audio file too small (${audioBlob.size} bytes) — URL may be expired`);
+    const audioFileObj = new File([audioBlob], "track.mp3", { type: "audio/mpeg" });
+
+    setAutoPublishStep("Fetching art...");
+    let artFileObj: File | null = null;
+    if (artUrl) {
+      let artBlob: Blob;
+      if (artUrl.startsWith("data:")) {
+        const base64 = artUrl.split(",")[1];
+        const binary = atob(base64);
+        const arr = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+        artBlob = new Blob([arr], { type: "image/jpeg" });
+      } else {
+        let artRes: Response;
+        try { artRes = await fetch(artUrl); } catch (e) { throw new Error(`Art fetch failed: ${e}`); }
+        artBlob = await artRes.blob();
+      }
+      artFileObj = new File([artBlob], "art.jpg", { type: "image/jpeg" });
+    }
+    if (!artFileObj) throw new Error("No cover art available for this job.");
+
+    setAutoPublishStep("Loading FFmpeg WASM...");
+    const { FFmpeg } = await import("@ffmpeg/ffmpeg");
+    const { fetchFile, toBlobURL } = await import("@ffmpeg/util");
+    const ffmpeg = new FFmpeg();
+    ffmpeg.on("log", ({ message }: { message: string }) => {
+      const t = message.match(/time=(\d+:\d+:\d+)/);
+      if (t) setAutoPublishStep(`Encoding video... ${t[1]}`);
+    });
+    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+    await ffmpeg.load({
+      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
+    });
+    setAutoPublishStep("Writing files...");
+    await ffmpeg.writeFile("art.jpg", await fetchFile(artFileObj));
+    await ffmpeg.writeFile("audio.mp3", await fetchFile(audioFileObj));
+    setAutoPublishStep("Encoding video... 0:00:00");
+    await ffmpeg.exec([
+      "-loop", "1", "-i", "art.jpg",
+      "-i", "audio.mp3",
+      "-c:v", "libx264", "-preset", "veryfast",
+      "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+      "-pix_fmt", "yuv420p",
+      "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+      "-movflags", "+faststart",
+      "-shortest", "output.mp4",
+    ]);
+    setAutoPublishStep("Finalizing video...");
+    const vidData = await ffmpeg.readFile("output.mp4");
+    const vidBlob = new Blob([vidData as unknown as BlobPart], { type: "video/mp4" });
+    if (vidBlob.size < 50000) throw new Error(`Encoded video is too small (${vidBlob.size} bytes) — FFmpeg may have failed`);
+
+    const safeJson = async (res: Response, label: string) => {
+      const text = await res.text();
+      try { return JSON.parse(text); }
+      catch { throw new Error(`${label} — HTTP ${res.status}: ${text.slice(0, 120)}`); }
+    };
+    setAutoPublishStep("Connecting to YouTube...");
+    const tokenRes = await fetch("/api/youtube/token");
+    const tokenData = await safeJson(tokenRes, "Token fetch");
+    if (!tokenData.access_token) throw new Error(tokenData.error || "No YouTube token");
+
+    setAutoPublishStep("Starting YouTube upload...");
+    const initRes = await fetch(
+      "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+          "Content-Type": "application/json",
+          "X-Upload-Content-Type": "video/mp4",
+          "X-Upload-Content-Length": String(vidBlob.size),
+        },
+        body: JSON.stringify({
+          snippet: {
+            title: title || "New Track",
+            description: description || "",
+            tags: ["drum and bass", "dnb", "djthirstyboy", "music"],
+            categoryId: "10",
+          },
+          status: { privacyStatus: "public", madeForKids: false },
+        }),
+      }
+    );
+    if (!initRes.ok) {
+      const errText = await initRes.text();
+      throw new Error(`YouTube session init failed — HTTP ${initRes.status}: ${errText.slice(0, 120)}`);
+    }
+    const uploadUrl = initRes.headers.get("Location");
+    if (!uploadUrl) throw new Error("No upload URL from YouTube (Location header missing)");
+
+    setAutoPublishStep(`Uploading to YouTube (${(vidBlob.size / 1024 / 1024).toFixed(0)} MB)...`);
+    const uploadRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "video/mp4",
+        "Content-Range": `bytes 0-${vidBlob.size - 1}/${vidBlob.size}`,
+      },
+      body: vidBlob,
+    });
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      throw new Error(`YouTube upload failed — HTTP ${uploadRes.status}: ${errText.slice(0, 200)}`);
+    }
+    const uploadData = await safeJson(uploadRes, "Upload response");
+    const videoId = uploadData.id;
+    if (!videoId) throw new Error(`No video ID in response: ${JSON.stringify(uploadData).slice(0, 120)}`);
+    return `https://www.youtube.com/watch?v=${videoId}`;
+  };
+
+  // ── AUTO-UPLOAD FOR SUB-JOB TRACKS ──────────────────────────────
+  // Called by the subJobQueue effect — publishingJobId is already set by the caller.
+  const autoUploadTrack = async (item: {
+    subJobId: string; parentJobId: string; audioUrl: string;
+    artUrl: string | null; title: string; description: string;
+  }) => {
+    const { subJobId, parentJobId, audioUrl, artUrl, title, description } = item;
+    setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploading" }));
+    try {
+      const ytUrl = await uploadToYouTube(audioUrl, artUrl, title, description);
+      setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploaded" }));
+      await supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", subJobId);
+      setApprovalQueue(prev => {
+        const updated = prev.map(j => {
+          if (j.jobId !== parentJobId) return j;
+          return { ...j, uploadedUrls: [...j.uploadedUrls, audioUrl] };
+        });
+        // Mark parent job complete in DB if all tracks are done
+        const parentJob = updated.find(j => j.jobId === parentJobId);
+        if (parentJob) {
+          const done = parentJob.uploadedUrls.length + parentJob.skippedUrls.length + Object.keys(parentJob.errorUrls).length;
+          if (done >= parentJob.audioUrls.length) {
+            supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", parentJobId);
+          }
+        }
+        // Remove card only when all tracks resolved
+        return updated.filter(j => {
+          if (j.jobId !== parentJobId) return true;
+          return j.uploadedUrls.length + j.skippedUrls.length + Object.keys(j.errorUrls).length < j.audioUrls.length;
+        });
+      });
+      console.log(`Track uploaded: ${ytUrl}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setTrackStatuses(prev => ({ ...prev, [audioUrl]: msg }));
+      setApprovalQueue(prev => prev.map(j => {
+        if (j.jobId !== parentJobId) return j;
+        return { ...j, errorUrls: { ...j.errorUrls, [audioUrl]: msg } };
+      }));
+    }
+    setPublishingJobId(null);
+    setAutoPublishStep(null);
+  };
+
   const handleSkipTrack = (jobId: string, audioUrl: string) => {
-    setApprovalQueue(prev => prev.map(j => {
-      if (j.jobId !== jobId) return j;
-      const skippedUrls = [...j.skippedUrls, audioUrl];
-      return { ...j, skippedUrls };
-    }).filter(j => j.approvedUrls.length + j.skippedUrls.length < j.audioUrls.length || j.audioUrls.length === 0));
+    setApprovalQueue(prev => {
+      const updated = prev.map(j => {
+        if (j.jobId !== jobId) return j;
+        return { ...j, skippedUrls: [...j.skippedUrls, audioUrl] };
+      });
+      return updated.filter(j => {
+        if (j.jobId !== jobId) return true;
+        return j.uploadedUrls.length + j.skippedUrls.length + Object.keys(j.errorUrls).length < j.audioUrls.length;
+      });
+    });
   };
 
   const handleDisapproveJob = async (jobId: string) => {
@@ -504,199 +731,22 @@ export default function YouTubePage() {
   };
 
   const handleApprove = async (job: ApprovalJob, audioUrl: string) => {
-    // Vocal tracks: only one approval allowed
-    if (!job.isInstrumental && job.approvedUrls.length > 0) {
-      alert("Already approved a track with this title — skip or disapprove the job.");
-      return;
-    }
+    // Prevent re-approving an already-actioned track
+    if (trackStatuses[audioUrl] || job.skippedUrls.includes(audioUrl)) return;
     if (!audioUrl) { alert("No audio URL found. Cannot auto-publish."); return; }
 
-    // Instrumental multi-track: each approval spins up a new job with fresh art/title/metadata
-    // for that specific audio, then comes back through the approval queue for final publish.
-    // Single-audio jobs (already re-queued) fall through to the normal publish path below.
-    if (job.isInstrumental && job.audioUrls.length > 1) {
-      const { data: origJob } = await supabase.from("pipeline_jobs")
-        .select("art_prompt, metadata_prompt, style_tags, track_theme")
-        .eq("id", job.jobId).single();
-      if (origJob) {
-        const autoApproveStepsStr = Object.entries(autoApproveSteps).filter(([, v]) => v).map(([k]) => k).join(",");
-        const { data: newJob } = await supabase.from("pipeline_jobs").insert({
-          status: "pending",
-          style_tags: origJob.style_tags,
-          track_theme: origJob.track_theme,
-          art_prompt: origJob.art_prompt,
-          metadata_prompt: origJob.metadata_prompt,
-          lyrics: "",
-          audio_url: JSON.stringify([audioUrl]),
-          auto_approve: Object.values(autoApproveSteps).every(Boolean),
-          auto_approve_steps: autoApproveStepsStr || null,
-        }).select().single();
-        if (newJob) {
-          setActiveJobIds(prev => [...prev, newJob.id]);
-          setAutomating(true);
-        }
-      }
-      setApprovalQueue(prev => {
-        const updated = prev.map(j =>
-          j.jobId !== job.jobId ? j : { ...j, approvedUrls: [...j.approvedUrls, audioUrl] }
-        );
-        // Remove original job from queue once every track has been approved or skipped
-        return updated.filter(j => {
-          if (j.jobId !== job.jobId) return true;
-          return j.approvedUrls.length + j.skippedUrls.length < j.audioUrls.length;
-        });
-      });
-      return;
-    }
-
+    // ── DIRECT UPLOAD (all paths) ─────────────────────────────────
+    // Upload the approved track immediately using existing art + metadata.
+    // No sub-jobs — one approval click = one YouTube upload.
     setPublishingJobId(job.jobId);
-    const trackTitle = job.title;
-
+    setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploading" }));
     try {
-      // Fetch audio (30s timeout — Suno CDN URLs may hang without auth)
-      setAutoPublishStep("Fetching audio...");
-      let audioBlob: Blob;
-      try {
-        const ac = new AbortController();
-        const timer = setTimeout(() => ac.abort(), 30000);
-        const audioRes = await fetch(audioUrl, { signal: ac.signal });
-        clearTimeout(timer);
-        if (!audioRes.ok) throw new Error(`HTTP ${audioRes.status}`);
-        audioBlob = await audioRes.blob();
-      } catch (e) {
-        throw new Error(`Audio fetch failed — ${e instanceof Error ? e.message : e}. URL: ${audioUrl.slice(0, 80)}`);
-      }
-      if (audioBlob.size < 10000) throw new Error(`Audio file too small (${audioBlob.size} bytes) — URL may be expired`);
-      const audioFileObj = new File([audioBlob], "track.mp3", { type: "audio/mpeg" });
-      setAudioFile(audioFileObj);
-
-      // Fetch art — handle data: and https: URLs from job
-      setAutoPublishStep("Fetching art...");
-      let artFileObj: File | null = null;
-      if (job.artUrl) {
-        let artBlob: Blob;
-        if (job.artUrl.startsWith("data:")) {
-          const base64 = job.artUrl.split(",")[1];
-          const binary = atob(base64);
-          const arr = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
-          artBlob = new Blob([arr], { type: "image/jpeg" });
-        } else {
-          let artRes: Response;
-          try {
-            artRes = await fetch(job.artUrl);
-          } catch (e) {
-            throw new Error(`Art fetch failed (${job.artUrl.slice(0, 60)}...): ${e}`);
-          }
-          artBlob = await artRes.blob();
-        }
-        artFileObj = new File([artBlob], "art.jpg", { type: "image/jpeg" });
-        setArtPreview(URL.createObjectURL(artFileObj));
-      }
-      if (!artFileObj) {
-        alert("No cover art available for this job.");
-        setPublishingJobId(null);
-        return;
-      }
-
-      // Create video with FFmpeg
-      setAutoPublishStep("Loading FFmpeg WASM...");
-      const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-      const { fetchFile, toBlobURL } = await import("@ffmpeg/util");
-      const ffmpeg = new FFmpeg();
-      ffmpeg.on("log", ({ message }: { message: string }) => {
-        const t = message.match(/time=(\d+:\d+:\d+)/);
-        if (t) setAutoPublishStep(`Encoding video... ${t[1]}`);
-      });
-      const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
-      await ffmpeg.load({
-        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-      });
-      setAutoPublishStep("Writing files...");
-      await ffmpeg.writeFile("art.jpg", await fetchFile(artFileObj));
-      await ffmpeg.writeFile("audio.mp3", await fetchFile(audioFileObj));
-      setAutoPublishStep("Encoding video... 0:00:00");
-      await ffmpeg.exec([
-        "-loop", "1", "-i", "art.jpg",
-        "-i", "audio.mp3",
-        "-c:v", "libx264", "-preset", "veryfast",
-        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
-        "-pix_fmt", "yuv420p",
-        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-        "-movflags", "+faststart",
-        "-shortest", "output.mp4",
-      ]);
-      setAutoPublishStep("Finalizing video...");
-      const vidData = await ffmpeg.readFile("output.mp4");
-      const vidBlob = new Blob([vidData as unknown as BlobPart], { type: "video/mp4" });
-      if (vidBlob.size < 50000) throw new Error(`Encoded video is too small (${vidBlob.size} bytes) — FFmpeg may have failed`);
-      const vidUrl = URL.createObjectURL(vidBlob);
-      setVideoUrl(vidUrl);
-
-      // Upload directly to YouTube from the browser (bypasses Vercel body size limit)
-      const safeJson = async (res: Response, label: string) => {
-        const text = await res.text();
-        try { return JSON.parse(text); }
-        catch { throw new Error(`${label} — HTTP ${res.status}: ${text.slice(0, 120)}`); }
-      };
-
-      setAutoPublishStep("Connecting to YouTube...");
-      const tokenRes = await fetch("/api/youtube/token");
-      const tokenData = await safeJson(tokenRes, "Token fetch");
-      if (!tokenData.access_token) throw new Error(tokenData.error || "No YouTube token");
-
-      setAutoPublishStep("Starting YouTube upload...");
-      const initRes = await fetch(
-        "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${tokenData.access_token}`,
-            "Content-Type": "application/json",
-            "X-Upload-Content-Type": "video/mp4",
-            "X-Upload-Content-Length": String(vidBlob.size),
-          },
-          body: JSON.stringify({
-            snippet: {
-              title: trackTitle || "New Track",
-              description: job.description || "",
-              tags: ["drum and bass", "dnb", "djthirstyboy", "music"],
-              categoryId: "10",
-            },
-            status: { privacyStatus: "public", madeForKids: false },
-          }),
-        }
-      );
-      if (!initRes.ok) {
-        const errText = await initRes.text();
-        throw new Error(`YouTube session init failed — HTTP ${initRes.status}: ${errText.slice(0, 120)}`);
-      }
-      const uploadUrl = initRes.headers.get("Location");
-      if (!uploadUrl) throw new Error("No upload URL from YouTube (Location header missing)");
-
-      setAutoPublishStep(`Uploading to YouTube (${(vidBlob.size / 1024 / 1024).toFixed(0)} MB)...`);
-      const uploadRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "video/mp4",
-          "Content-Range": `bytes 0-${vidBlob.size - 1}/${vidBlob.size}`,
-        },
-        body: vidBlob,
-      });
-      if (!uploadRes.ok) {
-        const errText = await uploadRes.text();
-        throw new Error(`YouTube upload failed — HTTP ${uploadRes.status}: ${errText.slice(0, 200)}`);
-      }
-      const uploadData = await safeJson(uploadRes, "Upload response");
-      const videoId = uploadData.id;
-      if (!videoId) throw new Error(`No video ID in response: ${JSON.stringify(uploadData).slice(0, 120)}`);
-
-      setPublishedUrl(`https://www.youtube.com/watch?v=${videoId}`);
+      const ytUrl = await uploadToYouTube(audioUrl, job.artUrl, job.title, job.description);
+      setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploaded" }));
+      setPublishedUrl(ytUrl);
       setCurrentStep("publish");
 
-      // Auto-next: after a short delay to let the user see the success screen, start next job
-      if (autoNextRef.current) {
+      if (autoNextRef.current && job.audioUrls.filter(u => u !== audioUrl && !job.approvedUrls.includes(u) && !job.skippedUrls.includes(u)).length === 0) {
         setTimeout(() => {
           setPublishedUrl(null);
           setCurrentStep("lyrics");
@@ -706,19 +756,31 @@ export default function YouTubePage() {
         }, 5000);
       }
 
-      // Approve this track and auto-skip all remaining tracks in this job — one decision per job
       setApprovalQueue(prev => {
         const updated = prev.map(j => {
           if (j.jobId !== job.jobId) return j;
-          const actioned = new Set([...j.approvedUrls, ...j.skippedUrls, audioUrl]);
-          const newSkipped = j.audioUrls.filter(u => !actioned.has(u));
-          return { ...j, approvedUrls: [...j.approvedUrls, audioUrl], skippedUrls: [...j.skippedUrls, ...newSkipped] };
+          return { ...j, approvedUrls: [...j.approvedUrls, audioUrl], uploadedUrls: [...j.uploadedUrls, audioUrl] };
         });
-        supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", job.jobId);
-        return updated.filter(j => j.jobId !== job.jobId);
+        const parentJob = updated.find(j => j.jobId === job.jobId);
+        const allDone = parentJob
+          ? parentJob.uploadedUrls.length + parentJob.skippedUrls.length + Object.keys(parentJob.errorUrls).length >= parentJob.audioUrls.length
+          : true;
+        if (allDone) {
+          supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", job.jobId);
+        }
+        // Remove card only when every track is resolved (uploaded, skipped, or errored)
+        return updated.filter(j => {
+          if (j.jobId !== job.jobId) return true;
+          return j.uploadedUrls.length + j.skippedUrls.length + Object.keys(j.errorUrls).length < j.audioUrls.length;
+        });
       });
     } catch (err: unknown) {
-      alert("Auto-publish failed: " + (err instanceof Error ? err.message : "Unknown error"));
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setTrackStatuses(prev => ({ ...prev, [audioUrl]: msg }));
+      setApprovalQueue(prev => prev.map(j =>
+        j.jobId !== job.jobId ? j : { ...j, errorUrls: { ...j.errorUrls, [audioUrl]: msg } }
+      ));
+      alert("Upload failed: " + msg);
     }
     setPublishingJobId(null);
     setAutoPublishStep(null);
@@ -1159,11 +1221,10 @@ export default function YouTubePage() {
           <div className="mb-5 space-y-4">
             <p className="text-sm font-semibold text-yellow-400">
               {approvalQueue.length} job{approvalQueue.length > 1 ? "s" : ""} awaiting approval
-              {publishingJobId && <span className="text-yellow-500/70 font-normal"> — uploading…</span>}
+              {publishingJobId && <span className="text-yellow-500/70 font-normal"> — processing…</span>}
             </p>
             {approvalQueue.map((job, jobIdx) => {
-              const isUploading = publishingJobId === job.jobId;
-              const isBlocked = publishingJobId !== null && !isUploading;
+              const isBlocked = publishingJobId !== null;
               return (
                 <div key={job.jobId} className="p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-4">
                   {/* Header */}
@@ -1172,7 +1233,7 @@ export default function YouTubePage() {
                       <p className="text-xs text-yellow-500/70 font-medium mb-0.5">Job {jobIdx + 1} of {approvalQueue.length}</p>
                       <p className="text-sm font-semibold text-foreground">{job.title || "Untitled"}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {job.isInstrumental ? "Instrumental" : "Vocal"} · {job.audioUrls.length} tracks · {job.isInstrumental ? "approve multiple — each gets new art & title" : "pick one to publish, rest will be skipped"}
+                        {job.isInstrumental ? "Instrumental" : "Vocal"} · {job.audioUrls.length} track{job.audioUrls.length !== 1 ? "s" : ""} · approve or skip each track individually
                       </p>
                     </div>
                     <button onClick={() => handleDisapproveJob(job.jobId)}
@@ -1197,34 +1258,56 @@ export default function YouTubePage() {
                   </div>
 
                   {/* Audio tracks */}
-                  {isUploading ? (
-                    <div className="flex items-center gap-2 text-sm text-primary">
-                      <RefreshCw className="w-4 h-4 animate-spin" /> {autoPublishStep}
-                    </div>
-                  ) : job.audioUrls.length === 0 ? (
+                  {job.audioUrls.length === 0 ? (
                     <p className="text-xs text-muted-foreground italic">No audio URLs captured.</p>
                   ) : (
                     <div className="space-y-2">
-                      {job.audioUrls.map((url, i) => (
-                        <div key={i} className="flex items-center gap-3 p-3 rounded-lg bg-secondary border border-border">
-                          <span className="text-xs text-muted-foreground w-14 flex-shrink-0 font-mono">Track {i + 1}</span>
-                          <audio controls src={url} className="h-8 flex-1" style={{ maxWidth: 200 }} />
-                          <button
-                            onClick={() => handleApprove(job, url)}
-                            disabled={isBlocked}
-                            className="px-4 py-1.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleSkipTrack(job.jobId, url)}
-                            disabled={isBlocked}
-                            className="px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30 disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            Skip
-                          </button>
-                        </div>
-                      ))}
+                      {job.audioUrls.map((url, i) => {
+                        const status = trackStatuses[url];
+                        const isSkipped = job.skippedUrls.includes(url);
+                        const isUploading = publishingJobId === job.jobId && status === "uploading";
+                        return (
+                          <div key={url} className="flex items-center gap-3 p-3 rounded-lg bg-secondary border border-border">
+                            <span className="text-xs text-muted-foreground w-14 flex-shrink-0 font-mono">Track {i + 1}</span>
+                            <audio controls src={url} className="h-8 flex-1" style={{ maxWidth: 200 }} />
+                            {status === "processing" ? (
+                              <span className="px-3 py-1.5 rounded-lg bg-yellow-600/20 text-yellow-400 text-xs font-semibold flex items-center gap-1 flex-shrink-0">
+                                <RefreshCw className="w-3 h-3 animate-spin" /> Generating…
+                              </span>
+                            ) : status === "uploading" ? (
+                              <span className="px-3 py-1.5 rounded-lg bg-blue-600/20 text-blue-400 text-xs font-semibold flex items-center gap-1 flex-shrink-0">
+                                <RefreshCw className="w-3 h-3 animate-spin" /> {autoPublishStep ?? "Uploading…"}
+                              </span>
+                            ) : status === "uploaded" ? (
+                              <span className="px-3 py-1.5 rounded-lg bg-green-600/20 text-green-400 text-xs font-semibold flex-shrink-0">✓ Uploaded</span>
+                            ) : isSkipped ? (
+                              <span className="px-3 py-1.5 rounded-lg text-muted-foreground text-xs font-semibold flex-shrink-0">Skipped</span>
+                            ) : typeof status === "string" && status.length > 0 ? (
+                              // Error state
+                              <span className="px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 text-xs font-semibold flex-shrink-0 max-w-[160px] truncate" title={status}>
+                                ✕ {status.slice(0, 40)}
+                              </span>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => handleApprove(job, url)}
+                                  disabled={isBlocked || isUploading}
+                                  className="px-4 py-1.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => handleSkipTrack(job.jobId, url)}
+                                  disabled={isBlocked || isUploading}
+                                  className="px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                                >
+                                  Skip
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
