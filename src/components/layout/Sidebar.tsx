@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   UtensilsCrossed,
   TrendingUp,
-  Youtube,
+  Music2,
   Newspaper,
   Settings,
   Zap,
@@ -14,12 +14,12 @@ import {
 import { cn } from "@/lib/utils";
 
 const nav = [
-  { href: "/",          label: "Briefing",    icon: Newspaper },
-  { href: "/restaurant",label: "Restaurant",  icon: UtensilsCrossed },
-  { href: "/markets",   label: "Markets",     icon: TrendingUp },
-  { href: "/youtube",   label: "YouTube",     icon: Youtube },
-  { href: "/roadmap",   label: "Roadmap",     icon: Map },
-  { href: "/settings",  label: "Settings",    icon: Settings },
+  { href: "/",           label: "Briefing",   icon: Newspaper,       exact: true  },
+  { href: "/restaurant", label: "Restaurant", icon: UtensilsCrossed, exact: false },
+  { href: "/markets",    label: "Markets",    icon: TrendingUp,      exact: false },
+  { href: "/music",      label: "Music",      icon: Music2,          exact: false },
+  { href: "/roadmap",    label: "Roadmap",    icon: Map,             exact: false },
+  { href: "/settings",   label: "Settings",   icon: Settings,        exact: false },
 ];
 
 export default function Sidebar() {
@@ -43,8 +43,8 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {nav.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href;
+        {nav.map(({ href, label, icon: Icon, exact }) => {
+          const active = exact ? pathname === href : pathname === href || pathname.startsWith(href + "/");
           return (
             <Link
               key={href}
