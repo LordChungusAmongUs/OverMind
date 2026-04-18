@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
   UtensilsCrossed,
   TrendingUp,
   Youtube,
@@ -27,13 +26,17 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed left-0 top-0 h-full w-56 bg-card border-r border-border flex flex-col z-50">
+    <aside className="fixed left-0 top-0 h-full w-56 bg-card/80 backdrop-blur-md border-r border-border/60 flex flex-col z-50">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-5 py-5 border-b border-border">
-        <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center">
-          <Zap className="w-4 h-4 text-primary" />
+      <div className="flex items-center gap-3 px-5 py-5 border-b border-border/60">
+        <div className="relative w-8 h-8 flex-shrink-0">
+          {/* Ping glow ring behind icon */}
+          <span className="ping-slow absolute inset-0 rounded-lg bg-primary/30" />
+          <div className="relative w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center border border-primary/30">
+            <Zap className="w-4 h-4 text-primary" />
+          </div>
         </div>
-        <span className="font-bold text-lg tracking-tight text-foreground">
+        <span className="gradient-text font-black text-lg tracking-tight">
           Overmind
         </span>
       </div>
@@ -47,13 +50,13 @@ export default function Sidebar() {
               key={href}
               href={href}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
                 active
-                  ? "bg-primary/15 text-primary"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  ? "bg-primary/15 text-primary nav-active-glow border border-primary/20"
+                  : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground border border-transparent"
               )}
             >
-              <Icon className="w-4 h-4" />
+              <Icon className={cn("w-4 h-4 transition-all", active && "drop-shadow-[0_0_6px_rgba(139,92,246,0.8)]")} />
               {label}
             </Link>
           );
@@ -61,7 +64,7 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-5 py-4 border-t border-border">
+      <div className="px-5 py-4 border-t border-border/60">
         <p className="text-xs text-muted-foreground">@djthirstyboy</p>
         <p className="text-xs text-muted-foreground/50 mt-0.5">Powered by AI</p>
       </div>
