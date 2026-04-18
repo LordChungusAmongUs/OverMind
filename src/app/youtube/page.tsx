@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import Sidebar from "@/components/layout/Sidebar";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Youtube, Music, Wand2, ImageIcon, Video,
   FileText, Upload, RefreshCw, Copy, Check,
@@ -855,31 +854,31 @@ export default function YouTubePage() {
       case "lyrics":
         return (
           <div className="space-y-4">
-            <div className="p-3 rounded-lg bg-secondary border border-border">
+            <div className="p-3 rounded-lg bg-black/60 border border-green-500/20">
               <div className="flex items-center justify-between mb-1">
-                <p className="text-xs text-muted-foreground">Copy this prompt into ChatGPT</p>
-                <button onClick={() => copy(lyricsPrompt, "lyrics-prompt")} className="text-xs text-primary flex items-center gap-1">
+                <p className="text-xs text-green-700 font-mono">Copy this prompt into ChatGPT</p>
+                <button onClick={() => copy(lyricsPrompt, "lyrics-prompt")} className="text-xs text-green-400 font-mono flex items-center gap-1 hover:text-green-300">
                   {copiedKey === "lyrics-prompt" ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
                 </button>
               </div>
-              <p className="text-sm text-foreground">{lyricsPrompt}</p>
+              <p className="text-sm text-green-300 font-mono">{lyricsPrompt}</p>
             </div>
             <a href="https://chat.openai.com" target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400">
               Open ChatGPT <ChevronRight className="w-4 h-4" />
             </a>
             <div>
-              <label className="text-sm text-muted-foreground mb-1 block">Paste lyrics here after generating</label>
+              <label className="text-xs text-green-700 font-mono uppercase tracking-widest mb-1 block">Paste lyrics here after generating</label>
               <textarea
                 value={lyrics}
                 onChange={e => setLyrics(e.target.value)}
                 rows={10}
                 placeholder="Paste ChatGPT lyrics output here..."
-                className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                className="w-full px-3 py-2 text-sm font-mono rounded-lg bg-black/60 border border-green-500/20 text-green-300 placeholder:text-green-800 focus:outline-none focus:border-green-400/50 focus:ring-1 focus:ring-green-500/30 resize-none"
               />
             </div>
             {lyrics && (
-              <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
+              <button onClick={advance} className="flex items-center gap-2 text-sm text-green-400 font-mono font-medium hover:text-green-300">
                 Next: Cover Art <ChevronRight className="w-4 h-4" />
               </button>
             )}
@@ -889,32 +888,32 @@ export default function YouTubePage() {
       case "art":
         return (
           <div className="space-y-4">
-            <div className="p-3 rounded-lg bg-secondary border border-border">
+            <div className="p-3 rounded-lg bg-black/60 border border-green-500/20">
               <div className="flex items-center justify-between mb-1">
-                <p className="text-xs text-muted-foreground">Copy this prompt into ChatGPT (DALL-E)</p>
-                <button onClick={() => copy(artPrompt, "art-prompt")} className="text-xs text-primary flex items-center gap-1">
+                <p className="text-xs text-green-700 font-mono">Copy this prompt into ChatGPT (DALL-E)</p>
+                <button onClick={() => copy(artPrompt, "art-prompt")} className="text-xs text-green-400 font-mono flex items-center gap-1 hover:text-green-300">
                   {copiedKey === "art-prompt" ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
                 </button>
               </div>
-              <p className="text-sm text-foreground">{artPrompt}</p>
+              <p className="text-sm text-green-300 font-mono">{artPrompt}</p>
             </div>
             <a href="https://chat.openai.com" target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400">
               Open ChatGPT <ChevronRight className="w-4 h-4" />
             </a>
             <div>
-              <label className="text-sm text-muted-foreground mb-2 block">Upload generated artwork</label>
+              <label className="text-xs text-green-700 font-mono uppercase tracking-widest mb-2 block">Upload generated artwork</label>
               <input ref={artRef} type="file" accept="image/*" onChange={handleArtUpload} className="hidden" />
               <button onClick={() => artRef.current?.click()}
-                className="px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+                className="px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400">
                 Choose Image
               </button>
               {artPreview && (
-                <img src={artPreview} alt="Cover art preview" className="mt-3 w-48 h-48 object-cover rounded-lg border border-border" />
+                <img src={artPreview} alt="Cover art preview" className="mt-3 w-48 h-48 object-cover rounded-lg border border-green-500/20" />
               )}
             </div>
             {artFile && (
-              <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
+              <button onClick={advance} className="flex items-center gap-2 text-sm text-green-400 font-mono font-medium hover:text-green-300">
                 Next: Audio <ChevronRight className="w-4 h-4" />
               </button>
             )}
@@ -924,30 +923,30 @@ export default function YouTubePage() {
       case "audio":
         return (
           <div className="space-y-4">
-            <div className="p-3 rounded-lg bg-secondary border border-border">
+            <div className="p-3 rounded-lg bg-black/60 border border-green-500/20">
               <div className="flex items-center justify-between mb-1">
-                <p className="text-xs text-muted-foreground">Copy lyrics for Suno</p>
-                <button onClick={() => copy(lyrics, "suno-lyrics")} className="text-xs text-primary flex items-center gap-1">
+                <p className="text-xs text-green-700 font-mono">Copy lyrics for Suno</p>
+                <button onClick={() => copy(lyrics, "suno-lyrics")} className="text-xs text-green-400 font-mono flex items-center gap-1 hover:text-green-300">
                   {copiedKey === "suno-lyrics" ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
                 </button>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Style tags: <span className="text-primary">{styleTag}</span></p>
+              <p className="text-xs text-green-700 font-mono mt-1">Style tags: <span className="text-green-400">{styleTag}</span></p>
             </div>
             <a href="https://suno.com" target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400">
               Open Suno <ChevronRight className="w-4 h-4" />
             </a>
-            <p className="text-sm text-muted-foreground">Generate your track in Suno, download the audio, then upload it here.</p>
+            <p className="text-sm text-green-700 font-mono">Generate your track in Suno, download the audio, then upload it here.</p>
             <div>
               <input ref={audioRef} type="file" accept="audio/*" onChange={handleAudioUpload} className="hidden" />
               <button onClick={() => audioRef.current?.click()}
-                className="px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+                className="px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400">
                 Upload Audio from Suno
               </button>
-              {audioFile && <p className="mt-2 text-sm text-green-400">✓ {audioFile.name}</p>}
+              {audioFile && <p className="mt-2 text-sm text-green-400 font-mono">✓ {audioFile.name}</p>}
             </div>
             {audioFile && (
-              <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
+              <button onClick={advance} className="flex items-center gap-2 text-sm text-green-400 font-mono font-medium hover:text-green-300">
                 Next: Create Video <ChevronRight className="w-4 h-4" />
               </button>
             )}
@@ -957,36 +956,36 @@ export default function YouTubePage() {
       case "video":
         return (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className={`p-3 rounded-lg border ${artFile ? "border-green-500/30 bg-green-500/5" : "border-border bg-secondary"}`}>
-                <p className="text-muted-foreground">Cover Art</p>
-                <p className={artFile ? "text-green-400" : "text-muted-foreground"}>{artFile ? `✓ ${artFile.name}` : "Not uploaded"}</p>
+            <div className="grid grid-cols-2 gap-3 text-sm font-mono">
+              <div className={`p-3 rounded-lg border ${artFile ? "border-green-500/30 bg-green-500/5" : "border-green-500/15 bg-black/40"}`}>
+                <p className="text-green-700 text-xs uppercase tracking-widest mb-1">Cover Art</p>
+                <p className={artFile ? "text-green-400" : "text-green-800"}>{artFile ? `✓ ${artFile.name}` : "Not uploaded"}</p>
               </div>
-              <div className={`p-3 rounded-lg border ${audioFile ? "border-green-500/30 bg-green-500/5" : "border-border bg-secondary"}`}>
-                <p className="text-muted-foreground">Audio</p>
-                <p className={audioFile ? "text-green-400" : "text-muted-foreground"}>{audioFile ? `✓ ${audioFile.name}` : "Not uploaded"}</p>
+              <div className={`p-3 rounded-lg border ${audioFile ? "border-green-500/30 bg-green-500/5" : "border-green-500/15 bg-black/40"}`}>
+                <p className="text-green-700 text-xs uppercase tracking-widest mb-1">Audio</p>
+                <p className={audioFile ? "text-green-400" : "text-green-800"}>{audioFile ? `✓ ${audioFile.name}` : "Not uploaded"}</p>
               </div>
             </div>
-            <p className="text-sm text-muted-foreground">Effect: static image with chromatic aberration</p>
+            <p className="text-sm text-green-700 font-mono">Effect: static image with chromatic aberration</p>
             <button
               onClick={createVideo}
               disabled={!audioFile || !artFile || videoProcessing}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-500/20 border border-green-500/40 text-green-300 text-sm font-mono font-medium hover:bg-green-500/30 disabled:opacity-50"
             >
               {videoProcessing ? <><RefreshCw className="w-4 h-4 animate-spin" /> Processing...</> : <><Video className="w-4 h-4" /> Create Video</>}
             </button>
             {videoProcessing && (
-              <p className="text-sm text-muted-foreground">This may take 1–2 minutes depending on audio length...</p>
+              <p className="text-sm text-green-700 font-mono">This may take 1–2 minutes depending on audio length...</p>
             )}
             {videoUrl && (
               <div className="space-y-3">
-                <video src={videoUrl} controls className="w-full rounded-lg border border-border" style={{ maxHeight: 300 }} />
+                <video src={videoUrl} controls className="w-full rounded-lg border border-green-500/20" style={{ maxHeight: 300 }} />
                 <div className="flex gap-2">
                   <a href={videoUrl} download="track.mp4"
-                    className="px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+                    className="px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400">
                     Download MP4
                   </a>
-                  <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline mt-2">
+                  <button onClick={advance} className="flex items-center gap-2 text-sm text-green-400 font-mono font-medium hover:text-green-300 mt-2">
                     Next: Metadata <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -998,37 +997,37 @@ export default function YouTubePage() {
       case "metadata":
         return (
           <div className="space-y-4">
-            <div className="p-3 rounded-lg bg-secondary border border-border">
-              <p className="text-xs text-muted-foreground mb-1">Metadata is generated automatically by the pipeline. Fill in or edit title and description below.</p>
+            <div className="p-3 rounded-lg bg-black/60 border border-green-500/20">
+              <p className="text-xs text-green-700 font-mono">Metadata is generated automatically by the pipeline. Fill in or edit title and description below.</p>
             </div>
             <a href="https://chat.openai.com" target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400">
               Open ChatGPT <ChevronRight className="w-4 h-4" />
             </a>
             <div className="space-y-3">
               <div>
-                <label className="text-sm text-muted-foreground mb-1 block">Video Title</label>
+                <label className="text-xs text-green-700 font-mono uppercase tracking-widest mb-1 block">Video Title</label>
                 <input
                   value={title}
                   onChange={e => setTitle(e.target.value)}
                   placeholder="Paste title from ChatGPT..."
-                  className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-full px-3 py-2 text-sm font-mono rounded-lg bg-black/60 border border-green-500/20 text-green-300 placeholder:text-green-800 focus:outline-none focus:border-green-400/50 focus:ring-1 focus:ring-green-500/30"
                 />
-                <p className="text-xs text-muted-foreground mt-1">{title.length}/60 chars</p>
+                <p className="text-xs text-green-800 font-mono mt-1">{title.length}/60 chars</p>
               </div>
               <div>
-                <label className="text-sm text-muted-foreground mb-1 block">Description</label>
+                <label className="text-xs text-green-700 font-mono uppercase tracking-widest mb-1 block">Description</label>
                 <textarea
                   value={description}
                   onChange={e => setDescription(e.target.value)}
                   rows={6}
                   placeholder="Paste description from ChatGPT..."
-                  className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                  className="w-full px-3 py-2 text-sm font-mono rounded-lg bg-black/60 border border-green-500/20 text-green-300 placeholder:text-green-800 focus:outline-none focus:border-green-400/50 focus:ring-1 focus:ring-green-500/30 resize-none"
                 />
               </div>
             </div>
             {title && description && (
-              <button onClick={advance} className="flex items-center gap-2 text-sm text-primary font-medium hover:underline">
+              <button onClick={advance} className="flex items-center gap-2 text-sm text-green-400 font-mono font-medium hover:text-green-300">
                 Next: Publish <ChevronRight className="w-4 h-4" />
               </button>
             )}
@@ -1065,15 +1064,15 @@ export default function YouTubePage() {
 
         return (
           <div className="space-y-4">
-            <div className="space-y-2 text-sm">
+            <div className="space-y-2 text-sm font-mono">
               {[
                 { label: "Style", value: styleTag },
                 { label: "Title", value: title },
                 { label: "Video", value: videoUrl ? "✓ Ready" : "Not created" },
               ].map(({ label, value }) => (
-                <div key={label} className="flex gap-2 p-3 rounded-lg bg-secondary border border-border">
-                  <span className="text-muted-foreground w-16">{label}</span>
-                  <span className={`text-sm ${value?.startsWith("✓") ? "text-green-400" : ""}`}>{value || "—"}</span>
+                <div key={label} className="flex gap-2 p-3 rounded-lg bg-black/60 border border-green-500/20">
+                  <span className="text-green-700 w-16">{label}</span>
+                  <span className={`text-sm ${value?.startsWith("✓") ? "text-green-400" : "text-green-600"}`}>{value || "—"}</span>
                 </div>
               ))}
             </div>
@@ -1081,33 +1080,33 @@ export default function YouTubePage() {
             {publishedUrl ? (
               <div className="space-y-3">
                 <div className="p-4 rounded-lg border border-green-500/30 bg-green-500/5">
-                  <p className="text-sm text-green-400 font-medium">✓ Published to YouTube!</p>
+                  <p className="text-sm text-green-400 font-mono font-medium">✓ Published to YouTube!</p>
                   <a href={publishedUrl} target="_blank" rel="noopener noreferrer"
-                    className="mt-1 text-sm text-primary hover:underline block">{publishedUrl}</a>
+                    className="mt-1 text-sm text-green-500 font-mono hover:text-green-300 block">{publishedUrl}</a>
                 </div>
                 <button onClick={resetPipeline}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90">
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-500/20 border border-green-500/40 text-green-300 text-sm font-mono font-medium hover:bg-green-500/30">
                   <RefreshCw className="w-4 h-4" /> Start Next Track
                 </button>
               </div>
             ) : (
               <div className="space-y-3">
                 <a href="/api/auth/youtube"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40">
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400">
                   Connect YouTube Account <ChevronRight className="w-4 h-4" />
                 </a>
                 <button
                   onClick={publishTrack}
                   disabled={!videoUrl || !title || publishing}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500 text-white text-sm font-medium hover:bg-red-600 disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/40 text-red-300 text-sm font-mono font-medium hover:bg-red-500/30 disabled:opacity-50"
                 >
                   {publishing
                     ? <><RefreshCw className="w-4 h-4 animate-spin" /> Uploading...</>
                     : <><Upload className="w-4 h-4" /> Publish to YouTube</>}
                 </button>
-                {publishing && <p className="text-sm text-muted-foreground">Uploading — this may take a minute...</p>}
+                {publishing && <p className="text-sm text-green-700 font-mono">Uploading — this may take a minute...</p>}
                 <button onClick={resetPipeline}
-                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+                  className="flex items-center gap-2 text-sm text-green-700 font-mono hover:text-green-400">
                   <RefreshCw className="w-3.5 h-3.5" /> Start new track without publishing
                 </button>
               </div>
@@ -1119,29 +1118,100 @@ export default function YouTubePage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-screen crt">
       <Sidebar />
-      <main className="flex-1 px-4 pt-16 pb-20 md:ml-56 md:p-8">
-        <div className="mb-5 md:mb-6 flex items-center gap-3">
-          <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-red-500/20 flex items-center justify-center">
-            <Youtube className="w-4 h-4 md:w-5 md:h-5 text-red-400" />
+      <main className="ml-56 flex-1 p-8 max-w-5xl">
+        {/* Header */}
+        <div className="mb-8">
+          <p className="text-xs text-green-600 font-mono tracking-widest uppercase mb-1">
+            <span className="text-red-500">&gt;</span> music_pipeline.exe
+          </p>
+          <h1 className="text-3xl font-black font-mono">
+            <span className="gradient-text">YouTube</span>
+          </h1>
+          <p className="text-green-700 text-sm font-mono mt-1">@djthirstyboy · Drum &amp; Bass · 7 personas</p>
+        </div>
+
+        {/* Channel stats strip */}
+        <div className="grid grid-cols-4 gap-4 mb-8">
+          <div className="holo-card rounded-xl border border-red-500/20 bg-black/40 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="relative w-8 h-8 flex-shrink-0">
+                <span className="ping-slow absolute inset-0 rounded-full bg-red-500/20" />
+                <div className="relative w-8 h-8 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center">
+                  <Youtube className="w-4 h-4 text-red-400" />
+                </div>
+              </div>
+              <span className="text-xs font-mono font-semibold text-red-500 uppercase tracking-wider">Channel</span>
+            </div>
+            <p className="text-base font-black font-mono text-green-300">@djthirstyboy</p>
+            <p className="text-xs text-green-700 font-mono mt-1">YouTube · Active</p>
           </div>
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">YouTube</h1>
-            <p className="text-muted-foreground text-sm">@djthirstyboy · Drum & Bass</p>
+
+          <div className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Music className="w-4 h-4 text-green-400" />
+              <span className="text-xs font-mono font-semibold text-green-700 uppercase tracking-wider">Personas</span>
+            </div>
+            <p className="text-3xl font-black font-mono text-green-300">7</p>
+            <p className="text-xs text-green-700 font-mono mt-1">AI artists loaded</p>
+          </div>
+
+          <div className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Upload className="w-4 h-4 text-green-400" />
+              <span className="text-xs font-mono font-semibold text-green-700 uppercase tracking-wider">Queue</span>
+            </div>
+            <p className={`text-3xl font-black font-mono ${approvalQueue.length > 0 ? "text-yellow-400 glow-text" : "text-green-300"}`}>
+              {approvalQueue.length}
+            </p>
+            <p className="text-xs text-green-700 font-mono mt-1">
+              {approvalQueue.length === 0 ? "nothing pending" : `awaiting approval`}
+            </p>
+          </div>
+
+          <div className={`holo-card rounded-xl border p-4 transition-all ${automating ? "border-green-400/40 bg-green-400/5 glow-border" : "border-green-500/20 bg-black/40"}`}>
+            <div className="flex items-center gap-2 mb-3">
+              {automating ? (
+                <>
+                  <div className="relative w-8 h-8 flex-shrink-0">
+                    <span className="ping-slow absolute inset-0 rounded-full bg-green-400/20" />
+                    <div className="relative w-8 h-8 rounded-full bg-green-500/10 border border-green-400/40 flex items-center justify-center">
+                      <RefreshCw className="w-4 h-4 text-green-400 animate-spin" />
+                    </div>
+                  </div>
+                  <span className="text-xs font-mono font-semibold text-green-400 uppercase tracking-wider">Auto-Pilot</span>
+                </>
+              ) : (
+                <>
+                  <div className="w-8 h-8 rounded-full bg-black/60 border border-green-500/20 flex items-center justify-center flex-shrink-0">
+                    <RefreshCw className="w-4 h-4 text-green-700" />
+                  </div>
+                  <span className="text-xs font-mono font-semibold text-green-700 uppercase tracking-wider">Auto-Pilot</span>
+                </>
+              )}
+            </div>
+            <p className={`text-xl font-black font-mono ${automating ? "text-green-300 glow-text" : "text-green-800"}`}>
+              {automating ? "RUNNING" : "STANDBY"}
+            </p>
+            <p className="text-xs text-green-700 font-mono mt-1 truncate">
+              {automating ? (automationStep ?? "processing…") : "ready to run"}
+            </p>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-5 md:mb-6 bg-secondary rounded-lg p-1 overflow-x-auto">
+        <div className="flex gap-1 mb-5 md:mb-6 bg-black/40 border border-green-500/20 rounded-lg p-1 overflow-x-auto">
           {[
             { key: "pipeline", label: "Track Pipeline", icon: Music },
             { key: "calendar", label: "Content Calendar", icon: Calendar },
             { key: "analytics", label: "Analytics", icon: BarChart2 },
           ].map(({ key, label, icon: Icon }) => (
             <button key={key} onClick={() => setActiveTab(key as any)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeTab === key ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-mono font-medium transition-colors ${
+                activeTab === key
+                  ? "bg-green-500/10 text-green-300 border border-green-500/30 shadow-[0_0_8px_rgba(0,255,65,0.1)]"
+                  : "text-green-700 hover:text-green-400"
               }`}>
               <Icon className="w-3.5 h-3.5" /> {label}
             </button>
@@ -1170,16 +1240,16 @@ export default function YouTubePage() {
           };
 
           return (
-            <div className="mb-4 p-3 rounded-xl border border-border bg-card">
+            <div className="mb-4 p-3 rounded-xl border border-green-500/20 bg-black/40">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pipeline Steps</span>
+                <span className={`text-xs font-mono font-semibold uppercase tracking-widest ${runningJobId ? "text-green-400 glow-text" : "text-green-700"}`}><span className="text-red-500">&gt;</span> Pipeline Steps</span>
                 {pendingCount > 0 && (
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-primary flex items-center gap-1">
+                    <span className="text-xs text-green-400 font-mono flex items-center gap-1">
                       <RefreshCw className="w-3 h-3 animate-spin" />
                       {runningStep ? <span className="capitalize">{runningStep}…</span> : `${pendingCount} queued`}
                     </span>
-                    <button onClick={cancelAllPending} className="text-xs text-red-400 border border-red-400/30 px-2 py-0.5 rounded hover:bg-red-400/10">
+                    <button onClick={cancelAllPending} className="text-xs text-red-400 border border-red-400/30 px-2 py-0.5 rounded font-mono hover:bg-red-400/10">
                       Cancel
                     </button>
                   </div>
@@ -1196,12 +1266,12 @@ export default function YouTubePage() {
                       key={s.key}
                       onClick={() => handleStepClick(s.key)}
                       disabled={!!debugRunning || (!isJumpable && !isIdle) || isRunning}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors
-                        ${isRunning  ? "border-primary/50 bg-primary/10 text-primary cursor-default" :
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-mono font-medium border transition-colors
+                        ${isRunning  ? "border-green-400/50 bg-green-400/10 text-green-300 cursor-default shadow-[0_0_8px_rgba(0,255,65,0.2)]" :
                           isDone     ? "border-green-500/30 bg-green-500/10 text-green-400 cursor-default opacity-60" :
-                          isJumpable ? "border-orange-500/40 bg-orange-500/5 text-orange-300 hover:bg-orange-500/10 cursor-pointer" :
-                          isIdle     ? "border-border bg-secondary text-foreground hover:border-primary/40 cursor-pointer" :
-                                       "border-border bg-secondary text-muted-foreground opacity-40 cursor-not-allowed"}`}
+                          isJumpable ? "border-yellow-500/40 bg-yellow-500/5 text-yellow-300 hover:bg-yellow-500/10 cursor-pointer" :
+                          isIdle     ? "border-green-500/20 bg-black/30 text-green-600 hover:border-green-400/40 hover:text-green-400 cursor-pointer" :
+                                       "border-green-500/10 bg-black/20 text-green-800 opacity-40 cursor-not-allowed"}`}
                     >
                       {isRunning && <RefreshCw className="w-3 h-3 animate-spin" />}
                       {isDone    && <span className="text-green-400">✓</span>}
@@ -1210,8 +1280,8 @@ export default function YouTubePage() {
                   );
                 })}
               </div>
-              {!runningJobId && <p className="text-xs text-muted-foreground mt-2">Click any step to run it in isolation for testing.</p>}
-              {runningJobId  && <p className="text-xs text-muted-foreground mt-2">Click a future step to skip ahead (carries over completed data).</p>}
+              {!runningJobId && <p className="text-xs text-green-800 font-mono mt-2">Click any step to run it in isolation for testing.</p>}
+              {runningJobId  && <p className="text-xs text-green-800 font-mono mt-2">Click a future step to skip ahead (carries over completed data).</p>}
             </div>
           );
         })()}
@@ -1219,39 +1289,39 @@ export default function YouTubePage() {
         {/* APPROVAL QUEUE — all jobs visible, one upload at a time */}
         {activeTab === "pipeline" && approvalQueue.length > 0 && (
           <div className="mb-5 space-y-4">
-            <p className="text-sm font-semibold text-yellow-400">
-              {approvalQueue.length} job{approvalQueue.length > 1 ? "s" : ""} awaiting approval
-              {publishingJobId && <span className="text-yellow-500/70 font-normal"> — processing…</span>}
+            <p className="text-sm font-mono font-semibold text-green-400 glow-text">
+              <span className="text-red-500">&gt;</span> {approvalQueue.length} job{approvalQueue.length > 1 ? "s" : ""} awaiting approval
+              {publishingJobId && <span className="text-green-700 font-normal"> — uploading…</span>}
             </p>
             {approvalQueue.map((job, jobIdx) => {
               const isBlocked = publishingJobId !== null;
               return (
-                <div key={job.jobId} className="p-5 rounded-xl border border-yellow-500/30 bg-yellow-500/5 space-y-4">
+                <div key={job.jobId} className="p-5 rounded-xl border border-green-400/30 bg-green-400/5 space-y-4">
                   {/* Header */}
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-xs text-yellow-500/70 font-medium mb-0.5">Job {jobIdx + 1} of {approvalQueue.length}</p>
-                      <p className="text-sm font-semibold text-foreground">{job.title || "Untitled"}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
+                      <p className="text-xs text-green-700 font-mono mb-0.5">Job {jobIdx + 1} of {approvalQueue.length}</p>
+                      <p className="text-sm font-semibold font-mono text-green-300 glow-text">{job.title || "Untitled"}</p>
+                      <p className="text-xs text-green-700 font-mono mt-0.5">
                         {job.isInstrumental ? "Instrumental" : "Vocal"} · {job.audioUrls.length} track{job.audioUrls.length !== 1 ? "s" : ""} · approve or skip each track individually
                       </p>
                     </div>
                     <button onClick={() => handleDisapproveJob(job.jobId)}
-                      className="text-xs text-red-400 hover:text-red-300 flex-shrink-0">Dismiss</button>
+                      className="text-xs text-red-400 hover:text-red-300 font-mono flex-shrink-0">Dismiss</button>
                   </div>
 
                   {/* Art + details */}
                   <div className="flex gap-4">
                     {job.artUrl
-                      ? <img src={job.artUrl} alt="Cover art" className="w-28 h-28 object-cover rounded-lg border border-border flex-shrink-0" />
-                      : <div className="w-28 h-28 rounded-lg border border-border bg-secondary flex-shrink-0 flex items-center justify-center text-xs text-muted-foreground">No art</div>}
+                      ? <img src={job.artUrl} alt="Cover art" className="w-28 h-28 object-cover rounded-lg border border-green-500/20 flex-shrink-0" />
+                      : <div className="w-28 h-28 rounded-lg border border-green-500/20 bg-black/40 flex-shrink-0 flex items-center justify-center text-xs text-green-700 font-mono">No art</div>}
                     <div className="flex-1 space-y-2 min-w-0">
-                      {job.styleTags && <p className="text-xs text-primary font-medium">{job.styleTags}</p>}
-                      {job.description && <p className="text-xs text-muted-foreground line-clamp-4 whitespace-pre-wrap">{job.description}</p>}
+                      {job.styleTags && <p className="text-xs text-green-400 font-mono font-medium">{job.styleTags}</p>}
+                      {job.description && <p className="text-xs text-green-700 font-mono line-clamp-4 whitespace-pre-wrap">{job.description}</p>}
                       {!job.isInstrumental && job.lyrics && (
                         <details className="text-xs">
-                          <summary className="text-muted-foreground cursor-pointer hover:text-foreground">Show lyrics</summary>
-                          <pre className="mt-1 text-foreground whitespace-pre-wrap max-h-40 overflow-y-auto p-2 rounded bg-secondary border border-border">{job.lyrics}</pre>
+                          <summary className="text-green-700 font-mono cursor-pointer hover:text-green-400">Show lyrics</summary>
+                          <pre className="mt-1 text-green-300 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto p-2 rounded bg-black/40 border border-green-500/20">{job.lyrics}</pre>
                         </details>
                       )}
                     </div>
@@ -1259,7 +1329,7 @@ export default function YouTubePage() {
 
                   {/* Audio tracks */}
                   {job.audioUrls.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic">No audio URLs captured.</p>
+                    <p className="text-xs text-green-700 font-mono italic">No audio URLs captured.</p>
                   ) : (
                     <div className="space-y-2">
                       {job.audioUrls.map((url, i) => {
@@ -1267,24 +1337,24 @@ export default function YouTubePage() {
                         const isSkipped = job.skippedUrls.includes(url);
                         const isUploading = publishingJobId === job.jobId && status === "uploading";
                         return (
-                          <div key={url} className="flex items-center gap-3 p-3 rounded-lg bg-secondary border border-border">
-                            <span className="text-xs text-muted-foreground w-14 flex-shrink-0 font-mono">Track {i + 1}</span>
+                          <div key={url} className="flex items-center gap-3 p-3 rounded-lg bg-black/40 border border-green-500/20">
+                            <span className="text-xs text-green-700 w-14 flex-shrink-0 font-mono">Track {i + 1}</span>
                             <audio controls src={url} className="h-8 flex-1" style={{ maxWidth: 200 }} />
                             {status === "processing" ? (
-                              <span className="px-3 py-1.5 rounded-lg bg-yellow-600/20 text-yellow-400 text-xs font-semibold flex items-center gap-1 flex-shrink-0">
+                              <span className="px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-mono font-semibold flex items-center gap-1 flex-shrink-0">
                                 <RefreshCw className="w-3 h-3 animate-spin" /> Generating…
                               </span>
                             ) : status === "uploading" ? (
-                              <span className="px-3 py-1.5 rounded-lg bg-blue-600/20 text-blue-400 text-xs font-semibold flex items-center gap-1 flex-shrink-0">
+                              <span className="px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-mono font-semibold flex items-center gap-1 flex-shrink-0">
                                 <RefreshCw className="w-3 h-3 animate-spin" /> {autoPublishStep ?? "Uploading…"}
                               </span>
                             ) : status === "uploaded" ? (
-                              <span className="px-3 py-1.5 rounded-lg bg-green-600/20 text-green-400 text-xs font-semibold flex-shrink-0">✓ Uploaded</span>
+                              <span className="px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-mono font-semibold flex-shrink-0 glow-text">✓ Uploaded</span>
                             ) : isSkipped ? (
-                              <span className="px-3 py-1.5 rounded-lg text-muted-foreground text-xs font-semibold flex-shrink-0">Skipped</span>
+                              <span className="px-3 py-1.5 rounded-lg text-green-800 font-mono text-xs font-semibold flex-shrink-0">Skipped</span>
                             ) : typeof status === "string" && status.length > 0 ? (
                               // Error state
-                              <span className="px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 text-xs font-semibold flex-shrink-0 max-w-[160px] truncate" title={status}>
+                              <span className="px-3 py-1.5 rounded-lg bg-red-600/20 border border-red-500/30 text-red-400 text-xs font-mono font-semibold flex-shrink-0 max-w-[160px] truncate" title={status}>
                                 ✕ {status.slice(0, 40)}
                               </span>
                             ) : (
@@ -1292,14 +1362,14 @@ export default function YouTubePage() {
                                 <button
                                   onClick={() => handleApprove(job, url)}
                                   disabled={isBlocked || isUploading}
-                                  className="px-4 py-1.5 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                                  className="px-4 py-1.5 rounded-lg bg-green-500/20 border border-green-500/40 text-green-300 text-sm font-mono font-semibold hover:bg-green-500/30 hover:shadow-[0_0_8px_rgba(0,255,65,0.2)] disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
                                 >
                                   Approve
                                 </button>
                                 <button
                                   onClick={() => handleSkipTrack(job.jobId, url)}
                                   disabled={isBlocked || isUploading}
-                                  className="px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                                  className="px-3 py-1.5 rounded-lg bg-red-600/10 text-red-400 border border-red-500/30 text-sm font-mono font-semibold hover:bg-red-600/20 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
                                 >
                                   Skip
                                 </button>
@@ -1345,80 +1415,80 @@ export default function YouTubePage() {
           return (
             <div className={`mb-5 p-4 rounded-xl border space-y-4 ${
               isError  ? "border-red-500/40 bg-red-500/5" :
-              isReview ? "border-yellow-500/40 bg-yellow-500/5" :
-                         "border-primary/20 bg-card"}`}>
+              isReview ? "border-yellow-500/30 bg-yellow-500/5" :
+                         "border-green-500/20 bg-black/40"}`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold">
+                  <p className="text-sm font-mono font-semibold text-green-300">
                     {isError ? "Step Failed" : isReview ? "Approve to Continue" : "Live Preview"}
-                    <span className={`ml-2 text-xs font-normal capitalize ${isError ? "text-red-400" : isReview ? "text-yellow-400" : "text-primary"}`}>
-                      {step.replace("_review", " — review") || "starting…"}
+                    <span className={`ml-2 text-xs font-normal capitalize ${isError ? "text-red-400" : isReview ? "text-yellow-400" : "text-green-600"}`}>
+                      — {step.replace("_review", " review") || "starting…"}
                     </span>
                   </p>
-                  {isError && <p className="text-xs text-red-400 mt-0.5">{liveJob.error_message}</p>}
+                  {isError && <p className="text-xs text-red-400 font-mono mt-0.5">{liveJob.error_message}</p>}
                 </div>
-                {!isReview && !isError && <button onClick={() => setLiveJob(null)} className="text-xs text-muted-foreground hover:text-foreground">Dismiss</button>}
+                {!isReview && !isError && <button onClick={() => setLiveJob(null)} className="text-xs text-green-700 hover:text-green-400 font-mono">Dismiss</button>}
               </div>
 
               {/* Style tags row */}
               {liveJob.style_tags && (
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Style / Genre</p>
-                  <p className="text-xs text-primary font-medium">{liveJob.style_tags}</p>
+                  <p className="text-xs font-mono font-semibold text-green-700 uppercase tracking-widest">Style / Genre</p>
+                  <p className="text-xs text-green-400 font-mono font-medium">{liveJob.style_tags}</p>
                 </div>
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Lyrics */}
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Lyrics</p>
+                  <p className="text-xs font-mono font-semibold text-green-700 uppercase tracking-widest">Lyrics</p>
                   {liveJob.lyrics
-                    ? <pre className="text-xs text-foreground whitespace-pre-wrap max-h-48 overflow-y-auto p-2 rounded-lg bg-secondary border border-border">{liveJob.lyrics}</pre>
-                    : <p className="text-xs text-muted-foreground italic">Not yet generated</p>}
+                    ? <pre className="text-xs text-green-300 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto p-2 rounded-lg bg-black/60 border border-green-500/20">{liveJob.lyrics}</pre>
+                    : <p className="text-xs text-green-800 font-mono italic">Not yet generated</p>}
                 </div>
 
                 {/* Cover Art */}
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cover Art</p>
+                  <p className="text-xs font-mono font-semibold text-green-700 uppercase tracking-widest">Cover Art</p>
                   {liveJob.art_url
-                    ? <img src={liveJob.art_url} alt="Cover art" className="w-40 h-40 object-cover rounded-lg border border-border" />
-                    : <div className="w-40 h-40 rounded-lg border border-border bg-secondary flex items-center justify-center text-xs text-muted-foreground">Not yet generated</div>}
+                    ? <img src={liveJob.art_url} alt="Cover art" className="w-40 h-40 object-cover rounded-lg border border-green-500/20" />
+                    : <div className="w-40 h-40 rounded-lg border border-green-500/20 bg-black/60 flex items-center justify-center text-xs text-green-800 font-mono">Not yet generated</div>}
                 </div>
               </div>
 
               {/* Audio tracks */}
               <div className="space-y-1">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                <p className="text-xs font-mono font-semibold text-green-700 uppercase tracking-widest">
                   Audio Tracks {audioUrls.length > 0 ? `(${audioUrls.length})` : ""}
                 </p>
                 {audioUrls.length > 0 ? (
                   <div className="space-y-2">
                     {audioUrls.map((url, i) => (
                       <div key={i} className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground w-16 flex-shrink-0">Track {i + 1}</span>
+                        <span className="text-xs text-green-700 font-mono w-16 flex-shrink-0">Track {i + 1}</span>
                         <audio controls src={url} className="h-8 w-full" style={{ maxWidth: 320 }} />
                       </div>
                     ))}
                   </div>
-                ) : <p className="text-xs text-muted-foreground italic">Not yet generated</p>}
+                ) : <p className="text-xs text-green-800 font-mono italic">Not yet generated</p>}
               </div>
 
               {/* Title & Description */}
               {(liveJob.title || liveJob.description) && (
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Metadata</p>
-                  {liveJob.title && <p className="text-sm font-medium">{liveJob.title}</p>}
-                  {liveJob.description && <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-3">{liveJob.description}</p>}
+                  <p className="text-xs font-mono font-semibold text-green-700 uppercase tracking-widest">Metadata</p>
+                  {liveJob.title && <p className="text-sm font-mono font-medium text-green-300">{liveJob.title}</p>}
+                  {liveJob.description && <p className="text-xs text-green-700 font-mono whitespace-pre-wrap line-clamp-3">{liveJob.description}</p>}
                 </div>
               )}
 
               {/* Approve / Reject — shown when paused at a review step */}
               {isReview && (
-                <div className="flex gap-3 pt-1 border-t border-border">
-                  <button onClick={approveStep} className="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700">
+                <div className="flex gap-3 pt-1 border-t border-green-500/20">
+                  <button onClick={approveStep} className="flex-1 px-4 py-2 rounded-lg bg-green-500/20 border border-green-500/40 text-green-300 text-sm font-mono font-semibold hover:bg-green-500/30">
                     Approve — continue to {REVIEW_NEXT[reviewStep!]}
                   </button>
-                  <button onClick={rejectStep} className="px-4 py-2 rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 text-sm font-semibold hover:bg-red-600/30">
+                  <button onClick={rejectStep} className="px-4 py-2 rounded-lg bg-red-600/10 text-red-400 border border-red-500/30 text-sm font-mono font-semibold hover:bg-red-600/20">
                     Reject
                   </button>
                 </div>
@@ -1426,11 +1496,11 @@ export default function YouTubePage() {
 
               {/* Retry — shown when a step errored */}
               {isError && (
-                <div className="flex gap-3 pt-1 border-t border-border">
-                  <button onClick={() => retryFromStep(liveJob)} className="flex-1 px-4 py-2 rounded-lg bg-yellow-600 text-white text-sm font-semibold hover:bg-yellow-700">
+                <div className="flex gap-3 pt-1 border-t border-red-500/20">
+                  <button onClick={() => retryFromStep(liveJob)} className="flex-1 px-4 py-2 rounded-lg bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 text-sm font-mono font-semibold hover:bg-yellow-500/30">
                     Retry {step.replace("_review", "") || "step"}
                   </button>
-                  <button onClick={() => setLiveJob(null)} className="px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-semibold hover:border-primary/40">
+                  <button onClick={() => setLiveJob(null)} className="px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-semibold hover:border-green-500/40">
                     Dismiss
                   </button>
                 </div>
@@ -1439,97 +1509,140 @@ export default function YouTubePage() {
           );
         })()}
 
-        {/* TRACK CONCEPT CARD */}
+        {/* LAUNCH CONTROL */}
         {activeTab === "pipeline" && (
-          <Card className="mb-5">
-            <CardHeader><CardTitle className="flex items-center gap-2"><Wand2 className="w-4 h-4 text-primary" /> Track Concept</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-xs text-muted-foreground mb-2 block">Artist</label>
-                <div className="flex flex-wrap gap-2">
-                  {PERSONAS.map(p => (
-                    <button
-                      key={p.name}
-                      onClick={() => { setSelectedPersona(p); setStyleTag(""); setLyricsPrompt(""); setArtPrompt(""); setMetadataPrompt(""); }}
-                      className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                        selectedPersona.name === p.name
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-secondary border-border text-foreground hover:border-primary/40"
-                      }`}
-                    >
-                      {p.name}
-                    </button>
-                  ))}
+          <div className="holo-card mb-6 rounded-xl border border-green-400/30 bg-black/60 glow-border">
+            {/* Header */}
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-green-500/20 bg-green-500/5">
+              <div className="relative w-8 h-8 flex-shrink-0">
+                <span className="ping-slow absolute inset-0 rounded-full bg-green-500/20" />
+                <div className="relative w-8 h-8 rounded-full bg-green-500/10 border border-green-400/40 flex items-center justify-center">
+                  <Wand2 className="w-4 h-4 text-green-400" />
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Theme (optional)</label>
-                <input
-                  value={trackTheme}
-                  onChange={e => setTrackTheme(e.target.value)}
-                  placeholder="e.g. lost in the city, space travel, midnight rain..."
-                  className="w-full px-3 py-2 text-sm rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                />
+              <span className="text-base font-mono font-black uppercase tracking-widest gradient-text">Launch Control</span>
+              <div className="ml-auto flex items-center gap-2">
+                {automating ? (
+                  <><span className="w-2 h-2 rounded-full bg-green-400 ping-slow" /><span className="text-xs text-green-400 font-mono glow-text">RUNNING</span></>
+                ) : (
+                  <span className="text-xs text-green-800 font-mono">STANDBY</span>
+                )}
               </div>
-              {styleTag && (
-                <div className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
-                  <span className="text-xs text-muted-foreground">Style: </span>
-                  <span className="text-xs text-primary font-medium">{styleTag}</span>
-                </div>
-              )}
-              {/* Auto-approve controls */}
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Agent select grid */}
               <div>
-                <label className="text-xs text-muted-foreground mb-2 block">Auto-approve steps (skip review)</label>
-                <div className="flex gap-2 flex-wrap">
-                  {(["lyrics", "art", "audio", "metadata"] as const).map(step => (
-                    <button
-                      key={step}
-                      onClick={() => updateAutoApproveSteps(prev => ({ ...prev, [step]: !prev[step] }))}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors capitalize ${
-                        autoApproveSteps[step]
-                          ? "bg-green-600/20 border-green-500/40 text-green-400"
-                          : "bg-secondary border-border text-muted-foreground hover:border-primary/40"
-                      }`}
-                    >
-                      {autoApproveSteps[step] ? "✓ " : ""}{step}
-                    </button>
-                  ))}
+                <p className="text-xs text-green-700 font-mono uppercase tracking-widest mb-3"><span className="text-red-500">›</span> Select Agent</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {PERSONAS.map(p => {
+                    const isSelected = selectedPersona.name === p.name;
+                    return (
+                      <button
+                        key={p.name}
+                        onClick={() => { setSelectedPersona(p); setStyleTag(""); setLyricsPrompt(""); setArtPrompt(""); setMetadataPrompt(""); }}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          isSelected
+                            ? "border-green-400/60 bg-green-400/10 shadow-[0_0_20px_rgba(0,255,65,0.25),inset_0_0_20px_rgba(0,255,65,0.05)]"
+                            : "border-green-500/20 bg-black/40 hover:border-green-400/30 hover:bg-green-500/5"
+                        }`}
+                      >
+                        <p className={`text-sm font-mono font-bold mb-1 ${isSelected ? "text-green-300 glow-text" : "text-green-700"}`}>{p.name}</p>
+                        <p className="text-xs text-green-800 font-mono truncate">{p.genres[0]}</p>
+                        <p className="text-xs text-green-900 font-mono mt-1">{p.instrumental ? "instrumental" : "vocals"}</p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="flex gap-2 flex-wrap items-center">
+              {/* Theme + style row */}
+              <div className="flex gap-3 items-end">
+                <div className="flex-1">
+                  <p className="text-xs text-green-700 font-mono uppercase tracking-widest mb-2"><span className="text-red-500">›</span> Theme <span className="text-green-900">(optional)</span></p>
+                  <input
+                    value={trackTheme}
+                    onChange={e => setTrackTheme(e.target.value)}
+                    placeholder="e.g. lost in the city, space travel, midnight rain..."
+                    className="w-full px-4 py-2.5 text-sm font-mono rounded-lg bg-black/60 border border-green-500/20 text-green-300 placeholder:text-green-900 focus:outline-none focus:border-green-400/50 focus:shadow-[0_0_12px_rgba(0,255,65,0.15)]"
+                  />
+                </div>
                 <button
                   onClick={generateConcept}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm font-medium hover:border-primary/40"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-black/60 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400 transition-all flex-shrink-0"
                 >
-                  <RefreshCw className="w-4 h-4" /> Generate Style
+                  <RefreshCw className="w-4 h-4" /> Roll Style
                 </button>
+              </div>
+
+              {/* Style tag display */}
+              {styleTag && (
+                <div className="px-4 py-2 rounded-lg bg-green-400/5 border border-green-400/20 flex items-center gap-2">
+                  <span className="text-xs text-green-700 font-mono flex-shrink-0">STYLE:</span>
+                  <span className="text-xs text-green-400 font-mono font-semibold glow-text truncate">{styleTag}</span>
+                </div>
+              )}
+
+              {/* Auto-approve row */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-xs text-green-700 font-mono uppercase tracking-widest flex-shrink-0"><span className="text-red-500">›</span> Auto</span>
+                {(["lyrics", "art", "audio", "metadata"] as const).map(step => (
+                  <button
+                    key={step}
+                    onClick={() => updateAutoApproveSteps(prev => ({ ...prev, [step]: !prev[step] }))}
+                    className={`px-3 py-1 rounded-md text-xs font-mono font-medium border transition-all capitalize ${
+                      autoApproveSteps[step]
+                        ? "bg-green-600/20 border-green-500/40 text-green-400 shadow-[0_0_6px_rgba(0,255,65,0.2)]"
+                        : "bg-black/40 border-green-500/15 text-green-800 hover:border-green-500/30 hover:text-green-700"
+                    }`}
+                  >
+                    {autoApproveSteps[step] ? "✓ " : ""}{step}
+                  </button>
+                ))}
+              </div>
+
+              {/* BIG LAUNCH BUTTON */}
+              {!automating ? (
                 <button
                   onClick={runAutomation}
-                  disabled={submitting || automating}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+                  disabled={submitting}
+                  className="w-full py-5 rounded-xl border-2 border-green-400/50 bg-green-500/10 text-green-300 font-mono font-black text-xl uppercase tracking-widest
+                    transition-all disabled:opacity-40
+                    shadow-[0_0_30px_rgba(0,255,65,0.15),inset_0_0_30px_rgba(0,255,65,0.05)]
+                    hover:border-green-400/80 hover:bg-green-500/20 hover:text-green-200
+                    hover:shadow-[0_0_50px_rgba(0,255,65,0.35),inset_0_0_40px_rgba(0,255,65,0.1)]
+                    flex items-center justify-center gap-3"
                 >
-                  {submitting ? <><RefreshCw className="w-4 h-4 animate-spin" /> Creating...</> : <><Wand2 className="w-4 h-4" /> Run Automatically</>}
+                  {submitting
+                    ? <><RefreshCw className="w-6 h-6 animate-spin" /> Initializing...</>
+                    : <><Wand2 className="w-6 h-6" /> Run Automatically</>}
                 </button>
-                {automating && (
-                  <button onClick={cancelAllPending} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-red-400/30 text-red-400 text-sm font-medium hover:bg-red-400/10">
-                    Stop
+              ) : (
+                <div className="space-y-3">
+                  <div className="w-full py-4 rounded-xl border-2 border-green-400/40 bg-green-500/10 flex items-center justify-center gap-3">
+                    <RefreshCw className="w-5 h-5 text-green-400 animate-spin" />
+                    <span className="text-green-300 font-mono font-bold uppercase tracking-widest glow-text">
+                      {automationStep === "queued" ? "Waiting for extension..." :
+                       automationStep === "lyrics" ? "Generating lyrics..." :
+                       automationStep === "art" ? "Generating cover art..." :
+                       automationStep === "audio" ? "Generating audio in Suno..." :
+                       automationStep === "metadata" ? "Writing metadata..." :
+                       automationStep ? `Running: ${automationStep}...` : "Running..."}
+                    </span>
+                    <span className="w-2 h-2 rounded-full bg-green-400 ping-slow" />
+                  </div>
+                  <button
+                    onClick={cancelAllPending}
+                    className="w-full py-2.5 rounded-xl border border-red-500/40 bg-red-500/5 text-red-400 font-mono font-bold text-sm uppercase tracking-widest
+                      hover:bg-red-500/15 hover:border-red-500/60 transition-all
+                      shadow-[0_0_12px_rgba(255,0,0,0.08)]"
+                  >
+                    ■ Stop Pipeline
                   </button>
-                )}
-              </div>
-              {automating && automationStep && (
-                <p className="text-xs text-primary flex items-center gap-1">
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  {automationStep === "queued" ? "Waiting for extension..." :
-                   automationStep === "lyrics" ? "Generating lyrics..." :
-                   automationStep === "art" ? "Generating cover art..." :
-                   automationStep === "audio" ? "Generating audio in Suno..." :
-                   automationStep === "metadata" ? "Writing metadata..." :
-                   `Running: ${automationStep}...`}
-                </p>
+                </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
 
         {/* PIPELINE TAB */}
@@ -1537,71 +1650,88 @@ export default function YouTubePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
             {/* Step list */}
             <div className="md:col-span-1">
-              <Card>
-                <CardContent className="p-3">
+              <div className="holo-card rounded-xl border border-green-500/20 bg-black/40">
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-green-500/20">
+                  <span className="text-xs font-mono font-bold text-green-700 uppercase tracking-widest"><span className="text-red-500">&gt;</span> Steps</span>
+                  <span className="ml-auto text-xs font-mono text-green-700">{stepIndex + 1}/{STEPS.length}</span>
+                </div>
+                <div className="p-2">
                   {STEPS.map((step, i) => {
-                    const Icon = step.icon;
                     const isActive = step.key === currentStep;
                     const isDone = i < stepIndex;
                     return (
                       <button
                         key={step.key}
                         onClick={() => setCurrentStep(step.key as StepKey)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors mb-1 ${
-                          isActive ? "bg-primary/10 text-primary" : isDone ? "text-muted-foreground" : "text-muted-foreground hover:bg-secondary"
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all mb-0.5 ${
+                          isActive
+                            ? "bg-green-500/10 border border-green-500/30 shadow-[0_0_10px_rgba(0,255,65,0.1)]"
+                            : "hover:bg-green-500/5 border border-transparent"
                         }`}
                       >
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                          isDone ? "bg-green-500/20 text-green-400" : isActive ? "bg-primary/20 text-primary" : "bg-secondary text-muted-foreground"
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold font-mono flex-shrink-0 transition-all ${
+                          isDone
+                            ? "bg-green-500/20 border border-green-500/40 text-green-400 shadow-[0_0_6px_rgba(0,255,65,0.2)]"
+                            : isActive
+                            ? "bg-green-500/15 border border-green-400/50 text-green-300 shadow-[0_0_8px_rgba(0,255,65,0.25)]"
+                            : "bg-black/60 border border-green-500/15 text-green-800"
                         }`}>
                           {isDone ? "✓" : i + 1}
                         </div>
-                        <div>
-                          <p className="text-sm font-medium">{step.label}</p>
-                          <p className="text-xs text-muted-foreground">{step.desc}</p>
+                        <div className="min-w-0">
+                          <p className={`text-sm font-mono font-medium ${isActive ? "text-green-300" : isDone ? "text-green-500" : "text-green-800"}`}>{step.label}</p>
+                          <p className={`text-xs font-mono truncate ${isActive ? "text-green-700" : "text-green-900"}`}>{step.desc}</p>
                         </div>
+                        {isActive && <span className="ml-auto text-red-500 text-xs flex-shrink-0">›</span>}
                       </button>
                     );
                   })}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </div>
 
             {/* Step content */}
             <div className="md:col-span-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    {(() => { const Icon = STEPS[stepIndex].icon; return <Icon className="w-4 h-4 text-primary" />; })()}
-                    {STEPS[stepIndex].label}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>{renderStep()}</CardContent>
-              </Card>
+              <div className="holo-card rounded-xl border border-green-400/30 bg-black/40 shadow-[0_0_20px_rgba(0,255,65,0.05)]">
+                <div className="flex items-center gap-3 px-5 py-3 border-b border-green-500/20 bg-green-500/5">
+                  <div className="relative flex-shrink-0">
+                    <span className="ping-slow absolute inset-0 rounded-full bg-green-500/20" />
+                    <span className="relative w-7 h-7 rounded-full bg-green-500/15 border border-green-400/50 flex items-center justify-center text-xs font-mono font-bold text-green-300 shadow-[0_0_8px_rgba(0,255,65,0.25)]">
+                      {stepIndex + 1}
+                    </span>
+                  </div>
+                  {(() => { const Icon = STEPS[stepIndex].icon; return <Icon className="w-4 h-4 text-green-400" />; })()}
+                  <span className="text-sm font-mono font-bold uppercase tracking-wider glow-text text-green-300">{STEPS[stepIndex].label}</span>
+                  <span className="ml-auto text-xs text-green-800 font-mono hidden md:block">{STEPS[stepIndex].desc}</span>
+                </div>
+                <div className="p-5">{renderStep()}</div>
+              </div>
             </div>
           </div>
         )}
 
         {/* CALENDAR TAB */}
         {activeTab === "calendar" && (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <Calendar className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-              <p className="font-medium">Content Calendar</p>
-              <p className="text-sm text-muted-foreground mt-1">Track history will appear here as you publish videos. Target: 1 video/day.</p>
-            </CardContent>
-          </Card>
+          <div className="holo-card rounded-xl border border-green-500/20 bg-black/40">
+            <div className="p-12 text-center">
+              <Calendar className="w-8 h-8 text-green-700 mx-auto mb-3" />
+              <p className="font-mono font-semibold text-green-400">Content Calendar</p>
+              <p className="text-sm text-green-700 font-mono mt-1">Track history will appear here as you publish videos. Target: 1 video/day.</p>
+              <span className="mt-4 inline-block text-xs text-green-800 font-mono border border-green-500/20 px-3 py-1 rounded-full">[ COMING SOON ]</span>
+            </div>
+          </div>
         )}
 
         {/* ANALYTICS TAB */}
         {activeTab === "analytics" && (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <BarChart2 className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-              <p className="font-medium">Channel Analytics</p>
-              <p className="text-sm text-muted-foreground mt-1">Connect YouTube OAuth to see live stats for @djthirstyboy.</p>
-            </CardContent>
-          </Card>
+          <div className="holo-card rounded-xl border border-green-500/20 bg-black/40">
+            <div className="p-12 text-center">
+              <BarChart2 className="w-8 h-8 text-green-700 mx-auto mb-3" />
+              <p className="font-mono font-semibold text-green-400">Channel Analytics</p>
+              <p className="text-sm text-green-700 font-mono mt-1">Connect YouTube OAuth to see live stats for @djthirstyboy.</p>
+              <span className="mt-4 inline-block text-xs text-green-800 font-mono border border-green-500/20 px-3 py-1 rounded-full">[ COMING SOON ]</span>
+            </div>
+          </div>
         )}
       </main>
     </div>
