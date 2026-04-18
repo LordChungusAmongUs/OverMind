@@ -19,7 +19,7 @@ export default function BriefingPage() {
   });
 
   return (
-    <div className="flex min-h-screen bg-background/95">
+    <div className="flex min-h-screen">
       <Sidebar />
       <main className="ml-56 flex-1 p-8">
 
@@ -36,17 +36,16 @@ export default function BriefingPage() {
         {/* Status Cards */}
         <div className="grid grid-cols-4 gap-4 mb-8">
           {[
-            { label: "Restaurant", icon: UtensilsCrossed, status: "Not connected", delay: "0s" },
-            { label: "Markets",    icon: TrendingUp,      status: "Not connected", delay: "0.8s" },
-            { label: "YouTube",    icon: Youtube,         status: "Not connected", delay: "1.6s" },
-            { label: "Alerts",     icon: AlertCircle,     status: "None",          delay: "2.4s" },
-          ].map(({ label, icon: Icon, status, delay }) => (
+            { label: "Restaurant", icon: UtensilsCrossed, status: "Not connected" },
+            { label: "Markets",    icon: TrendingUp,      status: "Not connected" },
+            { label: "YouTube",    icon: Youtube,         status: "Not connected" },
+            { label: "Alerts",     icon: AlertCircle,     status: "None"          },
+          ].map(({ label, icon: Icon, status }) => (
             <div
               key={label}
-              className="holo-card rounded-xl border border-border/60 bg-card/70 p-4 flex items-center gap-3"
-              style={{ animationDelay: delay }}
+              className="holo-card rounded-xl border border-white/10 bg-white/5 p-4 flex items-center gap-3"
             >
-              <div className="w-9 h-9 rounded-lg bg-secondary/80 flex items-center justify-center flex-shrink-0 border border-border/60">
+              <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
                 <Icon className="w-4 h-4 text-muted-foreground" />
               </div>
               <div>
@@ -58,10 +57,10 @@ export default function BriefingPage() {
         </div>
 
         {/* Briefing placeholder */}
-        <div className="holo-card rounded-xl border border-border/60 bg-card/70">
+        <div className="holo-card rounded-xl border border-white/10 bg-white/5">
           <div className="p-8 flex flex-col items-center justify-center text-center">
             <div className="relative w-14 h-14 mb-5">
-              <span className="ping-slow absolute inset-0 rounded-full bg-primary/20" />
+              <span className="ping-slow absolute inset-0 rounded-full bg-primary/30" />
               <div className="relative w-14 h-14 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
                 <TrendingUp className="w-6 h-6 text-primary" />
               </div>
