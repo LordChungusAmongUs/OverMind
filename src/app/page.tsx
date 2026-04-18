@@ -1,4 +1,5 @@
 import Sidebar from "@/components/layout/Sidebar";
+import WeatherStrip from "@/components/weather/WeatherStrip";
 import { TrendingUp, UtensilsCrossed, Youtube, AlertCircle } from "lucide-react";
 
 export default function BriefingPage() {
@@ -43,6 +44,9 @@ export default function BriefingPage() {
             </div>
           ))}
         </div>
+
+        {/* Weather */}
+        <WeatherStrip />
 
         {/* Briefing placeholder */}
         <div className="holo-card rounded-xl border border-green-500/20 bg-black/40">

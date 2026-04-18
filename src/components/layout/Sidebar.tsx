@@ -10,6 +10,10 @@ import {
   Settings,
   Zap,
   Map,
+  Lock,
+  Activity,
+  Star,
+  Shirt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +22,10 @@ const nav = [
   { href: "/restaurant", label: "Restaurant", icon: UtensilsCrossed, exact: false },
   { href: "/markets",    label: "Markets",    icon: TrendingUp,      exact: false },
   { href: "/music",      label: "Music",      icon: Music2,          exact: false },
+  { href: "/nsfw",       label: "NSFW",       icon: Lock,            exact: false },
+  { href: "/health",     label: "Health",     icon: Activity,        exact: false },
+  { href: "/astrology",  label: "Astrology",  icon: Star,            exact: false },
+  { href: "/stylist",    label: "Stylist",    icon: Shirt,           exact: false },
   { href: "/roadmap",    label: "Roadmap",    icon: Map,             exact: false },
   { href: "/settings",   label: "Settings",   icon: Settings,        exact: false },
 ];
@@ -42,7 +50,7 @@ export default function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
         {nav.map(({ href, label, icon: Icon, exact }) => {
           const active = exact ? pathname === href : pathname === href || pathname.startsWith(href + "/");
           return (
@@ -50,14 +58,14 @@ export default function Sidebar() {
               key={href}
               href={href}
               className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 border",
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 border",
                 active
                   ? "bg-green-500/10 text-green-400 border-green-500/30 nav-active-glow"
                   : "text-green-500/60 hover:bg-green-500/5 hover:text-green-300 border-transparent"
               )}
             >
               <Icon className={cn(
-                "w-4 h-4 transition-all",
+                "w-4 h-4 transition-all flex-shrink-0",
                 active
                   ? "text-green-400 drop-shadow-[0_0_6px_rgba(0,255,65,0.8)]"
                   : "text-green-600"
