@@ -1130,11 +1130,509 @@ Be concise and practical.`;
   }
 }
 
+// ── SOCIAL MEDIA HELPERS ─────────────────────────────────────────
+
+async function getSocialJob() {
+  const res = await fetch(`${db("platform_post_jobs")}?status=eq.pending&limit=1&order=created_at.asc`, { headers });
+  const rows = await res.json();
+  const job = rows?.[0];
+  if (!job) return null;
+  const claimRes = await fetch(`${db("platform_post_jobs")}?id=eq.${job.id}&status=eq.pending`, {
+    method: "PATCH", headers,
+    body: JSON.stringify({ status: "running", updated_at: new Date().toISOString() }),
+  });
+  const claimed = await claimRes.json();
+  if (!claimed?.length) return null;
+  return claimed[0];
+}
+
+async function updateSocialJob(id, fields) {
+  await fetch(`${db("platform_post_jobs")}?id=eq.${id}`, {
+    method: "PATCH", headers,
+    body: JSON.stringify({ ...fields, updated_at: new Date().toISOString() }),
+  });
+}
+
+async function getFanJob() {
+  const res = await fetch(`${db("fan_interaction_jobs")}?status=eq.pending&limit=1&order=created_at.asc`, { headers });
+  const rows = await res.json();
+  const job = rows?.[0];
+  if (!job) return null;
+  const claimRes = await fetch(`${db("fan_interaction_jobs")}?id=eq.${job.id}&status=eq.pending`, {
+    method: "PATCH", headers,
+    body: JSON.stringify({ status: "running", updated_at: new Date().toISOString() }),
+  });
+  const claimed = await claimRes.json();
+  if (!claimed?.length) return null;
+  return claimed[0];
+}
+
+async function updateFanJob(id, fields) {
+  await fetch(`${db("fan_interaction_jobs")}?id=eq.${id}`, {
+    method: "PATCH", headers,
+    body: JSON.stringify({ ...fields, updated_at: new Date().toISOString() }),
+  });
+}
+
+// Inject a base64 file into the first visible file input on a tab
+async function injectFileFromBase64(tabId, b64, mimeType, filename) {
+  return await injectAndRun(tabId, (b64, mime, fname) => {
+    try {
+      const arr = b64.split(",");
+      const bstr = atob(arr[1] || b64);
+      const u8arr = new Uint8Array(bstr.length);
+      for (let j = 0; j < bstr.length; j++) u8arr[j] = bstr.charCodeAt(j);
+      const file = new File([u8arr], fname, { type: mime });
+      const input = document.querySelector('input[type="file"]');
+      if (!input) return "no_input";
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      Object.defineProperty(input, "files", { value: dt.files, writable: false });
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    } catch (e) { return "err:" + e.message; }
+  }, [b64, mimeType, filename]);
+}
+
+// ── SOUNDCLOUD UPLOAD ────────────────────────────────────────────
+
+async function runSoundCloudUpload(job) {
+  const { audio_url, title, description, tags } = job;
+  const tabId = await openTab("https://soundcloud.com/upload");
+  await waitForTab(tabId);
+  await sleep(5000);
+
+  const audioB64 = await urlToBase64(audio_url);
+  if (!audioB64) { await chrome.tabs.remove(tabId); return null; }
+
+  await injectFileFromBase64(tabId, audioB64, "audio/mpeg", "track.mp3");
+  await sleep(10000); // wait for SC to process the upload
+
+  // Fill title
+  await injectAndRun(tabId, (t) => {
+    const el = document.querySelector(".sc-input-group input[type='text']") ||
+      document.querySelector("input[placeholder*='title' i]") ||
+      document.querySelector("input[name='title']");
+    if (!el) return;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(el, t);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }, [title || "New Track"]);
+  await sleep(500);
+
+  // Fill tags
+  if (tags) {
+    await injectAndRun(tabId, (tagStr) => {
+      const el = document.querySelector("input[placeholder*='tag' i]") ||
+        document.querySelector(".sc-tag-input input");
+      if (!el) return;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      setter.call(el, tagStr);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    }, [tags]);
+    await sleep(500);
+  }
+
+  // Fill description
+  if (description) {
+    await injectAndRun(tabId, (desc) => {
+      const el = document.querySelector("textarea[placeholder*='description' i]") ||
+        document.querySelector(".sc-input[name='description']");
+      if (!el) return;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+      setter.call(el, desc);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }, [description]);
+    await sleep(500);
+  }
+
+  // Save / Upload
+  await injectAndRun(tabId, () => {
+    const btn = Array.from(document.querySelectorAll("button")).find(b =>
+      ["Save", "Upload", "Save track", "Publish"].some(t => b.textContent.trim().includes(t))
+    );
+    if (btn) btn.click();
+  });
+
+  await sleep(5000);
+
+  const trackUrl = await injectAndRun(tabId, () => {
+    const a = document.querySelector("a[href*='/tracks/']") ||
+      document.querySelector(".successMessage a");
+    return a?.href ?? window.location.href;
+  }).catch(() => null);
+
+  await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+  return trackUrl;
+}
+
+// ── TIKTOK UPLOAD ────────────────────────────────────────────────
+
+async function runTikTokUpload(job) {
+  const { video_url, audio_url, title, description, tags } = job;
+  const mediaUrl = video_url || audio_url;
+  if (!mediaUrl) return null;
+
+  const tabId = await openTab("https://www.tiktok.com/creator-center/upload");
+  await waitForTab(tabId);
+  await sleep(7000);
+
+  const mediaB64 = await urlToBase64(mediaUrl);
+  if (!mediaB64) { await chrome.tabs.remove(tabId); return null; }
+
+  const isVideo = mediaUrl.includes(".mp4") || !!video_url;
+  await injectFileFromBase64(tabId, mediaB64, isVideo ? "video/mp4" : "audio/mpeg", isVideo ? "video.mp4" : "audio.mp3");
+  await sleep(15000); // TikTok takes a while to process
+
+  const caption = [title, description, tags].filter(Boolean).join(" ").slice(0, 2200);
+  await injectAndRun(tabId, (cap) => {
+    const el = document.querySelector("[data-placeholder*='caption' i]") ||
+      document.querySelector(".public-DraftEditor-content") ||
+      document.querySelector("[contenteditable='true']");
+    if (el) {
+      el.focus();
+      document.execCommand("insertText", false, cap);
+      el.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    }
+  }, [caption]);
+
+  await sleep(2000);
+
+  await injectAndRun(tabId, () => {
+    const btn = Array.from(document.querySelectorAll("button")).find(b =>
+      ["Post", "Publish", "Upload"].includes(b.textContent.trim())
+    );
+    if (btn) btn.click();
+  });
+
+  await sleep(10000);
+  await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+  return null;
+}
+
+// ── INSTAGRAM UPLOAD ─────────────────────────────────────────────
+
+async function runInstagramUpload(job) {
+  const { video_url, audio_url, description, tags } = job;
+  const mediaUrl = video_url || audio_url;
+  if (!mediaUrl) return null;
+
+  const tabId = await openTab("https://www.instagram.com/");
+  await waitForTab(tabId);
+  await sleep(5000);
+
+  // Click the Create (+) button
+  await injectAndRun(tabId, () => {
+    const btn = Array.from(document.querySelectorAll("a, button, [role='button']")).find(el =>
+      (el.getAttribute("aria-label") || "").toLowerCase().includes("creat") ||
+      (el.getAttribute("aria-label") || "").toLowerCase().includes("new post")
+    );
+    if (btn) btn.click();
+  });
+  await sleep(2000);
+
+  const mediaB64 = await urlToBase64(mediaUrl);
+  if (!mediaB64) { await chrome.tabs.remove(tabId); return null; }
+
+  const isVideo = !!video_url;
+  await injectFileFromBase64(tabId, mediaB64, isVideo ? "video/mp4" : "audio/mpeg", isVideo ? "video.mp4" : "audio.mp3");
+  await sleep(5000);
+
+  // Click through "Next" steps
+  for (let i = 0; i < 3; i++) {
+    await injectAndRun(tabId, () => {
+      const btn = Array.from(document.querySelectorAll("button")).find(b =>
+        ["Next", "Share"].includes(b.textContent.trim())
+      );
+      if (btn) btn.click();
+    });
+    await sleep(2500);
+  }
+
+  // Caption
+  const caption = [description, tags].filter(Boolean).join(" ").slice(0, 2200);
+  await injectAndRun(tabId, (cap) => {
+    const el = document.querySelector("div[aria-label*='caption' i]") ||
+      document.querySelector("textarea[placeholder*='caption' i]") ||
+      document.querySelector("[contenteditable='true']");
+    if (el) { el.focus(); document.execCommand("insertText", false, cap); }
+  }, [caption]);
+  await sleep(1000);
+
+  // Share
+  await injectAndRun(tabId, () => {
+    const btn = Array.from(document.querySelectorAll("button")).find(b => b.textContent.trim() === "Share");
+    if (btn) btn.click();
+  });
+
+  await sleep(8000);
+  await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+  return null;
+}
+
+// ── FACEBOOK POST ────────────────────────────────────────────────
+
+async function runFacebookPost(job) {
+  const { video_url, audio_url, title, description, tags } = job;
+  const mediaUrl = video_url || audio_url;
+  if (!mediaUrl) return null;
+
+  const tabId = await openTab("https://www.facebook.com/");
+  await waitForTab(tabId);
+  await sleep(6000);
+
+  // Open video composer
+  await injectAndRun(tabId, () => {
+    const btn = Array.from(document.querySelectorAll("[aria-label], [role='button']")).find(el => {
+      const label = (el.getAttribute("aria-label") || el.textContent || "").toLowerCase();
+      return label.includes("photo") || label.includes("video") || label.includes("what") ;
+    });
+    if (btn) btn.click();
+  });
+  await sleep(2000);
+
+  const mediaB64 = await urlToBase64(mediaUrl);
+  if (mediaB64) {
+    const isVideo = !!video_url;
+    await injectFileFromBase64(tabId, mediaB64, isVideo ? "video/mp4" : "audio/mpeg", isVideo ? "video.mp4" : "audio.mp3");
+    await sleep(12000);
+  }
+
+  // Fill post text
+  const postText = [title, description, tags].filter(Boolean).join(" ");
+  await injectAndRun(tabId, (text) => {
+    const el = document.querySelector("[contenteditable='true'][role='textbox']") ||
+      document.querySelector("[data-lexical-editor='true']") ||
+      document.querySelector("[aria-placeholder*='mind' i]");
+    if (el) { el.focus(); document.execCommand("insertText", false, text); }
+  }, [postText]);
+  await sleep(1000);
+
+  // Click Post
+  await injectAndRun(tabId, () => {
+    const btn = Array.from(document.querySelectorAll("div[role='button'], button")).find(el =>
+      el.getAttribute("aria-label") === "Post" || el.textContent.trim() === "Post"
+    );
+    if (btn) btn.click();
+  });
+
+  await sleep(8000);
+  await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+  return null;
+}
+
+// ── X / TWITTER POST ─────────────────────────────────────────────
+
+async function runTwitterPost(job) {
+  const { video_url, audio_url, title, description, tags } = job;
+  const tabId = await openTab("https://x.com/compose/tweet");
+  await waitForTab(tabId);
+  await sleep(5000);
+
+  // Type tweet text
+  const tweetText = [title, description, tags].filter(Boolean).join(" ").slice(0, 280);
+  await injectAndRun(tabId, (text) => {
+    const el = document.querySelector("[data-testid='tweetTextarea_0']") ||
+      document.querySelector("[contenteditable='true'][role='textbox']");
+    if (el) {
+      el.focus();
+      document.execCommand("insertText", false, text);
+      el.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    }
+  }, [tweetText]);
+
+  // Attach media if available
+  const mediaUrl = video_url || audio_url;
+  if (mediaUrl) {
+    const mediaB64 = await urlToBase64(mediaUrl);
+    if (mediaB64) {
+      await injectAndRun(tabId, () => {
+        const btn = document.querySelector("[data-testid='attachments'] button") ||
+          document.querySelector("[aria-label*='media' i]") ||
+          document.querySelector("[aria-label*='photo' i]");
+        if (btn) btn.click();
+      });
+      await sleep(1000);
+      const isVideo = !!video_url;
+      await injectFileFromBase64(tabId, mediaB64, isVideo ? "video/mp4" : "audio/mpeg", isVideo ? "video.mp4" : "audio.mp3");
+      await sleep(8000);
+    }
+  }
+
+  // Post
+  await injectAndRun(tabId, () => {
+    const btn = document.querySelector("[data-testid='tweetButton']") ||
+      Array.from(document.querySelectorAll("button")).find(b => ["Post", "Tweet"].includes(b.textContent.trim()));
+    if (btn) btn.click();
+  });
+
+  await sleep(5000);
+  await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+  return null;
+}
+
+// ── SOCIAL PIPELINE DISPATCHER ───────────────────────────────────
+
+async function runSocialPipeline(job) {
+  const { id, platform } = job;
+  try {
+    let postUrl = null;
+    if (platform === "soundcloud") postUrl = await runSoundCloudUpload(job);
+    else if (platform === "tiktok")    await runTikTokUpload(job);
+    else if (platform === "instagram") await runInstagramUpload(job);
+    else if (platform === "facebook")  await runFacebookPost(job);
+    else if (platform === "twitter")   await runTwitterPost(job);
+    await updateSocialJob(id, { status: "complete", post_url: postUrl ?? null });
+  } catch (err) {
+    await updateSocialJob(id, { status: "error", error_message: err.message });
+  }
+}
+
+// ── FAN INTERACTION PIPELINE ─────────────────────────────────────
+
+async function runFanInteractionPipeline(job) {
+  const { persona_name, video_id } = job;
+
+  // Fetch persona's comment_reply prompt
+  let replyTemplate = `Reply to this YouTube comment as ${persona_name} — short, in character. Comment: {comment}`;
+  try {
+    const res = await fetch(
+      `${db("artist_prompt_configs")}?persona_name=eq.${encodeURIComponent(persona_name)}&prompt_type=eq.comment_reply`,
+      { headers }
+    );
+    const rows = await res.json();
+    if (rows?.[0]?.template) replyTemplate = rows[0].template;
+  } catch {}
+
+  let commentsReplied = 0;
+  let likesGiven = 0;
+
+  const url = video_id
+    ? `https://www.youtube.com/watch?v=${video_id}`
+    : "https://www.youtube.com/";
+
+  const tabId = await openTab(url);
+  await waitForTab(tabId);
+  await sleep(5000);
+
+  // Scroll to load comments
+  await injectAndRun(tabId, () => window.scrollTo(0, 800)).catch(() => {});
+  await sleep(4000);
+
+  // Collect up to 5 unreplied comments
+  const comments = await injectAndRun(tabId, () => {
+    const threads = Array.from(document.querySelectorAll("ytd-comment-thread-renderer"));
+    return threads.slice(0, 5).reduce((acc, thread, idx) => {
+      const textEl = thread.querySelector("#content-text");
+      const hasReplied = !!thread.querySelector("ytd-comment-replies-renderer");
+      if (textEl && !hasReplied) {
+        acc.push({ text: textEl.textContent.trim().slice(0, 200), idx });
+      }
+      return acc;
+    }, []);
+  }).catch(() => []);
+
+  for (const comment of (comments || []).slice(0, 3)) {
+    try {
+      const prompt = replyTemplate.replace("{comment}", comment.text);
+      const reply = await runChatGPT(prompt);
+      if (!reply || reply.length < 2) continue;
+
+      // Click reply on this comment
+      await injectAndRun(tabId, (idx) => {
+        const thread = document.querySelectorAll("ytd-comment-thread-renderer")[idx];
+        const btn = thread?.querySelector("#reply-button-end button, #reply-button button");
+        if (btn) btn.click();
+      }, [comment.idx]);
+      await sleep(2000);
+
+      // Type reply
+      await injectAndRun(tabId, (idx, text) => {
+        const thread = document.querySelectorAll("ytd-comment-thread-renderer")[idx];
+        if (!thread) return;
+        const clickTarget = thread.querySelector("#simplebox-placeholder");
+        if (clickTarget) clickTarget.click();
+        const editor = thread.querySelector("div[contenteditable='true']");
+        if (editor) {
+          editor.focus();
+          document.execCommand("insertText", false, text);
+          editor.dispatchEvent(new InputEvent("input", { bubbles: true }));
+        }
+      }, [comment.idx, reply.trim()]);
+      await sleep(1500);
+
+      // Submit reply
+      await injectAndRun(tabId, (idx) => {
+        const thread = document.querySelectorAll("ytd-comment-thread-renderer")[idx];
+        const btn = thread?.querySelector("#submit-button button, yt-button-renderer#submit-button button");
+        if (btn) btn.click();
+      }, [comment.idx]);
+      await sleep(2000);
+      commentsReplied++;
+    } catch {}
+  }
+
+  // Like the video
+  try {
+    await injectAndRun(tabId, () => {
+      const btn = document.querySelector("button[aria-label*='like' i]:not([aria-label*='dislike' i])");
+      if (btn && btn.getAttribute("aria-pressed") !== "true") { btn.click(); return true; }
+      return false;
+    });
+    likesGiven++;
+  } catch {}
+
+  await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+  return { commentsReplied, likesGiven };
+}
+
 // ── ALARM POLLING ─────────────────────────────────────────────────
 chrome.alarms.create("poll", { periodInMinutes: 0.1 }); // every 6 seconds
 chrome.alarms.create("stylist-poll", { periodInMinutes: 0.1 });
+chrome.alarms.create("social-poll", { periodInMinutes: 0.1 }); // every 6 seconds
+chrome.alarms.create("fan-poll", { periodInMinutes: 0.5 });    // every 30 seconds
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  // ── Social media posting pipeline ────────────────────────────────
+  if (alarm.name === "social-poll") {
+    const { socialRunning } = await chrome.storage.local.get(["socialRunning"]);
+    if (socialRunning) return;
+    await chrome.storage.local.set({ socialRunning: true });
+    try {
+      const job = await getSocialJob();
+      if (job) await runSocialPipeline(job);
+    } catch {}
+    await chrome.storage.local.set({ socialRunning: false });
+    return;
+  }
+
+  // ── Fan interaction pipeline ─────────────────────────────────────
+  if (alarm.name === "fan-poll") {
+    const { fanRunning } = await chrome.storage.local.get(["fanRunning"]);
+    if (fanRunning) return;
+    await chrome.storage.local.set({ fanRunning: true });
+    try {
+      const job = await getFanJob();
+      if (job) {
+        const result = await runFanInteractionPipeline(job);
+        await updateFanJob(job.id, {
+          status: "complete",
+          comments_replied: result?.commentsReplied ?? 0,
+          likes_given: result?.likesGiven ?? 0,
+        });
+      }
+    } catch (err) {
+      try {
+        const { fanCurrentJob } = await chrome.storage.local.get(["fanCurrentJob"]);
+        if (fanCurrentJob) await updateFanJob(fanCurrentJob, { status: "error", error_message: err.message });
+      } catch {}
+    }
+    await chrome.storage.local.set({ fanRunning: false });
+    return;
+  }
+
   // ── Stylist pipeline (independent lock) ──────────────────────────
   if (alarm.name === "stylist-poll") {
     const { stylistRunning } = await chrome.storage.local.get(["stylistRunning"]);
@@ -1203,6 +1701,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create("poll", { periodInMinutes: 0.1 });
-  chrome.alarms.create("stylist-poll", { periodInMinutes: 0.1 });
+  chrome.alarms.create("poll",        { periodInMinutes: 0.1 });
+  chrome.alarms.create("stylist-poll",{ periodInMinutes: 0.1 });
+  chrome.alarms.create("social-poll", { periodInMinutes: 0.1 });
+  chrome.alarms.create("fan-poll",    { periodInMinutes: 0.5 });
 });

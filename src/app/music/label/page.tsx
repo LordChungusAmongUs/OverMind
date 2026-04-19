@@ -6,7 +6,7 @@ import Sidebar from "@/components/layout/Sidebar";
 import {
   Youtube, Music2, Disc3, MessageSquare, Wand2,
   Plus, X, Check, Loader2, Save, ChevronDown, ChevronUp,
-  Mic2, Globe, Users, Heart, BookOpen, ListMusic,
+  Mic2, Globe, Users, Heart, BookOpen, ListMusic, Share2, Radio,
 } from "lucide-react";
 
 // ─── Personas ─────────────────────────────────────────────────────────────────
@@ -22,6 +22,14 @@ const PERSONAS = [
 ];
 
 const MASTER_CHANNEL = { name: "Dehydration Nation", color: "text-cyan-400", bg: "border-cyan-500/30 bg-cyan-500/5", emoji: "🏷️" };
+
+const PLATFORMS = [
+  { key: "soundcloud", label: "SoundCloud", icon: Radio,     color: "text-orange-400" },
+  { key: "tiktok",     label: "TikTok",     icon: Music2,    color: "text-pink-400"   },
+  { key: "instagram",  label: "Instagram",  icon: Share2,    color: "text-purple-400" },
+  { key: "facebook",   label: "Facebook",   icon: Globe,     color: "text-blue-400"   },
+  { key: "twitter",    label: "X / Twitter",icon: MessageSquare, color: "text-sky-400" },
+];
 
 const DEFAULT_PROMPTS: Record<string, Record<string, string>> = {
   "ThirstyBoy": {
@@ -140,10 +148,30 @@ interface FanJob {
   created_at: string;
 }
 
+interface PlatformAccount {
+  id: string;
+  persona_name: string;
+  platform: string;
+  handle: string | null;
+  profile_url: string | null;
+  active: boolean;
+}
+
+interface PlatformPostJob {
+  id: string;
+  persona_name: string;
+  platform: string;
+  title: string | null;
+  status: string;
+  post_url: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LabelPage() {
-  const [tab, setTab] = useState<"artists" | "prompts" | "albums" | "fans">("artists");
+  const [tab, setTab] = useState<"artists" | "prompts" | "albums" | "fans" | "platforms">("artists");
 
   // Artists
   const [channels, setChannels] = useState<ArtistChannel[]>([]);
@@ -174,6 +202,14 @@ export default function LabelPage() {
   const [loadingFan, setLoadingFan] = useState(true);
   const [launchingFan, setLaunchingFan] = useState(false);
   const [fanForm, setFanForm] = useState({ persona_name: "ThirstyBoy", video_id: "" });
+
+  // Platforms
+  const [platformAccounts, setPlatformAccounts] = useState<PlatformAccount[]>([]);
+  const [platformDrafts, setPlatformDrafts] = useState<Record<string, Partial<PlatformAccount>>>({});
+  const [savingPlatform, setSavingPlatform] = useState<string | null>(null);
+  const [platformPostJobs, setPlatformPostJobs] = useState<PlatformPostJob[]>([]);
+  const [postJobForm, setPostJobForm] = useState({ persona_name: "ThirstyBoy", platform: "soundcloud", title: "", audio_url: "", video_url: "", description: "", tags: "" });
+  const [launchingPost, setLaunchingPost] = useState(false);
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -216,10 +252,22 @@ export default function LabelPage() {
     setLoadingFan(false);
   }, []);
 
+  const loadPlatformAccounts = useCallback(async () => {
+    const { data } = await supabase.from("artist_platform_accounts").select("*");
+    setPlatformAccounts(data ?? []);
+  }, []);
+
+  const loadPlatformPostJobs = useCallback(async () => {
+    const { data } = await supabase.from("platform_post_jobs").select("*").order("created_at", { ascending: false }).limit(30);
+    setPlatformPostJobs(data ?? []);
+  }, []);
+
   useEffect(() => { loadChannels(); }, [loadChannels]);
   useEffect(() => { loadAlbums(); }, [loadAlbums]);
   useEffect(() => { loadFanJobs(); }, [loadFanJobs]);
   useEffect(() => { loadPrompts(promptPersona); }, [promptPersona, loadPrompts]);
+  useEffect(() => { loadPlatformAccounts(); }, [loadPlatformAccounts]);
+  useEffect(() => { loadPlatformPostJobs(); }, [loadPlatformPostJobs]);
 
   // ── Channel actions ───────────────────────────────────────────────────────
 
@@ -350,6 +398,60 @@ export default function LabelPage() {
     setFanJobs(prev => prev.map(j => j.id === id ? { ...j, status: "error" } : j));
   }
 
+  // ── Platform account actions ──────────────────────────────────────────────
+
+  function getPlatformKey(personaName: string, platform: string) {
+    return `${personaName}__${platform}`;
+  }
+
+  function getPlatformField(personaName: string, platform: string, field: keyof PlatformAccount, fallback: unknown) {
+    const key = getPlatformKey(personaName, platform);
+    const draft = platformDrafts[key];
+    if (draft && field in draft) return draft[field];
+    const saved = platformAccounts.find(a => a.persona_name === personaName && a.platform === platform);
+    return saved?.[field] ?? fallback;
+  }
+
+  function setPlatformField(personaName: string, platform: string, field: keyof PlatformAccount, value: unknown) {
+    const key = getPlatformKey(personaName, platform);
+    setPlatformDrafts(prev => ({ ...prev, [key]: { ...prev[key], [field]: value } }));
+  }
+
+  async function savePlatformAccount(personaName: string, platform: string) {
+    const key = getPlatformKey(personaName, platform);
+    const draft = platformDrafts[key] ?? {};
+    setSavingPlatform(key);
+    const existing = platformAccounts.find(a => a.persona_name === personaName && a.platform === platform);
+    if (existing) {
+      const { data } = await supabase.from("artist_platform_accounts").update(draft).eq("id", existing.id).select().single();
+      if (data) setPlatformAccounts(prev => prev.map(a => a.id === data.id ? data : a));
+    } else {
+      const { data } = await supabase.from("artist_platform_accounts").insert({
+        persona_name: personaName, platform, ...draft,
+      }).select().single();
+      if (data) setPlatformAccounts(prev => [...prev, data]);
+    }
+    setPlatformDrafts(prev => { const n = { ...prev }; delete n[key]; return n; });
+    setSavingPlatform(null);
+  }
+
+  async function launchPlatformPost() {
+    if (!postJobForm.audio_url && !postJobForm.video_url) return;
+    setLaunchingPost(true);
+    const { data } = await supabase.from("platform_post_jobs").insert({
+      persona_name: postJobForm.persona_name,
+      platform: postJobForm.platform,
+      audio_url: postJobForm.audio_url || null,
+      video_url: postJobForm.video_url || null,
+      title: postJobForm.title || null,
+      description: postJobForm.description || null,
+      tags: postJobForm.tags || null,
+    }).select().single();
+    if (data) setPlatformPostJobs(prev => [data, ...prev]);
+    setPostJobForm(f => ({ ...f, audio_url: "", video_url: "", title: "", description: "", tags: "" }));
+    setLaunchingPost(false);
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const allArtists = [...PERSONAS.map(p => p.name), MASTER_CHANNEL.name];
@@ -378,7 +480,8 @@ export default function LabelPage() {
             { key: "artists", label: "Artists",       icon: Mic2 },
             { key: "prompts", label: "Prompt Studio", icon: Wand2 },
             { key: "albums",  label: "Albums",        icon: Disc3 },
-            { key: "fans",    label: "Fan Engagement",icon: Heart },
+            { key: "fans",      label: "Fan Engagement", icon: Heart  },
+          { key: "platforms", label: "Platforms",      icon: Share2 },
           ].map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -814,6 +917,174 @@ export default function LabelPage() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TAB: Platforms ── */}
+        {tab === "platforms" && (
+          <div>
+            <p className="text-xs text-green-700 font-mono mb-5">
+              Toggle each platform per artist. The extension will automatically post to enabled platforms after each track uploads to YouTube.
+            </p>
+
+            {/* Platform accounts grid */}
+            <div className="overflow-x-auto mb-8">
+              <table className="w-full text-xs font-mono">
+                <thead>
+                  <tr>
+                    <th className="text-left text-green-700 pb-3 pr-4 font-semibold uppercase tracking-wider">Artist</th>
+                    {PLATFORMS.map(p => (
+                      <th key={p.key} className={`text-center pb-3 px-2 font-semibold uppercase tracking-wider ${p.color}`}>
+                        {p.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-green-500/10">
+                  {[MASTER_CHANNEL, ...PERSONAS].map(persona => (
+                    <tr key={persona.name}>
+                      <td className="py-3 pr-4">
+                        <span className={`font-bold ${persona.color}`}>{persona.emoji} {persona.name}</span>
+                      </td>
+                      {PLATFORMS.map(platform => {
+                        const key = getPlatformKey(persona.name, platform.key);
+                        const isDirty = !!platformDrafts[key] && Object.keys(platformDrafts[key]).length > 0;
+                        const isActive = Boolean(getPlatformField(persona.name, platform.key, "active", false));
+                        const handle = String(getPlatformField(persona.name, platform.key, "handle", ""));
+                        return (
+                          <td key={platform.key} className="py-3 px-2">
+                            <div className="flex flex-col items-center gap-1.5">
+                              <label className="flex items-center gap-1 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="accent-green-400"
+                                  checked={isActive}
+                                  onChange={e => setPlatformField(persona.name, platform.key, "active", e.target.checked)}
+                                />
+                                <span className={isActive ? "text-green-400" : "text-green-800"}>on</span>
+                              </label>
+                              <input
+                                className="w-24 bg-black/60 border border-green-500/20 rounded px-1.5 py-1 text-green-400 placeholder-green-900 focus:outline-none focus:border-green-400/60 text-center"
+                                placeholder="@handle"
+                                value={handle}
+                                onChange={e => setPlatformField(persona.name, platform.key, "handle", e.target.value)}
+                              />
+                              {isDirty && (
+                                <button
+                                  onClick={() => savePlatformAccount(persona.name, platform.key)}
+                                  disabled={savingPlatform === key}
+                                  className="text-green-600 hover:text-green-300 transition-colors"
+                                >
+                                  {savingPlatform === key ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Manual post launcher */}
+            <div className="holo-card rounded-xl border border-green-400/30 bg-black/40 glow-border p-5 mb-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Share2 className="w-4 h-4 text-green-400" />
+                <p className="text-sm font-mono font-black uppercase tracking-widest gradient-text">Manual Post Job</p>
+              </div>
+              <p className="text-xs text-green-700 font-mono mb-4">
+                Paste a track&apos;s audio or video URL to queue a post to any platform. The extension will pick it up and post automatically.
+              </p>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <select
+                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono focus:outline-none focus:border-green-400/60"
+                  value={postJobForm.persona_name}
+                  onChange={e => setPostJobForm(p => ({ ...p, persona_name: e.target.value }))}
+                >
+                  {allArtists.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+                <select
+                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono focus:outline-none focus:border-green-400/60"
+                  value={postJobForm.platform}
+                  onChange={e => setPostJobForm(p => ({ ...p, platform: e.target.value }))}
+                >
+                  {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                </select>
+                <input
+                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                  placeholder="Audio URL (.mp3)"
+                  value={postJobForm.audio_url}
+                  onChange={e => setPostJobForm(p => ({ ...p, audio_url: e.target.value }))}
+                />
+                <input
+                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                  placeholder="Video URL (.mp4) — for TikTok/IG/FB/X"
+                  value={postJobForm.video_url}
+                  onChange={e => setPostJobForm(p => ({ ...p, video_url: e.target.value }))}
+                />
+                <input
+                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                  placeholder="Track title"
+                  value={postJobForm.title}
+                  onChange={e => setPostJobForm(p => ({ ...p, title: e.target.value }))}
+                />
+                <input
+                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                  placeholder="Tags (e.g. #drumandbass #dubstep)"
+                  value={postJobForm.tags}
+                  onChange={e => setPostJobForm(p => ({ ...p, tags: e.target.value }))}
+                />
+                <input
+                  className="col-span-2 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                  placeholder="Description / caption"
+                  value={postJobForm.description}
+                  onChange={e => setPostJobForm(p => ({ ...p, description: e.target.value }))}
+                />
+              </div>
+              <button
+                onClick={launchPlatformPost}
+                disabled={launchingPost || (!postJobForm.audio_url && !postJobForm.video_url)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40"
+              >
+                {launchingPost ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
+                {launchingPost ? "Queuing..." : "Queue Post"}
+              </button>
+            </div>
+
+            {/* Post job history */}
+            <p className="text-xs text-green-700 font-mono uppercase tracking-widest mb-3">
+              <span className="text-red-500">&gt;</span> Post history
+            </p>
+            {platformPostJobs.length === 0 ? (
+              <p className="text-xs text-green-800 font-mono">No posts yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {platformPostJobs.map(job => {
+                  const plt = PLATFORMS.find(p => p.key === job.platform);
+                  const Icon = plt?.icon ?? Share2;
+                  return (
+                    <div key={job.id} className="flex items-center gap-3 p-3 rounded-xl border border-green-500/15 bg-black/30 font-mono text-xs">
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                        job.status === "complete" ? "bg-green-400" :
+                        job.status === "running"  ? "bg-yellow-400 animate-pulse" :
+                        job.status === "error"    ? "bg-red-400" : "bg-green-800"
+                      }`} />
+                      <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${plt?.color ?? "text-green-600"}`} />
+                      <span className="text-green-500 font-bold">{job.persona_name}</span>
+                      <span className="text-green-700">{plt?.label}</span>
+                      {job.title && <span className="text-green-800 truncate flex-1">{job.title}</span>}
+                      {job.post_url && (
+                        <a href={job.post_url} target="_blank" rel="noreferrer" className="text-green-500 hover:underline flex-shrink-0">view</a>
+                      )}
+                      {job.error_message && <span className="text-red-400 truncate flex-1">{job.error_message}</span>}
+                      <span className="ml-auto text-green-900 flex-shrink-0">{new Date(job.created_at).toLocaleDateString()}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
