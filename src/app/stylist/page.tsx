@@ -317,7 +317,7 @@ export default function StylistPage() {
           cleanItems: cleanItems.map(i => ({ id: i.id, name: i.name, type: i.type, color: i.color, brand: i.brand, occasions: i.occasions })),
           weather,
         }),
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
       if (data.error) {

@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  timeout: 15000,
+  maxRetries: 0,
+});
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,6 +28,10 @@ export async function POST(req: Request) {
     cleanItems: CleanItem[];
     weather: { temp: number; condition: string } | null;
   };
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return NextResponse.json({ error: "ANTHROPIC_API_KEY not set in Vercel environment variables." }, { status: 500 });
+  }
 
   if (!cleanItems || cleanItems.length === 0) {
     return NextResponse.json({ suggestion: "No clean items available — time to do laundry!" });
