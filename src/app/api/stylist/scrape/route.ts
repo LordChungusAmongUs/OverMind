@@ -6,43 +6,47 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const ITEM_TYPES = ["Top", "Bottom", "Shoes", "Outerwear", "Dress/Jumpsuit", "Accessory", "Hat", "Bag"];
 const OCCASIONS = ["Casual", "Work", "Gym", "Going Out", "Date Night", "Errands", "Church", "Travel", "Formal"];
 
-const BROWSER_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.9",
-  "Accept-Encoding": "gzip, deflate",
-  "Cache-Control": "no-cache",
-  "Pragma": "no-cache",
-  "Upgrade-Insecure-Requests": "1",
-};
+const JSON_SCHEMA = `{"name":"product name max 50 chars","brand":"brand or null","type":"one of: ${ITEM_TYPES.join(", ")}","color":"primary color or null","size":null,"occasions":["applicable values from: ${OCCASIONS.join(", ")}"],"notes":"one sentence or null"}`;
 
 function normalizeUrl(raw: string): string {
-  const trimmed = raw.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return `https://${trimmed}`;
+  const t = raw.trim();
+  return /^https?:\/\//i.test(t) ? t : `https://${t}`;
 }
 
 function extractAsin(url: string): string | null {
-  const match = url.match(/\/dp\/([A-Z0-9]{10})/i) ?? url.match(/\/product\/([A-Z0-9]{10})/i);
-  return match?.[1] ?? null;
+  return url.match(/\/dp\/([A-Z0-9]{10})/i)?.[1] ?? null;
 }
 
 function slugToTitle(url: string): string {
-  const match = url.match(/amazon\.com\/([^/]+)\/dp\//i);
+  const match = url.match(/amazon\.[^/]+\/([^/]+)\/dp\//i);
   if (!match) return "";
   return match[1].replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function stripFences(text: string): string {
+  return text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
 }
 
 async function tryFetch(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, {
-      headers: BROWSER_HEADERS,
-      signal: AbortSignal.timeout(10000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate",
+      },
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
     const text = await res.text();
-    // Amazon returns a robot check page — detect it
-    if (text.includes("robot") || text.includes("captcha") || text.includes("To discuss automated access")) return null;
+    if (
+      text.includes("captcha") ||
+      text.includes("robot check") ||
+      text.includes("To discuss automated access") ||
+      text.includes("Enter the characters you see below") ||
+      text.length < 5000
+    ) return null;
     return text;
   } catch {
     return null;
@@ -53,19 +57,13 @@ function extractMeta(html: string) {
   const imageUrl =
     html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
     html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)?.[1] ??
-    html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i)?.[1] ??
-    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i)?.[1] ??
-    // Amazon-specific: look for landingImage src
     html.match(/id=["']landingImage["'][^>]+src=["']([^"']+)["']/i)?.[1] ??
     html.match(/data-old-hires=["']([^"']+)["']/i)?.[1] ??
     null;
 
-  const title =
-    html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() ?? "";
+  const title = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim() ?? "";
   const desc =
-    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1]?.trim() ??
-    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i)?.[1]?.trim() ??
-    "";
+    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
 
   const bodyText = html
     .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -77,39 +75,15 @@ function extractMeta(html: string) {
   return { imageUrl, title, desc, bodyText };
 }
 
-function stripJsonFences(text: string): string {
-  return text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-}
-
-async function parseWithClaude(title: string, desc: string, bodyText: string): Promise<Record<string, unknown>> {
-  const hasContext = desc.length > 0 || bodyText.length > 0;
-  const prompt = hasContext
-    ? `You are a clothing item parser. Extract structured clothing data from this product page content.
-
-Page title: ${title}
-Page description: ${desc}
-Page text snippet: ${bodyText}
-
-Return ONLY a valid JSON object (no markdown fences, no explanation):
-{"name":"short product name max 50 chars","brand":"brand or null","type":"one of: ${ITEM_TYPES.join(", ")}","color":"primary color or null","size":null,"occasions":["from: ${OCCASIONS.join(", ")}"],"notes":"one sentence or null"}
-
-If not a clothing item: {"error":"Not a clothing item"}`
-    : `You are a clothing item parser. Based only on this product name, return structured clothing data.
-
-Product name: ${title}
-
-Return ONLY a valid JSON object (no markdown fences, no explanation):
-{"name":"short product name max 50 chars","brand":"brand or null","type":"one of: ${ITEM_TYPES.join(", ")}","color":"primary color or null","size":null,"occasions":["from: ${OCCASIONS.join(", ")}"],"notes":"one sentence or null"}
-
-If not a clothing item: {"error":"Not a clothing item"}`;
-
+async function claudeParse(prompt: string): Promise<Record<string, unknown>> {
   const message = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 300,
     messages: [{ role: "user", content: prompt }],
   });
-  const raw = (message.content[0] as { text: string }).text.trim();
-  return JSON.parse(stripJsonFences(raw));
+  const raw = stripFences((message.content[0] as { text: string }).text.trim());
+  console.log("[scrape] Claude raw response:", raw);
+  return JSON.parse(raw);
 }
 
 export async function POST(req: Request) {
@@ -117,51 +91,55 @@ export async function POST(req: Request) {
   if (!rawUrl) return NextResponse.json({ error: "No URL provided" }, { status: 400 });
 
   const url = normalizeUrl(rawUrl);
-  const isAmazon = /amazon\.(com|co\.uk|ca|de|fr|co\.jp)/i.test(url);
+  const isAmazon = /amazon\.(com|co\.uk|ca|de|fr)/i.test(url);
   const asin = isAmazon ? extractAsin(url) : null;
 
-  // ── Try fetching the page ──────────────────────────────────────────────────
-  let html: string | null = null;
+  console.log("[scrape] url:", url, "isAmazon:", isAmazon, "asin:", asin);
 
-  if (isAmazon && asin) {
-    // Try clean ASIN URL and mobile URL — both are more scrape-friendly
-    html =
-      await tryFetch(`https://www.amazon.com/dp/${asin}`) ??
-      await tryFetch(`https://www.amazon.com/dp/${asin}?th=1&psc=1`);
-  } else {
-    html = await tryFetch(url);
-  }
-
-  // ── Amazon fallback: use URL slug + Claude when blocked ───────────────────
-  if (!html && isAmazon) {
-    const slugTitle = slugToTitle(url);
-    const titleFromUrl = slugTitle || (asin ? `Amazon product ${asin}` : "Amazon clothing item");
+  // ── Amazon: parse from URL slug first (always reliable), image is best-effort
+  if (isAmazon) {
+    const slugTitle = slugToTitle(url) || (asin ? `Amazon ASIN ${asin}` : "Unknown clothing item");
+    console.log("[scrape] Amazon slug title:", slugTitle);
 
     let parsed: Record<string, unknown> = {};
     try {
-      parsed = await parseWithClaude(titleFromUrl, "", "");
-    } catch {
-      return NextResponse.json({ error: "Could not parse product details. Try entering manually." }, { status: 422 });
+      parsed = await claudeParse(
+        `You are a clothing item parser. Given only a product name, return structured data.\n\nProduct: ${slugTitle}\n\nReturn ONLY raw JSON (no markdown, no explanation):\n${JSON_SCHEMA}\n\nIf not clothing: {"error":"Not a clothing item"}`
+      );
+    } catch (e) {
+      console.error("[scrape] Claude error (Amazon slug):", e);
+      return NextResponse.json({ error: "AI parse failed. Try entering manually." }, { status: 422 });
     }
 
     if (parsed.error) return NextResponse.json({ error: parsed.error as string }, { status: 422 });
 
-    // No image available when blocked, but return the rest
-    return NextResponse.json({ ...parsed, image_url: null });
+    // Try to grab image (don't block on failure)
+    let imageUrl: string | null = null;
+    if (asin) {
+      const html = await tryFetch(`https://www.amazon.com/dp/${asin}`);
+      if (html) imageUrl = extractMeta(html).imageUrl;
+    }
+
+    return NextResponse.json({ ...parsed, image_url: imageUrl });
   }
 
+  // ── Non-Amazon: fetch the page
+  const html = await tryFetch(url);
   if (!html) {
-    return NextResponse.json({ error: "Could not fetch that URL. Try a different link or enter manually." }, { status: 422 });
+    return NextResponse.json({ error: "Could not load that page. Try a different link or enter manually." }, { status: 422 });
   }
 
-  // ── Parse fetched HTML ────────────────────────────────────────────────────
   const { imageUrl, title, desc, bodyText } = extractMeta(html);
+  console.log("[scrape] page title:", title);
 
   let parsed: Record<string, unknown> = {};
   try {
-    parsed = await parseWithClaude(title, desc, bodyText);
-  } catch {
-    return NextResponse.json({ error: "Could not parse product details. Try entering manually." }, { status: 422 });
+    parsed = await claudeParse(
+      `You are a clothing item parser. Extract structured data from this product page.\n\nTitle: ${title}\nDescription: ${desc}\nPage text: ${bodyText}\n\nReturn ONLY raw JSON (no markdown, no explanation):\n${JSON_SCHEMA}\n\nIf not clothing: {"error":"Not a clothing item"}`
+    );
+  } catch (e) {
+    console.error("[scrape] Claude error (page):", e);
+    return NextResponse.json({ error: "AI parse failed. Try entering manually." }, { status: 422 });
   }
 
   if (parsed.error) return NextResponse.json({ error: parsed.error as string }, { status: 422 });
