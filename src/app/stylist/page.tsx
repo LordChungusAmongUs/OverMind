@@ -161,6 +161,7 @@ export default function StylistPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [laundryConfirm, setLaundryConfirm] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [outfitError, setOutfitError] = useState<string | null>(null);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -306,19 +307,29 @@ export default function StylistPage() {
     if (activities.length === 0) return;
     setGenerating(true);
     setTodayOutfit(null);
-    const res = await fetch("/api/stylist/outfit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        activities,
-        cleanItems: cleanItems.map(i => ({ id: i.id, name: i.name, type: i.type, color: i.color, brand: i.brand, occasions: i.occasions })),
-        weather,
-      }),
-    });
-    const data = await res.json();
-    setTodayOutfit(data.suggestion);
-    const { data: history } = await supabase.from("outfit_history").select("*").order("created_at", { ascending: false }).limit(6);
-    setOutfitHistory(history ?? []);
+    setOutfitError(null);
+    try {
+      const res = await fetch("/api/stylist/outfit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          activities,
+          cleanItems: cleanItems.map(i => ({ id: i.id, name: i.name, type: i.type, color: i.color, brand: i.brand, occasions: i.occasions })),
+          weather,
+        }),
+        signal: AbortSignal.timeout(25000),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setOutfitError(data.error);
+      } else {
+        setTodayOutfit(data.suggestion);
+        const { data: history } = await supabase.from("outfit_history").select("*").order("created_at", { ascending: false }).limit(6);
+        setOutfitHistory(history ?? []);
+      }
+    } catch {
+      setOutfitError("Request timed out. Try again.");
+    }
     setGenerating(false);
   }
 
@@ -445,6 +456,9 @@ export default function StylistPage() {
             </button>
             {activities.length === 0 && !generating && (
               <p className="text-xs text-green-800 font-mono mt-2">Pick at least one activity to generate.</p>
+            )}
+            {outfitError && (
+              <p className="text-xs text-red-400 font-mono mt-2">{outfitError}</p>
             )}
 
             {todayOutfit && (

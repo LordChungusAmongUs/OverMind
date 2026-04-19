@@ -56,13 +56,18 @@ Pick specific items from the list above to form a practical, stylish outfit. For
 
 Only pick items from the available list. Be concise and direct.`;
 
-  const message = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 512,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const suggestion = (message.content[0] as { text: string }).text;
+  let suggestion: string;
+  try {
+    const message = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 512,
+      messages: [{ role: "user", content: prompt }],
+    });
+    suggestion = (message.content[0] as { text: string }).text;
+  } catch (e) {
+    console.error("[outfit] Claude error:", e);
+    return NextResponse.json({ error: "AI request failed. Check ANTHROPIC_API_KEY in Vercel env vars." }, { status: 500 });
+  }
 
   const weatherSummary = weather ? `${weather.temp}°F, ${weather.condition}` : null;
 
