@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import Sidebar from "@/components/layout/Sidebar";
 import {
   Shirt, RefreshCw, Calendar, Plus, X, Sparkles,
-  Loader2, CloudSun, History, Zap, ChevronDown, ChevronUp, Link,
+  Loader2, CloudSun, History, Zap, ChevronDown, ChevronUp, Link, Trash2,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -164,6 +164,8 @@ export default function StylistPage() {
   const [outfitError, setOutfitError] = useState<string | null>(null);
   const [outfitJobId, setOutfitJobId] = useState<string | null>(null);
   const [outfitImage, setOutfitImage] = useState<string | null>(null);
+  const [userPhotos, setUserPhotos] = useState<{ id: string; url: string }[]>([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -182,9 +184,12 @@ export default function StylistPage() {
     if (lastReset) wearQuery = wearQuery.gte("worn_date", lastReset.split("T")[0]);
     const { data: wears } = await wearQuery;
 
+    const { data: photosData } = await supabase.from("user_photos").select("*").order("created_at", { ascending: false });
+
     setItems(itemsData ?? []);
     setWearLog(wears ?? []);
     setOutfitHistory(historyData ?? []);
+    setUserPhotos(photosData ?? []);
     setLoading(false);
   }, []);
 
@@ -291,6 +296,26 @@ export default function StylistPage() {
     setSaving(false);
   }
 
+  async function uploadPhoto(file: File) {
+    setUploadingPhoto(true);
+    const ext = file.name.split(".").pop() ?? "jpg";
+    const path = `user-photos/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("pipeline-assets").upload(path, file, { upsert: true });
+    if (!error) {
+      const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/pipeline-assets/${path}`;
+      const { data } = await supabase.from("user_photos").insert({ url }).select().single();
+      if (data) setUserPhotos(prev => [data, ...prev]);
+    }
+    setUploadingPhoto(false);
+  }
+
+  async function deletePhoto(id: string, url: string) {
+    await supabase.from("user_photos").delete().eq("id", id);
+    const path = url.split("/pipeline-assets/")[1];
+    if (path) await supabase.storage.from("pipeline-assets").remove([path]);
+    setUserPhotos(prev => prev.filter(p => p.id !== id));
+  }
+
   function resetAddForm() {
     setShowAdd(false);
     setNewItem({ ...BLANK_ITEM });
@@ -320,6 +345,7 @@ export default function StylistPage() {
           activities,
           cleanItems: cleanItems.map(i => ({ id: i.id, name: i.name, type: i.type, color: i.color, brand: i.brand, occasions: i.occasions })),
           weather,
+          referencePhotoUrl: userPhotos[0]?.url ?? null,
         }),
       });
       const data = await res.json();
@@ -509,6 +535,54 @@ export default function StylistPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* My Photos */}
+        <div className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-5 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <p className="text-xs font-mono font-black uppercase tracking-widest gradient-text">My Photos</p>
+              <p className="text-xs text-green-800 font-mono mt-0.5">Upload photos of yourself — the extension will use your face when generating outfit images.</p>
+            </div>
+            <label className="flex items-center gap-1.5 text-xs font-mono font-semibold px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 hover:bg-green-500/20 transition-all cursor-pointer">
+              {uploadingPhoto ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              {uploadingPhoto ? "Uploading..." : "Add Photo"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) uploadPhoto(f); e.target.value = ""; }}
+              />
+            </label>
+          </div>
+
+          {userPhotos.length === 0 && (
+            <p className="text-xs text-green-800 font-mono">No photos yet. Add a clear photo of your face and full body for best results.</p>
+          )}
+
+          {userPhotos.length > 0 && (
+            <div className="flex gap-3 flex-wrap">
+              {userPhotos.map((photo, i) => (
+                <div key={photo.id} className="relative group">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo.url}
+                    alt="reference"
+                    className={`w-20 h-20 object-cover rounded-xl border-2 transition-all ${i === 0 ? "border-green-400" : "border-green-500/20"}`}
+                  />
+                  {i === 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 text-xs bg-green-500 text-black font-mono font-bold px-1 rounded">IN USE</span>
+                  )}
+                  <button
+                    onClick={() => deletePhoto(photo.id, photo.url)}
+                    className="absolute inset-0 rounded-xl bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                  >
+                    <Trash2 className="w-4 h-4 text-red-400" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Wardrobe */}

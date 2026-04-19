@@ -16,10 +16,11 @@ interface CleanItem {
 }
 
 export async function POST(req: Request) {
-  const { activities, cleanItems, weather } = await req.json() as {
+  const { activities, cleanItems, weather, referencePhotoUrl } = await req.json() as {
     activities: string[];
     cleanItems: CleanItem[];
     weather: { temp: number; condition: string } | null;
+    referencePhotoUrl: string | null;
   };
 
   if (!cleanItems || cleanItems.length === 0) {
@@ -32,6 +33,7 @@ export async function POST(req: Request) {
     activities,
     weather_summary: weatherSummary,
     clean_items: cleanItems,
+    reference_photo_url: referencePhotoUrl ?? null,
   }).select().single();
 
   if (error) {

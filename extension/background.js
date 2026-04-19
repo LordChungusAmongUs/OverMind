@@ -845,6 +845,125 @@ async function runPipeline(job) {
   }
 }
 
+// ── CHATGPT IMAGE GENERATION WITH REFERENCE PHOTO ────────────────
+async function runChatGPTImageWithRef(prompt, refPhotoBase64) {
+  const tabId = await openTab("https://chatgpt.com/");
+  await waitForTab(tabId);
+  await sleep(4000);
+
+  // Attach reference photo if provided
+  if (refPhotoBase64) {
+    // Click the attach / "+" button
+    await injectAndRun(tabId, () => {
+      const btn =
+        document.querySelector('button[aria-label="Attach files"]') ||
+        document.querySelector('button[aria-label*="ttach"]') ||
+        Array.from(document.querySelectorAll('button')).find(b =>
+          (b.getAttribute('aria-label') || '').toLowerCase().includes('attach')
+        );
+      if (btn) btn.click();
+    });
+    await sleep(1500);
+
+    // Inject file via the hidden file input
+    await injectAndRun(tabId, (b64) => {
+      try {
+        const arr = b64.split(',');
+        const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+        const bstr = atob(arr[1]);
+        const u8arr = new Uint8Array(bstr.length);
+        for (let i = 0; i < bstr.length; i++) u8arr[i] = bstr.charCodeAt(i);
+        const file = new File([u8arr], 'reference.jpg', { type: mime });
+        const fileInput = document.querySelector('input[type="file"]');
+        if (!fileInput) return false;
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        Object.defineProperty(fileInput, 'files', { value: dt.files, writable: false });
+        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      } catch { return false; }
+    }, [refPhotoBase64]);
+
+    await sleep(3000); // Wait for ChatGPT to process the upload
+  }
+
+  // Send prompt
+  await injectAndRun(tabId, (p) => {
+    const input = document.querySelector("#prompt-textarea") || document.querySelector('[contenteditable="true"]');
+    if (!input) return;
+    input.focus();
+    document.execCommand("insertText", false, p);
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+  }, [prompt]);
+  await sleep(1000);
+  await injectAndRun(tabId, () => {
+    const btn = document.querySelector('[data-testid="send-button"]') || document.querySelector('button[aria-label*="Send"]');
+    if (btn) btn.click();
+  });
+
+  // Wait for stop button to appear then disappear
+  for (let i = 0; i < 30; i++) {
+    const appeared = await injectAndRun(tabId, () =>
+      !!document.querySelector('[data-testid="stop-button"]') ||
+      !!document.querySelector('button[aria-label*="Stop"]')
+    ).catch(() => false);
+    if (appeared) break;
+    await sleep(2000);
+  }
+  for (let i = 0; i < 90; i++) {
+    const done = await injectAndRun(tabId, () =>
+      !document.querySelector('[data-testid="stop-button"]') &&
+      !document.querySelector('button[aria-label*="Stop"]')
+    ).catch(() => true);
+    if (done) break;
+    await sleep(3000);
+  }
+
+  await sleep(75000);
+
+  // Extract generated image
+  let imgSrc = "";
+  for (let i = 0; i < 20 && !imgSrc; i++) {
+    await injectAndRun(tabId, () => {
+      (document.querySelector("main") || document.body).scrollTo(0, 999999);
+    }).catch(() => {});
+    await sleep(2000);
+    imgSrc = await injectAndRun(tabId, () => {
+      const main = document.querySelector("main");
+      if (!main) return "";
+      const imgs = Array.from(main.querySelectorAll("img")).reverse();
+      for (const img of imgs) {
+        const src = img.currentSrc || img.src || "";
+        if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
+        const r = img.getBoundingClientRect();
+        if (r.width > 150 && r.height > 150) return src;
+      }
+      return "";
+    }).catch(() => "");
+    if (!imgSrc) await sleep(3000);
+  }
+
+  if (imgSrc) {
+    const b64 = await injectAndRun(tabId, (src) => new Promise(async resolve => {
+      try {
+        const r = await fetch(src, { credentials: "include" });
+        if (!r.ok) { resolve(`err:${r.status}`); return; }
+        const blob = await r.blob();
+        const fr = new FileReader();
+        fr.onloadend = () => resolve(fr.result);
+        fr.readAsDataURL(blob);
+      } catch (e) { resolve(`exc:${e.message}`); }
+    }), [imgSrc]).catch(() => null);
+    if (typeof b64 === "string" && b64.startsWith("data:image")) {
+      await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+      return b64;
+    }
+  }
+
+  await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+  return null;
+}
+
 // ── STYLIST PIPELINE ─────────────────────────────────────────────
 async function getStyleJob() {
   const res = await fetch(`${db("stylist_jobs")}?status=eq.pending&limit=1`, { headers });
@@ -900,18 +1019,39 @@ Be concise and practical.`;
     // Extract item names for the image prompt
     const outfitLines = description.split("\n").filter(l => l.startsWith("**") && !l.startsWith("**Style")).slice(0, 5);
     const itemsForImage = outfitLines.map(l => l.replace(/\*\*/g, "").split("—")[0].trim()).join(", ");
-    const imagePrompt = `Men's fashion editorial photo. Studio lighting, clean light gray background. A stylish young man wearing: ${itemsForImage || description.slice(0, 200)}. Contemporary streetwear lookbook photography. Sharp, professional, full body shot.`;
+    // Download reference photo as base64 if provided
+    let refPhotoBase64 = null;
+    if (job.reference_photo_url) {
+      try {
+        const photoRes = await fetch(job.reference_photo_url);
+        const photoBlob = await photoRes.blob();
+        refPhotoBase64 = await new Promise(resolve => {
+          const fr = new FileReader();
+          fr.onloadend = () => resolve(fr.result);
+          fr.readAsDataURL(photoBlob);
+        });
+      } catch {}
+    }
 
-    const imageData = await runChatGPTImage(imagePrompt);
+    const imagePrompt = refPhotoBase64
+      ? `Using the person in the attached photo, generate a realistic fashion editorial photo of them wearing this exact outfit: ${itemsForImage || description.slice(0, 200)}. Keep their face, skin tone, and body. Studio lighting, clean background. Full body shot.`
+      : `Men's fashion editorial photo. Studio lighting, clean light gray background. A stylish young man wearing: ${itemsForImage || description.slice(0, 200)}. Contemporary streetwear lookbook photography. Sharp, professional, full body shot.`;
+
+    const imageData = await runChatGPTImageWithRef(imagePrompt, refPhotoBase64);
 
     let imageUrl = null;
     if (imageData && imageData.startsWith("data:image")) {
-      const base64 = imageData.split(",")[1];
-      const byteChars = atob(base64);
-      const byteArr = new Uint8Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
-      const blob = new Blob([byteArr], { type: "image/png" });
-      imageUrl = await uploadToStorage(`outfits/${Date.now()}.png`, blob, "image/png");
+      // Try uploading to Supabase storage
+      try {
+        const base64 = imageData.split(",")[1];
+        const byteChars = atob(base64);
+        const byteArr = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+        const blob = new Blob([byteArr], { type: "image/png" });
+        imageUrl = await uploadToStorage(`outfits/${Date.now()}.png`, blob, "image/png");
+      } catch {}
+      // Fallback: store base64 directly — img tags handle data: URLs fine
+      if (!imageUrl) imageUrl = imageData;
     }
 
     await updateStyleJob(id, { outfit_image_url: imageUrl, status: "complete", step: "complete" });
