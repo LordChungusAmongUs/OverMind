@@ -73,8 +73,9 @@ Only pick items from the available list. Be concise and direct.`;
     });
     suggestion = (message.content[0] as { text: string }).text;
   } catch (e) {
-    console.error("[outfit] Claude error:", e);
-    return NextResponse.json({ error: "AI request failed. Check ANTHROPIC_API_KEY in Vercel env vars." }, { status: 500 });
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[outfit] Claude error:", msg);
+    return NextResponse.json({ error: `AI error: ${msg}` }, { status: 500 });
   }
 
   const weatherSummary = weather ? `${weather.temp}°F, ${weather.condition}` : null;
