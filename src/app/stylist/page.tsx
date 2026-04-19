@@ -160,6 +160,7 @@ export default function StylistPage() {
 
   const [showHistory, setShowHistory] = useState(false);
   const [laundryConfirm, setLaundryConfirm] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -262,7 +263,8 @@ export default function StylistPage() {
   async function addItem() {
     if (!newItem.name.trim()) return;
     setSaving(true);
-    const { data } = await supabase.from("wardrobe_items").insert({
+    setAddError(null);
+    const { data, error } = await supabase.from("wardrobe_items").insert({
       name: newItem.name.trim(),
       type: newItem.type,
       color: newItem.color || null,
@@ -272,6 +274,12 @@ export default function StylistPage() {
       notes: newItem.notes || null,
       image_url: newItem.image_url || null,
     }).select().single();
+    if (error) {
+      console.error("addItem error:", error);
+      setAddError(error.message);
+      setSaving(false);
+      return;
+    }
     if (data) setItems(prev => [data, ...prev]);
     setNewItem({ ...BLANK_ITEM });
     setImportUrl("");
@@ -596,6 +604,9 @@ export default function StylistPage() {
                     onChange={e => setNewItem(p => ({ ...p, notes: e.target.value }))}
                   />
 
+                  {addError && (
+                    <p className="text-xs text-red-400 font-mono mb-3">{addError}</p>
+                  )}
                   <div className="flex gap-2">
                     <button
                       onClick={addItem}
