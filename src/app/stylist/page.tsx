@@ -162,6 +162,8 @@ export default function StylistPage() {
   const [laundryConfirm, setLaundryConfirm] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [outfitError, setOutfitError] = useState<string | null>(null);
+  const [outfitJobId, setOutfitJobId] = useState<string | null>(null);
+  const [outfitImage, setOutfitImage] = useState<string | null>(null);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -307,7 +309,9 @@ export default function StylistPage() {
     if (activities.length === 0) return;
     setGenerating(true);
     setTodayOutfit(null);
+    setOutfitImage(null);
     setOutfitError(null);
+    setOutfitJobId(null);
     try {
       const res = await fetch("/api/stylist/outfit", {
         method: "POST",
@@ -317,20 +321,41 @@ export default function StylistPage() {
           cleanItems: cleanItems.map(i => ({ id: i.id, name: i.name, type: i.type, color: i.color, brand: i.brand, occasions: i.occasions })),
           weather,
         }),
-        signal: AbortSignal.timeout(20000),
       });
       const data = await res.json();
       if (data.error) {
         setOutfitError(data.error);
-      } else {
-        setTodayOutfit(data.suggestion);
-        const { data: history } = await supabase.from("outfit_history").select("*").order("created_at", { ascending: false }).limit(6);
-        setOutfitHistory(history ?? []);
+        setGenerating(false);
+        return;
       }
+      setOutfitJobId(data.jobId);
+      // Poll for job completion
+      const poll = setInterval(async () => {
+        const { data: job } = await supabase
+          .from("stylist_jobs")
+          .select("status, outfit_description, outfit_image_url, error_message")
+          .eq("id", data.jobId)
+          .single();
+        if (!job) return;
+        if (job.status === "complete") {
+          clearInterval(poll);
+          setTodayOutfit(job.outfit_description);
+          setOutfitImage(job.outfit_image_url);
+          setOutfitJobId(null);
+          setGenerating(false);
+          const { data: history } = await supabase.from("outfit_history").select("*").order("created_at", { ascending: false }).limit(6);
+          setOutfitHistory(history ?? []);
+        } else if (job.status === "error") {
+          clearInterval(poll);
+          setOutfitError(job.error_message ?? "Extension pipeline failed.");
+          setOutfitJobId(null);
+          setGenerating(false);
+        }
+      }, 4000);
     } catch {
-      setOutfitError("Request timed out. Try again.");
+      setOutfitError("Failed to start outfit generation.");
+      setGenerating(false);
     }
-    setGenerating(false);
   }
 
   function toggleActivity(a: string) {
@@ -452,7 +477,7 @@ export default function StylistPage() {
               className="flex items-center gap-2 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-              {generating ? "Generating..." : "Generate Outfit"}
+              {generating ? (outfitJobId ? "Extension working..." : "Starting...") : "Generate Outfit"}
             </button>
             {activities.length === 0 && !generating && (
               <p className="text-xs text-green-800 font-mono mt-2">Pick at least one activity to generate.</p>
@@ -461,11 +486,25 @@ export default function StylistPage() {
               <p className="text-xs text-red-400 font-mono mt-2">{outfitError}</p>
             )}
 
+            {outfitJobId && generating && (
+              <p className="text-xs text-green-700 font-mono mt-3">
+                <span className="text-red-500">&gt;</span> Extension is running — ChatGPT is generating your outfit + image...
+              </p>
+            )}
+
             {todayOutfit && (
               <div className="mt-5 pt-5 border-t border-green-500/20">
                 <p className="text-xs text-green-600 font-mono uppercase tracking-wider mb-3">
                   <span className="text-red-500">&gt;</span> Today&apos;s Outfit
                 </p>
+                {outfitImage && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={outfitImage}
+                    alt="outfit"
+                    className="w-full max-w-sm rounded-xl border border-green-500/20 mb-4 object-cover"
+                  />
+                )}
                 <div className="text-sm text-green-300 font-mono whitespace-pre-wrap leading-relaxed">{todayOutfit}</div>
               </div>
             )}

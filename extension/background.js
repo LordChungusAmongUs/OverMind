@@ -845,10 +845,99 @@ async function runPipeline(job) {
   }
 }
 
+// ── STYLIST PIPELINE ─────────────────────────────────────────────
+async function getStyleJob() {
+  const res = await fetch(`${db("stylist_jobs")}?status=eq.pending&limit=1`, { headers });
+  const rows = await res.json();
+  const job = rows?.[0];
+  if (!job) return null;
+  const claimRes = await fetch(`${db("stylist_jobs")}?id=eq.${job.id}&status=eq.pending`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ status: "running", updated_at: new Date().toISOString() }),
+  });
+  const claimed = await claimRes.json();
+  if (!claimed?.length) return null;
+  return claimed[0];
+}
+
+async function updateStyleJob(id, fields) {
+  await fetch(`${db("stylist_jobs")}?id=eq.${id}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ ...fields, updated_at: new Date().toISOString() }),
+  });
+}
+
+async function runStylePipeline(job) {
+  const { id, activities, weather_summary, clean_items } = job;
+  try {
+    await updateStyleJob(id, { step: "outfit_description" });
+
+    const itemsList = (clean_items || [])
+      .map(i => `- [${i.type}] ${i.name}${i.color ? ` (${i.color})` : ""}${i.brand ? ` by ${i.brand}` : ""}`)
+      .join("\n");
+
+    const outfitPrompt = `You are a personal AI stylist. Suggest a complete outfit from my available clean clothes.
+
+Available items:
+${itemsList}
+
+Activities today: ${(activities || []).join(", ")}
+Weather: ${weather_summary || "unknown"}
+
+Pick specific items and format your response exactly like this:
+**[Item Name]** — why it works
+(one line per piece: top, bottom, shoes, outerwear if needed)
+
+**Style note:** One sentence on the overall vibe.
+
+Be concise and practical.`;
+
+    const description = await runChatGPT(outfitPrompt);
+    await updateStyleJob(id, { outfit_description: description, step: "outfit_image" });
+
+    // Extract item names for the image prompt
+    const outfitLines = description.split("\n").filter(l => l.startsWith("**") && !l.startsWith("**Style")).slice(0, 5);
+    const itemsForImage = outfitLines.map(l => l.replace(/\*\*/g, "").split("—")[0].trim()).join(", ");
+    const imagePrompt = `Men's fashion editorial photo. Studio lighting, clean light gray background. A stylish young man wearing: ${itemsForImage || description.slice(0, 200)}. Contemporary streetwear lookbook photography. Sharp, professional, full body shot.`;
+
+    const imageData = await runChatGPTImage(imagePrompt);
+
+    let imageUrl = null;
+    if (imageData && imageData.startsWith("data:image")) {
+      const base64 = imageData.split(",")[1];
+      const byteChars = atob(base64);
+      const byteArr = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([byteArr], { type: "image/png" });
+      imageUrl = await uploadToStorage(`outfits/${Date.now()}.png`, blob, "image/png");
+    }
+
+    await updateStyleJob(id, { outfit_image_url: imageUrl, status: "complete", step: "complete" });
+  } catch (err) {
+    await updateStyleJob(id, { status: "error", error_message: err.message });
+  }
+}
+
 // ── ALARM POLLING ─────────────────────────────────────────────────
 chrome.alarms.create("poll", { periodInMinutes: 0.1 }); // every 6 seconds
+chrome.alarms.create("stylist-poll", { periodInMinutes: 0.1 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  // ── Stylist pipeline (independent lock) ──────────────────────────
+  if (alarm.name === "stylist-poll") {
+    const { stylistRunning } = await chrome.storage.local.get(["stylistRunning"]);
+    if (stylistRunning) return;
+    await chrome.storage.local.set({ stylistRunning: true });
+    try {
+      const job = await getStyleJob();
+      if (job) await runStylePipeline(job);
+    } catch {}
+    await chrome.storage.local.set({ stylistRunning: false });
+    return;
+  }
+
   if (alarm.name !== "poll") return;
 
   // Watchdog: clear stuck running flag
@@ -905,4 +994,5 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create("poll", { periodInMinutes: 0.1 });
+  chrome.alarms.create("stylist-poll", { periodInMinutes: 0.1 });
 });
