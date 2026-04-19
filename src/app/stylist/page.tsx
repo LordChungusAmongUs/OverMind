@@ -214,10 +214,12 @@ export default function StylistPage() {
     if (!importUrl.trim()) return;
     setScraping(true);
     setScrapeError(null);
+    let cleanUrl = importUrl.trim();
+    if (!/^https?:\/\//i.test(cleanUrl)) cleanUrl = `https://${cleanUrl}`;
     const res = await fetch("/api/stylist/scrape", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: importUrl.trim() }),
+      body: JSON.stringify({ url: cleanUrl }),
     });
     const data = await res.json();
     if (data.error) {
