@@ -85,6 +85,10 @@ export default function BudgetPage() {
   const [editingGoal, setEditingGoal] = useState<SavingsGoal | null>(null);
   const [editSaved, setEditSaved] = useState("");
 
+  const [billError, setBillError] = useState<string | null>(null);
+  const [incomeError, setIncomeError] = useState<string | null>(null);
+  const [goalError, setGoalError] = useState<string | null>(null);
+
   const [showBills, setShowBills] = useState(true);
   const [showIncome, setShowIncome] = useState(true);
 
@@ -119,12 +123,14 @@ export default function BudgetPage() {
   async function addBill() {
     if (!newBill.name.trim() || !newBill.amount) return;
     setSavingBill(true);
-    const { data } = await supabase.from("budget_bills").insert({
+    setBillError(null);
+    const { data, error } = await supabase.from("budget_bills").insert({
       name: newBill.name.trim(),
       amount: parseFloat(newBill.amount),
       due_day: newBill.due_day ? parseInt(newBill.due_day) : null,
       category: newBill.category,
     }).select().single();
+    if (error) { setBillError(error.message); setSavingBill(false); return; }
     if (data) setBills(prev => [...prev, data]);
     setNewBill({ ...BLANK_BILL });
     setShowBillForm(false);
@@ -148,11 +154,13 @@ export default function BudgetPage() {
   async function addIncome() {
     if (!newIncome.name.trim() || !newIncome.amount) return;
     setSavingIncome(true);
-    const { data } = await supabase.from("budget_income").insert({
+    setIncomeError(null);
+    const { data, error } = await supabase.from("budget_income").insert({
       name: newIncome.name.trim(),
       amount: parseFloat(newIncome.amount),
       frequency: newIncome.frequency,
     }).select().single();
+    if (error) { setIncomeError(error.message); setSavingIncome(false); return; }
     if (data) setIncome(prev => [...prev, data]);
     setNewIncome({ ...BLANK_INCOME });
     setShowIncomeForm(false);
@@ -169,12 +177,14 @@ export default function BudgetPage() {
   async function addGoal() {
     if (!newGoal.name.trim() || !newGoal.target) return;
     setSavingGoal(true);
-    const { data } = await supabase.from("budget_savings_goals").insert({
+    setGoalError(null);
+    const { data, error } = await supabase.from("budget_savings_goals").insert({
       name: newGoal.name.trim(),
       target: parseFloat(newGoal.target),
       saved: newGoal.saved ? parseFloat(newGoal.saved) : 0,
       emoji: newGoal.emoji || "🎯",
     }).select().single();
+    if (error) { setGoalError(error.message); setSavingGoal(false); return; }
     if (data) setGoals(prev => [...prev, data]);
     setNewGoal({ ...BLANK_GOAL });
     setShowGoalForm(false);
@@ -350,6 +360,7 @@ export default function BudgetPage() {
                       {BILL_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
+                  {billError && <p className="text-xs text-red-400 font-mono mb-2">{billError}</p>}
                   <div className="flex gap-2">
                     <button
                       onClick={addBill}
@@ -444,6 +455,7 @@ export default function BudgetPage() {
                       {FREQUENCIES.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
                   </div>
+                  {incomeError && <p className="text-xs text-red-400 font-mono mb-2">{incomeError}</p>}
                   <div className="flex gap-2">
                     <button
                       onClick={addIncome}
@@ -589,6 +601,7 @@ export default function BudgetPage() {
                     onChange={e => setNewGoal(p => ({ ...p, saved: e.target.value }))}
                   />
                 </div>
+                {goalError && <p className="text-xs text-red-400 font-mono mb-2">{goalError}</p>}
                 <div className="flex gap-2">
                   <button
                     onClick={addGoal}
