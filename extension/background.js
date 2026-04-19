@@ -845,83 +845,89 @@ async function runPipeline(job) {
   }
 }
 
-// ── CHATGPT IMAGE GENERATION WITH REFERENCE PHOTO ────────────────
-async function runChatGPTImageWithRef(prompt, refPhotoBase64) {
-  const tabId = await openTab("https://chatgpt.com/");
-  await waitForTab(tabId);
-  await sleep(4000);
+// ── STYLIST HELPERS ──────────────────────────────────────────────
 
-  // Attach reference photo if provided
-  if (refPhotoBase64) {
-    // Click the attach / "+" button
-    await injectAndRun(tabId, () => {
-      const btn =
-        document.querySelector('button[aria-label="Attach files"]') ||
-        document.querySelector('button[aria-label*="ttach"]') ||
-        Array.from(document.querySelectorAll('button')).find(b =>
-          (b.getAttribute('aria-label') || '').toLowerCase().includes('attach')
-        );
-      if (btn) btn.click();
+// Convert a URL to base64 data URL
+async function urlToBase64(url) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise(resolve => {
+      const fr = new FileReader();
+      fr.onloadend = () => resolve(fr.result);
+      fr.readAsDataURL(blob);
     });
-    await sleep(1500);
+  } catch { return null; }
+}
 
-    // Inject file via the hidden file input
-    await injectAndRun(tabId, (b64) => {
-      try {
+// Attach multiple images to the current ChatGPT message box
+async function attachFilesToTab(tabId, base64Array) {
+  await injectAndRun(tabId, () => {
+    const btn =
+      document.querySelector('button[aria-label="Attach files"]') ||
+      document.querySelector('button[aria-label*="ttach"]') ||
+      Array.from(document.querySelectorAll('button')).find(b =>
+        (b.getAttribute('aria-label') || '').toLowerCase().includes('attach')
+      );
+    if (btn) btn.click();
+  });
+  await sleep(1500);
+
+  return await injectAndRun(tabId, (b64Array) => {
+    try {
+      const files = b64Array.map((b64, i) => {
         const arr = b64.split(',');
         const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
         const bstr = atob(arr[1]);
         const u8arr = new Uint8Array(bstr.length);
-        for (let i = 0; i < bstr.length; i++) u8arr[i] = bstr.charCodeAt(i);
-        const file = new File([u8arr], 'reference.jpg', { type: mime });
-        const fileInput = document.querySelector('input[type="file"]');
-        if (!fileInput) return false;
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        Object.defineProperty(fileInput, 'files', { value: dt.files, writable: false });
-        fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-        return true;
-      } catch { return false; }
-    }, [refPhotoBase64]);
+        for (let j = 0; j < bstr.length; j++) u8arr[j] = bstr.charCodeAt(j);
+        return new File([u8arr], `img-${i}.jpg`, { type: mime });
+      });
+      const fileInput = document.querySelector('input[type="file"]');
+      if (!fileInput) return false;
+      const dt = new DataTransfer();
+      files.forEach(f => dt.items.add(f));
+      Object.defineProperty(fileInput, 'files', { value: dt.files, writable: false });
+      fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    } catch (e) { return 'err:' + e.message; }
+  }, [base64Array]);
+}
 
-    await sleep(3000); // Wait for ChatGPT to process the upload
-  }
-
-  // Send prompt
-  await injectAndRun(tabId, (p) => {
+// Type and send a message in the open ChatGPT tab
+async function sendGPTMessage(tabId, text) {
+  await injectAndRun(tabId, (t) => {
     const input = document.querySelector("#prompt-textarea") || document.querySelector('[contenteditable="true"]');
     if (!input) return;
     input.focus();
-    document.execCommand("insertText", false, p);
+    document.execCommand("insertText", false, t);
     input.dispatchEvent(new InputEvent("input", { bubbles: true }));
-  }, [prompt]);
-  await sleep(1000);
+  }, [text]);
+  await sleep(800);
   await injectAndRun(tabId, () => {
     const btn = document.querySelector('[data-testid="send-button"]') || document.querySelector('button[aria-label*="Send"]');
     if (btn) btn.click();
   });
+}
 
-  // Wait for stop button to appear then disappear
-  for (let i = 0; i < 30; i++) {
-    const appeared = await injectAndRun(tabId, () =>
-      !!document.querySelector('[data-testid="stop-button"]') ||
-      !!document.querySelector('button[aria-label*="Stop"]')
-    ).catch(() => false);
-    if (appeared) break;
-    await sleep(2000);
-  }
-  for (let i = 0; i < 90; i++) {
+// Wait for ChatGPT to finish responding
+async function waitForGPTDone(tabId, maxAttempts = 60) {
+  await sleep(4000);
+  for (let i = 0; i < maxAttempts; i++) {
     const done = await injectAndRun(tabId, () =>
       !document.querySelector('[data-testid="stop-button"]') &&
       !document.querySelector('button[aria-label*="Stop"]')
     ).catch(() => true);
     if (done) break;
-    await sleep(3000);
+    await sleep(2000);
   }
+  await sleep(1500);
+}
 
+// Extract the generated image from the ChatGPT tab
+async function extractGPTImage(tabId) {
   await sleep(75000);
-
-  // Extract generated image
   let imgSrc = "";
   for (let i = 0; i < 20 && !imgSrc; i++) {
     await injectAndRun(tabId, () => {
@@ -942,26 +948,87 @@ async function runChatGPTImageWithRef(prompt, refPhotoBase64) {
     }).catch(() => "");
     if (!imgSrc) await sleep(3000);
   }
+  if (!imgSrc) return null;
 
-  if (imgSrc) {
-    const b64 = await injectAndRun(tabId, (src) => new Promise(async resolve => {
-      try {
-        const r = await fetch(src, { credentials: "include" });
-        if (!r.ok) { resolve(`err:${r.status}`); return; }
-        const blob = await r.blob();
-        const fr = new FileReader();
-        fr.onloadend = () => resolve(fr.result);
-        fr.readAsDataURL(blob);
-      } catch (e) { resolve(`exc:${e.message}`); }
-    }), [imgSrc]).catch(() => null);
-    if (typeof b64 === "string" && b64.startsWith("data:image")) {
-      await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
-      return b64;
-    }
+  return await injectAndRun(tabId, (src) => new Promise(async resolve => {
+    try {
+      const r = await fetch(src, { credentials: "include" });
+      if (!r.ok) { resolve(null); return; }
+      const blob = await r.blob();
+      const fr = new FileReader();
+      fr.onloadend = () => resolve(fr.result);
+      fr.readAsDataURL(blob);
+    } catch { resolve(null); }
+  }), [imgSrc]).catch(() => null);
+}
+
+// ── OUTFIT IMAGE: 3-TURN CHATGPT CONVERSATION ────────────────────
+async function runOutfitImageMultiTurn(job, userPhotoBase64s, itemBase64Map) {
+  const { activities, weather_summary, outfit_description, clean_items } = job;
+
+  const tabId = await openTab("https://chatgpt.com/");
+  await waitForTab(tabId);
+  await sleep(4000);
+
+  // Turn 1 — Send user reference photos + intro
+  if (userPhotoBase64s.length > 0) {
+    await attachFilesToTab(tabId, userPhotoBase64s);
+    await sleep(2000);
+    await sendGPTMessage(tabId,
+      `I'm attaching ${userPhotoBase64s.length} photo(s) of myself from different angles. I want you to generate a realistic fashion photo of me wearing a specific outfit. Please study my face, skin tone, body, and features carefully so you can accurately portray me in the next image. Confirm you can see me.`
+    );
+    await waitForGPTDone(tabId);
   }
 
+  // Turn 2 — Send clothing item images + descriptions
+  const itemsWithImages = (clean_items || []).filter(i => i.image_url && itemBase64Map[i.image_url]);
+  if (itemsWithImages.length > 0) {
+    const itemBase64s = itemsWithImages.map(i => itemBase64Map[i.image_url]).filter(Boolean);
+    await attachFilesToTab(tabId, itemBase64s);
+    await sleep(2000);
+    const itemList = itemsWithImages
+      .map(i => `• ${i.name}${i.color ? ` (${i.color})` : ''}${i.brand ? ` by ${i.brand}` : ''} — ${i.type}`)
+      .join('\n');
+    await sendGPTMessage(tabId,
+      `These are the clothing items I'll be wearing today. Study each piece:\n${itemList}\n\nConfirm you can see each item.`
+    );
+    await waitForGPTDone(tabId);
+  }
+
+  // Turn 3 — Generate the outfit image
+  const clothingRef = itemsWithImages.length > 0
+    ? 'the exact clothing items shown in the previous photos'
+    : (outfit_description || 'the described outfit').slice(0, 300);
+  const context = [
+    activities?.length ? `Activities: ${activities.join(', ')}` : '',
+    weather_summary ? `Weather: ${weather_summary}` : '',
+  ].filter(Boolean).join('. ');
+
+  await sendGPTMessage(tabId,
+    `Now generate a high-quality, realistic full-body fashion photo of me (the person from the first photos) wearing ${clothingRef}. ${context}. Natural studio lighting, fashion editorial style, sharp detail. Make it look like a real photo of me.`
+  );
+
+  // Wait for stop to appear (image gen takes longer)
+  for (let i = 0; i < 30; i++) {
+    const appeared = await injectAndRun(tabId, () =>
+      !!document.querySelector('[data-testid="stop-button"]') ||
+      !!document.querySelector('button[aria-label*="Stop"]')
+    ).catch(() => false);
+    if (appeared) break;
+    await sleep(2000);
+  }
+  for (let i = 0; i < 90; i++) {
+    const done = await injectAndRun(tabId, () =>
+      !document.querySelector('[data-testid="stop-button"]') &&
+      !document.querySelector('button[aria-label*="Stop"]')
+    ).catch(() => true);
+    if (done) break;
+    await sleep(3000);
+  }
+
+  const imageB64 = await extractGPTImage(tabId);
   await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
-  return null;
+  return (typeof imageB64 === "string" && imageB64.startsWith("data:image")) ? imageB64 : null;
 }
 
 // ── STYLIST PIPELINE ─────────────────────────────────────────────
@@ -1016,32 +1083,36 @@ Be concise and practical.`;
     const description = await runChatGPT(outfitPrompt);
     await updateStyleJob(id, { outfit_description: description, step: "outfit_image" });
 
-    // Extract item names for the image prompt
-    const outfitLines = description.split("\n").filter(l => l.startsWith("**") && !l.startsWith("**Style")).slice(0, 5);
-    const itemsForImage = outfitLines.map(l => l.replace(/\*\*/g, "").split("—")[0].trim()).join(", ");
-    // Download reference photo as base64 if provided
-    let refPhotoBase64 = null;
-    if (job.reference_photo_url) {
-      try {
-        const photoRes = await fetch(job.reference_photo_url);
-        const photoBlob = await photoRes.blob();
-        refPhotoBase64 = await new Promise(resolve => {
-          const fr = new FileReader();
-          fr.onloadend = () => resolve(fr.result);
-          fr.readAsDataURL(photoBlob);
-        });
-      } catch {}
+    // Fetch up to 3 user reference photos from user_photos table
+    let userPhotoBase64s = [];
+    try {
+      const photoRes = await fetch(`${db("user_photos")}?order=created_at.asc&limit=3`, { headers });
+      const photoRows = await photoRes.json();
+      if (Array.isArray(photoRows)) {
+        for (const row of photoRows) {
+          if (row.url) {
+            const b64 = await urlToBase64(row.url);
+            if (b64) userPhotoBase64s.push(b64);
+          }
+        }
+      }
+    } catch {}
+
+    // Download wardrobe item images as base64
+    const itemBase64Map = {};
+    for (const item of (clean_items || [])) {
+      if (item.image_url) {
+        const b64 = await urlToBase64(item.image_url);
+        if (b64) itemBase64Map[item.image_url] = b64;
+      }
     }
 
-    const imagePrompt = refPhotoBase64
-      ? `Using the person in the attached photo, generate a realistic fashion editorial photo of them wearing this exact outfit: ${itemsForImage || description.slice(0, 200)}. Keep their face, skin tone, and body. Studio lighting, clean background. Full body shot.`
-      : `Men's fashion editorial photo. Studio lighting, clean light gray background. A stylish young man wearing: ${itemsForImage || description.slice(0, 200)}. Contemporary streetwear lookbook photography. Sharp, professional, full body shot.`;
-
-    const imageData = await runChatGPTImageWithRef(imagePrompt, refPhotoBase64);
+    // Run 3-turn ChatGPT image conversation
+    const enrichedJob = { ...job, outfit_description: description };
+    const imageData = await runOutfitImageMultiTurn(enrichedJob, userPhotoBase64s, itemBase64Map);
 
     let imageUrl = null;
     if (imageData && imageData.startsWith("data:image")) {
-      // Try uploading to Supabase storage
       try {
         const base64 = imageData.split(",")[1];
         const byteChars = atob(base64);
@@ -1050,7 +1121,6 @@ Be concise and practical.`;
         const blob = new Blob([byteArr], { type: "image/png" });
         imageUrl = await uploadToStorage(`outfits/${Date.now()}.png`, blob, "image/png");
       } catch {}
-      // Fallback: store base64 directly — img tags handle data: URLs fine
       if (!imageUrl) imageUrl = imageData;
     }
 

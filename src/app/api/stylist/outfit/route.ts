@@ -13,6 +13,7 @@ interface CleanItem {
   color: string | null;
   brand: string | null;
   occasions: string[];
+  image_url: string | null;
 }
 
 export async function POST(req: Request) {

@@ -343,7 +343,7 @@ export default function StylistPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           activities,
-          cleanItems: cleanItems.map(i => ({ id: i.id, name: i.name, type: i.type, color: i.color, brand: i.brand, occasions: i.occasions })),
+          cleanItems: cleanItems.map(i => ({ id: i.id, name: i.name, type: i.type, color: i.color, brand: i.brand, occasions: i.occasions, image_url: i.image_url })),
           weather,
           referencePhotoUrl: userPhotos[0]?.url ?? null,
         }),
@@ -568,9 +568,9 @@ export default function StylistPage() {
                   <img
                     src={photo.url}
                     alt="reference"
-                    className={`w-20 h-20 object-cover rounded-xl border-2 transition-all ${i === 0 ? "border-green-400" : "border-green-500/20"}`}
+                    className={`w-20 h-20 object-cover rounded-xl border-2 transition-all ${i < 3 ? "border-green-400" : "border-green-500/20"}`}
                   />
-                  {i === 0 && (
+                  {i < 3 && (
                     <span className="absolute -top-1.5 -right-1.5 text-xs bg-green-500 text-black font-mono font-bold px-1 rounded">IN USE</span>
                   )}
                   <button
