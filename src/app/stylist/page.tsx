@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import Sidebar from "@/components/layout/Sidebar";
 import {
   Shirt, RefreshCw, Calendar, Plus, X, Sparkles,
-  Loader2, CloudSun, History, Zap, Trash2, ChevronDown, ChevronUp,
+  Loader2, CloudSun, History, Zap, ChevronDown, ChevronUp, Link,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -19,6 +19,7 @@ interface WardrobeItem {
   size: string | null;
   occasions: string[];
   notes: string | null;
+  image_url: string | null;
   created_at: string;
 }
 
@@ -43,13 +44,14 @@ const ITEM_TYPES = ["Top", "Bottom", "Shoes", "Outerwear", "Dress/Jumpsuit", "Ac
 const OCCASIONS = ["Casual", "Work", "Gym", "Going Out", "Date Night", "Errands", "Church", "Travel", "Formal"];
 const ACTIVITIES = ["Work", "Gym", "Going Out", "Date Night", "Errands", "Casual Day", "Church", "Travel"];
 
-const BLANK_ITEM = { name: "", type: "Top", color: "", brand: "", size: "", occasions: [] as string[], notes: "" };
+const BLANK_ITEM = {
+  name: "", type: "Top", color: "", brand: "", size: "",
+  occasions: [] as string[], notes: "", image_url: "",
+};
 
-// ─── Helper components ────────────────────────────────────────────────────────
+// ─── Chip component ───────────────────────────────────────────────────────────
 
-function Chip({
-  label, active, onClick,
-}: { label: string; active: boolean; onClick: () => void }) {
+function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -64,9 +66,9 @@ function Chip({
   );
 }
 
-function ItemCard({
-  item, isDirty, onMarkWorn, onMarkClean, onDelete,
-}: {
+// ─── Item card ────────────────────────────────────────────────────────────────
+
+function ItemCard({ item, isDirty, onMarkWorn, onMarkClean, onDelete }: {
   item: WardrobeItem;
   isDirty: boolean;
   onMarkWorn: (id: string) => void;
@@ -74,52 +76,61 @@ function ItemCard({
   onDelete: (id: string) => void;
 }) {
   return (
-    <div className={`holo-card rounded-xl border p-4 transition-all ${
-      isDirty
-        ? "border-red-500/20 bg-red-500/5"
-        : "border-green-500/20 bg-black/40"
+    <div className={`holo-card rounded-xl border overflow-hidden transition-all ${
+      isDirty ? "border-red-500/20 bg-red-500/5" : "border-green-500/20 bg-black/40"
     }`}>
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-mono font-bold text-green-300 truncate">{item.name}</p>
-          {item.brand && <p className="text-xs text-green-700 font-mono">{item.brand}</p>}
-        </div>
-        <button
-          onClick={() => onDelete(item.id)}
-          className="text-green-900 hover:text-red-500 transition-colors ml-2 flex-shrink-0 mt-0.5"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      <div className="flex flex-wrap gap-1 mb-2">
-        <span className="text-xs px-1.5 py-0.5 rounded border border-green-500/20 text-green-700 font-mono">{item.type}</span>
-        {item.color && <span className="text-xs px-1.5 py-0.5 rounded border border-green-500/15 text-green-800 font-mono">{item.color}</span>}
-        {item.size && <span className="text-xs px-1.5 py-0.5 rounded border border-green-500/15 text-green-800 font-mono">{item.size}</span>}
-      </div>
-
-      {item.occasions?.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-3">
-          {item.occasions.map(o => (
-            <span key={o} className="text-xs px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-700 font-mono">{o}</span>
-          ))}
-        </div>
+      {item.image_url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={item.image_url}
+          alt={item.name}
+          className="w-full h-36 object-cover object-top"
+          onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+        />
       )}
+      <div className="p-4">
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-mono font-bold text-green-300 truncate">{item.name}</p>
+            {item.brand && <p className="text-xs text-green-700 font-mono">{item.brand}</p>}
+          </div>
+          <button
+            onClick={() => onDelete(item.id)}
+            className="text-green-900 hover:text-red-500 transition-colors ml-2 flex-shrink-0 mt-0.5"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
-      <div className="flex items-center justify-between pt-2 border-t border-green-500/10">
-        <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded-full border ${
-          isDirty
-            ? "border-red-500/30 text-red-400 bg-red-500/10"
-            : "border-green-500/30 text-green-400 bg-green-500/10"
-        }`}>
-          {isDirty ? "DIRTY" : "CLEAN"}
-        </span>
-        <button
-          onClick={() => isDirty ? onMarkClean(item.id) : onMarkWorn(item.id)}
-          className="text-xs font-mono font-semibold text-green-700 hover:text-green-400 transition-colors"
-        >
-          {isDirty ? "↺ mark clean" : "✓ mark worn"}
-        </button>
+        <div className="flex flex-wrap gap-1 mb-2">
+          <span className="text-xs px-1.5 py-0.5 rounded border border-green-500/20 text-green-700 font-mono">{item.type}</span>
+          {item.color && <span className="text-xs px-1.5 py-0.5 rounded border border-green-500/15 text-green-800 font-mono">{item.color}</span>}
+          {item.size && <span className="text-xs px-1.5 py-0.5 rounded border border-green-500/15 text-green-800 font-mono">{item.size}</span>}
+        </div>
+
+        {item.occasions?.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-3">
+            {item.occasions.map(o => (
+              <span key={o} className="text-xs px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-700 font-mono">{o}</span>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between pt-2 border-t border-green-500/10">
+          <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded-full border ${
+            isDirty
+              ? "border-red-500/30 text-red-400 bg-red-500/10"
+              : "border-green-500/30 text-green-400 bg-green-500/10"
+          }`}>
+            {isDirty ? "DIRTY" : "CLEAN"}
+          </span>
+          <button
+            onClick={() => isDirty ? onMarkClean(item.id) : onMarkWorn(item.id)}
+            className="text-xs font-mono font-semibold text-green-700 hover:text-green-400 transition-colors"
+          >
+            {isDirty ? "↺ mark clean" : "✓ mark worn"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -135,6 +146,10 @@ export default function StylistPage() {
   const [loading, setLoading] = useState(true);
 
   const [showAdd, setShowAdd] = useState(false);
+  const [addMode, setAddMode] = useState<"url" | "manual">("url");
+  const [importUrl, setImportUrl] = useState("");
+  const [scraping, setScraping] = useState(false);
+  const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [newItem, setNewItem] = useState({ ...BLANK_ITEM });
   const [saving, setSaving] = useState(false);
 
@@ -172,35 +187,56 @@ export default function StylistPage() {
   useEffect(() => { loadAll(); }, [loadAll]);
 
   useEffect(() => {
-    fetch(
-      "https://api.open-meteo.com/v1/forecast?latitude=35.9065&longitude=-80.0065&current_weather=true&temperature_unit=fahrenheit&timezone=America/New_York"
-    )
+    fetch("https://api.open-meteo.com/v1/forecast?latitude=35.9065&longitude=-80.0065&current_weather=true&temperature_unit=fahrenheit&timezone=America/New_York")
       .then(r => r.json())
       .then(data => {
         const code = data.current_weather?.weathercode ?? 0;
         const label =
-          code === 0 ? "Clear" :
-          code <= 3 ? "Partly Cloudy" :
-          code <= 48 ? "Foggy" :
-          code <= 67 ? "Rainy" :
-          code <= 77 ? "Snowy" :
-          code <= 82 ? "Showers" : "Stormy";
+          code === 0 ? "Clear" : code <= 3 ? "Partly Cloudy" : code <= 48 ? "Foggy" :
+          code <= 67 ? "Rainy" : code <= 77 ? "Snowy" : code <= 82 ? "Showers" : "Stormy";
         setWeather({ temp: Math.round(data.current_weather?.temperature ?? 70), condition: label });
       })
       .catch(() => null);
   }, []);
 
-  // ── Derived state ───────────────────────────────────────────────────────────
+  // ── Derived ─────────────────────────────────────────────────────────────────
 
   const dirtyIds = new Set(wearLog.map(w => w.item_id));
   const cleanItems = items.filter(i => !dirtyIds.has(i.id));
   const totalClean = cleanItems.length;
-
   const lastLaundryLabel = lastLaundry
     ? new Date(lastLaundry).toLocaleDateString("en-US", { month: "short", day: "numeric" })
     : "Never";
 
   // ── Actions ─────────────────────────────────────────────────────────────────
+
+  async function importFromUrl() {
+    if (!importUrl.trim()) return;
+    setScraping(true);
+    setScrapeError(null);
+    const res = await fetch("/api/stylist/scrape", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: importUrl.trim() }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      setScrapeError(data.error);
+    } else {
+      setNewItem({
+        name: data.name ?? "",
+        type: ITEM_TYPES.includes(data.type) ? data.type : "Top",
+        color: data.color ?? "",
+        brand: data.brand ?? "",
+        size: data.size ?? "",
+        occasions: Array.isArray(data.occasions) ? data.occasions : [],
+        notes: data.notes ?? "",
+        image_url: data.image_url ?? "",
+      });
+      setAddMode("manual");
+    }
+    setScraping(false);
+  }
 
   async function markWorn(itemId: string) {
     const today = new Date().toISOString().split("T")[0];
@@ -232,11 +268,22 @@ export default function StylistPage() {
       size: newItem.size || null,
       occasions: newItem.occasions,
       notes: newItem.notes || null,
+      image_url: newItem.image_url || null,
     }).select().single();
     if (data) setItems(prev => [data, ...prev]);
     setNewItem({ ...BLANK_ITEM });
+    setImportUrl("");
+    setAddMode("url");
     setShowAdd(false);
     setSaving(false);
+  }
+
+  function resetAddForm() {
+    setShowAdd(false);
+    setNewItem({ ...BLANK_ITEM });
+    setImportUrl("");
+    setAddMode("url");
+    setScrapeError(null);
   }
 
   async function deleteItem(id: string) {
@@ -254,9 +301,7 @@ export default function StylistPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         activities,
-        cleanItems: cleanItems.map(i => ({
-          id: i.id, name: i.name, type: i.type, color: i.color, brand: i.brand, occasions: i.occasions,
-        })),
+        cleanItems: cleanItems.map(i => ({ id: i.id, name: i.name, type: i.type, color: i.color, brand: i.brand, occasions: i.occasions })),
         weather,
       }),
     });
@@ -298,16 +343,14 @@ export default function StylistPage() {
           </p>
         </div>
 
-        {/* Stats strip */}
+        {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-8">
           <div className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-4">
             <div className="flex items-center gap-2 mb-2">
               <Shirt className="w-4 h-4 text-green-400" />
               <span className="text-xs font-mono font-semibold text-green-700 uppercase tracking-wider">Wardrobe</span>
             </div>
-            <p className="text-3xl font-black font-mono text-green-300">
-              {loading ? "—" : items.length}
-            </p>
+            <p className="text-3xl font-black font-mono text-green-300">{loading ? "—" : items.length}</p>
             <p className="text-xs text-green-700 font-mono mt-1">items logged</p>
           </div>
           <div className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-4">
@@ -315,9 +358,7 @@ export default function StylistPage() {
               <RefreshCw className="w-4 h-4 text-green-400" />
               <span className="text-xs font-mono font-semibold text-green-700 uppercase tracking-wider">Clean</span>
             </div>
-            <p className="text-3xl font-black font-mono text-green-300">
-              {loading ? "—" : totalClean}
-            </p>
+            <p className="text-3xl font-black font-mono text-green-300">{loading ? "—" : totalClean}</p>
             <p className="text-xs text-green-700 font-mono mt-1">of {items.length} items</p>
           </div>
           <div className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-4">
@@ -335,7 +376,7 @@ export default function StylistPage() {
           </div>
         </div>
 
-        {/* Laundry confirm banner */}
+        {/* Laundry confirm */}
         {laundryConfirm && (
           <div className="holo-card rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4 mb-6 flex items-center justify-between">
             <p className="text-sm font-mono text-yellow-400">Reset all items to clean?</p>
@@ -346,10 +387,7 @@ export default function StylistPage() {
               >
                 Yes, laundry done
               </button>
-              <button
-                onClick={() => setLaundryConfirm(false)}
-                className="text-xs font-mono text-green-700 hover:text-green-500 transition-colors"
-              >
+              <button onClick={() => setLaundryConfirm(false)} className="text-xs font-mono text-green-700 hover:text-green-500 transition-colors">
                 Cancel
               </button>
             </div>
@@ -373,7 +411,6 @@ export default function StylistPage() {
               </span>
             )}
           </div>
-
           <div className="p-5">
             <p className="text-xs text-green-700 font-mono mb-2 uppercase tracking-wider">What are you doing today?</p>
             <div className="flex flex-wrap gap-2 mb-5">
@@ -384,7 +421,7 @@ export default function StylistPage() {
 
             {totalClean === 0 && !loading && (
               <div className="text-xs text-red-400 font-mono mb-4 px-3 py-2 rounded-lg border border-red-500/20 bg-red-500/5">
-                No clean items — hit &quot;laundry done&quot; above or mark some items clean in your wardrobe.
+                No clean items — hit &quot;laundry done&quot; or mark items clean below.
               </div>
             )}
 
@@ -396,7 +433,6 @@ export default function StylistPage() {
               {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
               {generating ? "Generating..." : "Generate Outfit"}
             </button>
-
             {activities.length === 0 && !generating && (
               <p className="text-xs text-green-800 font-mono mt-2">Pick at least one activity to generate.</p>
             )}
@@ -406,15 +442,13 @@ export default function StylistPage() {
                 <p className="text-xs text-green-600 font-mono uppercase tracking-wider mb-3">
                   <span className="text-red-500">&gt;</span> Today&apos;s Outfit
                 </p>
-                <div className="text-sm text-green-300 font-mono whitespace-pre-wrap leading-relaxed">
-                  {todayOutfit}
-                </div>
+                <div className="text-sm text-green-300 font-mono whitespace-pre-wrap leading-relaxed">{todayOutfit}</div>
               </div>
             )}
           </div>
         </div>
 
-        {/* Wardrobe section */}
+        {/* Wardrobe */}
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
             <p className="text-xs text-green-700 font-mono uppercase tracking-widest">
@@ -441,72 +475,140 @@ export default function StylistPage() {
           {/* Add item form */}
           {showAdd && (
             <div className="holo-card rounded-xl border border-green-400/30 bg-black/40 p-5 mb-4">
-              <p className="text-xs font-mono font-black uppercase tracking-widest gradient-text mb-4">Add New Item</p>
-
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <input
-                  className="col-span-2 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                  placeholder="Name *"
-                  value={newItem.name}
-                  onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))}
-                />
-                <select
-                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono focus:outline-none focus:border-green-400/60"
-                  value={newItem.type}
-                  onChange={e => setNewItem(p => ({ ...p, type: e.target.value }))}
-                >
-                  {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                <input
-                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                  placeholder="Color"
-                  value={newItem.color}
-                  onChange={e => setNewItem(p => ({ ...p, color: e.target.value }))}
-                />
-                <input
-                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                  placeholder="Brand"
-                  value={newItem.brand}
-                  onChange={e => setNewItem(p => ({ ...p, brand: e.target.value }))}
-                />
-                <input
-                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                  placeholder="Size"
-                  value={newItem.size}
-                  onChange={e => setNewItem(p => ({ ...p, size: e.target.value }))}
-                />
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-xs font-mono font-black uppercase tracking-widest gradient-text">Add New Item</p>
+                <div className="flex gap-1 p-0.5 rounded-lg border border-green-500/20 bg-black/40">
+                  <button
+                    onClick={() => setAddMode("url")}
+                    className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md font-mono transition-all ${
+                      addMode === "url" ? "bg-green-500/20 text-green-300" : "text-green-700 hover:text-green-500"
+                    }`}
+                  >
+                    <Link className="w-3 h-3" /> URL Import
+                  </button>
+                  <button
+                    onClick={() => setAddMode("manual")}
+                    className={`text-xs px-2.5 py-1 rounded-md font-mono transition-all ${
+                      addMode === "manual" ? "bg-green-500/20 text-green-300" : "text-green-700 hover:text-green-500"
+                    }`}
+                  >
+                    Manual
+                  </button>
+                </div>
               </div>
 
-              <p className="text-xs text-green-700 font-mono mb-2 uppercase tracking-wider">Occasions</p>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {OCCASIONS.map(o => (
-                  <Chip key={o} label={o} active={newItem.occasions.includes(o)} onClick={() => toggleOccasion(o)} />
-                ))}
-              </div>
+              {/* URL import mode */}
+              {addMode === "url" && (
+                <div>
+                  <p className="text-xs text-green-700 font-mono mb-2">Paste an Amazon, ASOS, Nike, or any product URL:</p>
+                  <div className="flex gap-2 mb-2">
+                    <input
+                      className="flex-1 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                      placeholder="https://amazon.com/dp/..."
+                      value={importUrl}
+                      onChange={e => { setImportUrl(e.target.value); setScrapeError(null); }}
+                      onKeyDown={e => e.key === "Enter" && importFromUrl()}
+                    />
+                    <button
+                      onClick={importFromUrl}
+                      disabled={scraping || !importUrl.trim()}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      {scraping ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                      {scraping ? "Fetching..." : "Auto-fill"}
+                    </button>
+                  </div>
+                  {scrapeError && (
+                    <p className="text-xs text-red-400 font-mono mb-2">{scrapeError}</p>
+                  )}
+                  <button
+                    onClick={() => setAddMode("manual")}
+                    className="text-xs text-green-800 font-mono hover:text-green-600 transition-colors underline underline-offset-2"
+                  >
+                    or enter manually →
+                  </button>
+                </div>
+              )}
 
-              <input
-                className="w-full bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60 mb-4"
-                placeholder="Notes (optional)"
-                value={newItem.notes}
-                onChange={e => setNewItem(p => ({ ...p, notes: e.target.value }))}
-              />
+              {/* Manual / review mode */}
+              {addMode === "manual" && (
+                <>
+                  {/* Image preview */}
+                  {newItem.image_url && (
+                    <div className="mb-3 rounded-lg overflow-hidden border border-green-500/20 bg-black/40 relative w-32 h-32">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={newItem.image_url}
+                        alt="preview"
+                        className="w-full h-full object-cover object-top"
+                        onError={e => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}
+                      />
+                    </div>
+                  )}
 
-              <div className="flex gap-2">
-                <button
-                  onClick={addItem}
-                  disabled={saving || !newItem.name.trim()}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                  {saving ? "Saving..." : "Add to Wardrobe"}
-                </button>
-                <button
-                  onClick={() => { setShowAdd(false); setNewItem({ ...BLANK_ITEM }); }}
-                  className="px-4 py-2 rounded-lg text-xs font-mono text-green-700 hover:text-green-500 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <input
+                      className="col-span-2 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                      placeholder="Name *"
+                      value={newItem.name}
+                      onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))}
+                    />
+                    <select
+                      className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono focus:outline-none focus:border-green-400/60"
+                      value={newItem.type}
+                      onChange={e => setNewItem(p => ({ ...p, type: e.target.value }))}
+                    >
+                      {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <input
+                      className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                      placeholder="Color"
+                      value={newItem.color}
+                      onChange={e => setNewItem(p => ({ ...p, color: e.target.value }))}
+                    />
+                    <input
+                      className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                      placeholder="Brand"
+                      value={newItem.brand}
+                      onChange={e => setNewItem(p => ({ ...p, brand: e.target.value }))}
+                    />
+                    <input
+                      className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                      placeholder="Size"
+                      value={newItem.size}
+                      onChange={e => setNewItem(p => ({ ...p, size: e.target.value }))}
+                    />
+                  </div>
+
+                  <p className="text-xs text-green-700 font-mono mb-2 uppercase tracking-wider">Occasions</p>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {OCCASIONS.map(o => (
+                      <Chip key={o} label={o} active={newItem.occasions.includes(o)} onClick={() => toggleOccasion(o)} />
+                    ))}
+                  </div>
+
+                  <input
+                    className="w-full bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60 mb-4"
+                    placeholder="Notes (optional)"
+                    value={newItem.notes}
+                    onChange={e => setNewItem(p => ({ ...p, notes: e.target.value }))}
+                  />
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={addItem}
+                      disabled={saving || !newItem.name.trim()}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                      {saving ? "Saving..." : "Add to Wardrobe"}
+                    </button>
+                    <button onClick={resetAddForm} className="px-4 py-2 rounded-lg text-xs font-mono text-green-700 hover:text-green-500 transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -552,11 +654,8 @@ export default function StylistPage() {
                 <History className="w-4 h-4 text-green-600" />
                 <span className="text-xs font-mono font-black uppercase tracking-widest text-green-500">Outfit History</span>
               </div>
-              {showHistory
-                ? <ChevronUp className="w-4 h-4 text-green-700" />
-                : <ChevronDown className="w-4 h-4 text-green-700" />}
+              {showHistory ? <ChevronUp className="w-4 h-4 text-green-700" /> : <ChevronDown className="w-4 h-4 text-green-700" />}
             </button>
-
             {showHistory && (
               <div className="divide-y divide-green-500/10">
                 {outfitHistory.map(record => (
@@ -575,9 +674,7 @@ export default function StylistPage() {
                       )}
                     </div>
                     {record.ai_suggestion && (
-                      <p className="text-xs text-green-700 font-mono whitespace-pre-wrap leading-relaxed">
-                        {record.ai_suggestion}
-                      </p>
+                      <p className="text-xs text-green-700 font-mono whitespace-pre-wrap leading-relaxed">{record.ai_suggestion}</p>
                     )}
                   </div>
                 ))}
