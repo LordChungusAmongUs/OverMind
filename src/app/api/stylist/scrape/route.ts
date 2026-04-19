@@ -77,32 +77,39 @@ function extractMeta(html: string) {
   return { imageUrl, title, desc, bodyText };
 }
 
+function stripJsonFences(text: string): string {
+  return text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+}
+
 async function parseWithClaude(title: string, desc: string, bodyText: string): Promise<Record<string, unknown>> {
-  const prompt = `You are a clothing item parser. Extract structured clothing data from this product page content.
+  const hasContext = desc.length > 0 || bodyText.length > 0;
+  const prompt = hasContext
+    ? `You are a clothing item parser. Extract structured clothing data from this product page content.
 
 Page title: ${title}
 Page description: ${desc}
 Page text snippet: ${bodyText}
 
-Return ONLY a valid JSON object with these exact keys (no markdown, no explanation):
-{
-  "name": "short product name (brand + item, max 50 chars)",
-  "brand": "brand name or null",
-  "type": "one of: ${ITEM_TYPES.join(", ")}",
-  "color": "primary color or null",
-  "size": null,
-  "occasions": ["array of applicable values from: ${OCCASIONS.join(", ")}"],
-  "notes": "one short sentence describing the item, or null"
-}
+Return ONLY a valid JSON object (no markdown fences, no explanation):
+{"name":"short product name max 50 chars","brand":"brand or null","type":"one of: ${ITEM_TYPES.join(", ")}","color":"primary color or null","size":null,"occasions":["from: ${OCCASIONS.join(", ")}"],"notes":"one sentence or null"}
 
-If this is not a clothing/fashion item, return: {"error": "Not a clothing item"}`;
+If not a clothing item: {"error":"Not a clothing item"}`
+    : `You are a clothing item parser. Based only on this product name, return structured clothing data.
+
+Product name: ${title}
+
+Return ONLY a valid JSON object (no markdown fences, no explanation):
+{"name":"short product name max 50 chars","brand":"brand or null","type":"one of: ${ITEM_TYPES.join(", ")}","color":"primary color or null","size":null,"occasions":["from: ${OCCASIONS.join(", ")}"],"notes":"one sentence or null"}
+
+If not a clothing item: {"error":"Not a clothing item"}`;
 
   const message = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 256,
+    max_tokens: 300,
     messages: [{ role: "user", content: prompt }],
   });
-  return JSON.parse((message.content[0] as { text: string }).text.trim());
+  const raw = (message.content[0] as { text: string }).text.trim();
+  return JSON.parse(stripJsonFences(raw));
 }
 
 export async function POST(req: Request) {
