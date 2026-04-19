@@ -2,10 +2,20 @@ import Sidebar from "@/components/layout/Sidebar";
 import Link from "next/link";
 import {
   Youtube, Music2, Facebook, Instagram, Radio,
-  CheckCircle2, Clock, Users, Upload,
+  CheckCircle2, Clock, Users, Upload, Disc3,
 } from "lucide-react";
 
 const platforms = [
+  {
+    icon: Disc3,
+    name: "Dehydration Nation",
+    handle: "Label management · 7 artist channels",
+    description: "Artist channels, prompt studio, album manager, fan engagement automation.",
+    href: "/music/label",
+    active: true,
+    color: "cyan",
+    stat: "record label",
+  },
   {
     icon: Youtube,
     name: "YouTube",
