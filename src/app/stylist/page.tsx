@@ -194,6 +194,7 @@ export default function StylistPage() {
   const [splitting, setSplitting] = useState(false);
   const [splitError, setSplitError] = useState<string | null>(null);
   const [splitItems, setSplitItems] = useState<SplitResultItem[] | null>(null);
+  const [productMeta, setProductMeta] = useState<{ name?: string; type?: string; brand?: string; color?: string } | null>(null);
 
   const [editingItem, setEditingItem] = useState<WardrobeItem | null>(null);
   const [editSaving, setEditSaving] = useState(false);
@@ -280,10 +281,15 @@ export default function StylistPage() {
     const data = await res.json();
     if (data.error) {
       setImportError(data.error);
-    } else if (data.image_url) {
-      setResolvedImageUrl(data.image_url);
     } else {
-      setImportError("Could not extract an image from that URL. Try right-clicking the product image → Copy image address, and paste that URL instead.");
+      if (data.name || data.type) {
+        setProductMeta({ name: data.name, type: data.type, brand: data.brand, color: data.color });
+      }
+      if (data.image_url) {
+        setResolvedImageUrl(data.image_url);
+      } else {
+        setImportError("Could not extract an image from that URL. Try right-clicking the product image → Copy image address, and paste that URL instead.");
+      }
     }
     setScraping(false);
   }
@@ -298,7 +304,13 @@ export default function StylistPage() {
       const res = await fetch("/api/stylist/split", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source_image_url: resolvedImageUrl }),
+        body: JSON.stringify({
+          source_image_url: resolvedImageUrl,
+          item_name: productMeta?.name ?? null,
+          item_type: productMeta?.type ?? null,
+          item_brand: productMeta?.brand ?? null,
+          item_color: productMeta?.color ?? null,
+        }),
       });
       const data = await res.json();
       if (data.error) { setSplitError(data.error); setSplitting(false); return; }
@@ -434,6 +446,7 @@ export default function StylistPage() {
     setSplitItems(null);
     setSplitJobId(null);
     setSplitting(false);
+    setProductMeta(null);
   }
 
   async function deleteItem(id: string) {

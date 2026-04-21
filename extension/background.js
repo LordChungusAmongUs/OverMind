@@ -1682,7 +1682,7 @@ function mapWardrobeType(t) {
 }
 
 async function runWardrobeSplitPipeline(job) {
-  const { id, source_image_url } = job;
+  const { id, source_image_url, item_name, item_type, item_brand, item_color } = job;
   try {
     // ── Step 1: Download the product image ───────────────────────────
     const imageB64 = await urlToBase64(source_image_url);
@@ -1699,26 +1699,42 @@ async function runWardrobeSplitPipeline(job) {
     await attachFilesToTab(analysisTabId, [imageB64]);
     await sleep(2000);
 
+    // Build product context string from scraped metadata
+    const productContext = [
+      item_name ? `Product name: ${item_name}` : null,
+      item_type ? `Category: ${item_type}` : null,
+      item_brand ? `Brand: ${item_brand}` : null,
+      item_color ? `Color hint: ${item_color}` : null,
+    ].filter(Boolean).join("\n");
+
+    const focusClause = item_type
+      ? `Focus ONLY on the ${item_type.toLowerCase()} — if the image shows a model wearing multiple items (e.g. shirt + shorts + hat), analyze only the ${item_type.toLowerCase()} and ignore everything else.`
+      : `If the image has a model wearing multiple items, focus only on the main/featured product and ignore accessories or other garments.`;
+
     await sendGPTMessage(analysisTabId,
-      `I'm showing you a clothing product image from an online store. Analyze it and return ONLY a JSON object — no markdown, no explanation:
+      `I'm showing you a product image from an online store. I need you to analyze the specific product I purchased.
+
+${productContext ? `Product info:\n${productContext}\n` : ""}
+Return ONLY a JSON object — no markdown, no explanation:
 
 {
-  "count": <total number of individual garments shown>,
+  "count": <total individual pieces included in this purchase e.g. 1 for single item, 6 for a 2-of-each-of-3-colors pack>,
   "items": [
     {
       "item_type": "<singular item name e.g. boxer brief, t-shirt, hoodie, sock, sneaker>",
       "color": "<specific color e.g. heather grey, navy blue, olive green>",
-      "brand": "<brand name if visible anywhere in the image or on tags/packaging, else null>",
-      "occasions": [<pick relevant from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
-      "style_notes": "<one sentence describing cut, fit, material cues, or style details visible in the image>"
+      "brand": "<brand name if visible anywhere, else null>",
+      "occasions": [<pick from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
+      "style_notes": "<one sentence describing cut, fit, material cues visible in the image>"
     }
   ]
 }
 
 Rules:
-- If the image has a model wearing the item, describe only the clothing — ignore the model entirely
-- For a multi-pack with different colors, create one entry per unique color in items[]
+- ${focusClause}
+- For a multi-pack with different colors (e.g. 2 black + 2 white + 2 grey = 6 total), create one items[] entry per unique color and set count to the total piece count
 - For a multi-pack of identical items (same color), set count > 1 but only one entry in items[]
+- For a single item, count = 1 and one entry in items[]
 - Be specific about color`
     );
 
@@ -1804,8 +1820,12 @@ Requirements:
       const wardrobeType = mapWardrobeType(item.item_type);
       const itemName = `${brandStr}${cap(item.item_type)} — ${cap(item.color)}`;
 
-      // Single entry per unique item (if pack has same color, duplicate entries below)
-      const entriesForThisItem = (parsedItems.length === 1 && totalCount > 1) ? totalCount : 1;
+      // How many wardrobe entries per unique color:
+      // - 1 item, count 3 (same-color 3-pack) → 3 entries
+      // - 3 items, count 6 (2-each-of-3-colors) → 2 entries per color
+      // - 3 items, count 3 (1-each-of-3-colors) → 1 entry per color
+      const perItem = parsedItems.length > 1 ? Math.round(totalCount / parsedItems.length) : totalCount;
+      const entriesForThisItem = perItem > 1 ? perItem : 1;
       for (let k = 0; k < entriesForThisItem; k++) {
         resultItems.push({
           name: entriesForThisItem > 1 ? `${itemName} (${k + 1}/${entriesForThisItem})` : itemName,
@@ -1886,12 +1906,16 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   // ── Wardrobe split pipeline ───────────────────────────────────────
   if (alarm.name === "split-poll") {
     const { splitRunning } = await chrome.storage.local.get(["splitRunning"]);
+    console.log("[split-poll] tick, splitRunning=", splitRunning);
     if (splitRunning) return;
     await chrome.storage.local.set({ splitRunning: true });
     try {
       const job = await getSplitJob();
+      console.log("[split-poll] job=", job?.id ?? "none");
       if (job) await runWardrobeSplitPipeline(job);
-    } catch {}
+    } catch (err) {
+      console.error("[split-poll] error:", err);
+    }
     await chrome.storage.local.set({ splitRunning: false });
     return;
   }
