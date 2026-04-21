@@ -1708,7 +1708,7 @@ async function runWardrobeSplitPipeline(job) {
     ].filter(Boolean).join("\n");
 
     const focusClause = item_type
-      ? `Focus ONLY on the ${item_type.toLowerCase()} — if the image shows a model wearing multiple items (e.g. shirt + shorts + hat), analyze only the ${item_type.toLowerCase()} and ignore everything else.`
+      ? `Focus ONLY on the ${item_type.toLowerCase()} — if the image shows a model wearing multiple clothing items (e.g. shirt + shorts + hat), describe ONLY the ${item_type.toLowerCase()} and completely ignore every other garment or accessory on the model.`
       : `If the image has a model wearing multiple items, focus only on the main/featured product and ignore accessories or other garments.`;
 
     await sendGPTMessage(analysisTabId,

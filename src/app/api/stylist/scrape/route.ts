@@ -31,7 +31,7 @@ const KNOWN_BRANDS = [
 
 const TYPE_KEYWORDS: [string[], string][] = [
   [["shirt","tee","t-shirt","top","blouse","tank","polo","henley","hoodie","sweatshirt","crewneck"], "Top"],
-  [["pant","jean","chino","short","trouser","legging","jogger","sweatpant"], "Bottom"],
+  [["pant","jean","chino","short","trouser","legging","jogger","sweatpant","boxer","brief","trunk","underwear","underpant","thong","bra","panty","lingerie"], "Bottom"],
   [["shoe","sneaker","boot","sandal","loafer","slip-on","running","trainer"], "Shoes"],
   [["jacket","coat","vest","puffer","windbreaker","blazer","cardigan","fleece"], "Outerwear"],
   [["dress","jumpsuit","romper","overall"], "Dress/Jumpsuit"],
