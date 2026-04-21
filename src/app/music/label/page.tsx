@@ -9,19 +9,44 @@ import {
   Mic2, Globe, Users, Heart, BookOpen, ListMusic, Share2, Radio,
 } from "lucide-react";
 
-// ─── Personas ─────────────────────────────────────────────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
-const PERSONAS = [
-  { name: "ThirstyBoy",          color: "text-red-400",    bg: "border-red-500/30 bg-red-500/5",       emoji: "🔥" },
-  { name: "Stephani Luci",       color: "text-pink-400",   bg: "border-pink-500/30 bg-pink-500/5",     emoji: "🌸" },
-  { name: "Hard On",             color: "text-orange-400", bg: "border-orange-500/30 bg-orange-500/5", emoji: "⚡" },
-  { name: "Wrapper",             color: "text-yellow-400", bg: "border-yellow-500/30 bg-yellow-500/5", emoji: "🎤" },
-  { name: "Jerry Country Singer",color: "text-amber-400",  bg: "border-amber-500/30 bg-amber-500/5",   emoji: "🤠" },
-  { name: "RaStevefarian",       color: "text-green-400",  bg: "border-green-500/30 bg-green-500/5",   emoji: "🌿" },
-  { name: "Gore Lord",           color: "text-purple-400", bg: "border-purple-500/30 bg-purple-500/5", emoji: "💀" },
+const KNOWN_STYLES: Record<string, { color: string; bg: string; emoji: string }> = {
+  "ThirstyBoy":           { color: "text-red-400",    bg: "border-red-500/30 bg-red-500/5",       emoji: "🔥" },
+  "Stephani Luci":        { color: "text-pink-400",   bg: "border-pink-500/30 bg-pink-500/5",     emoji: "🌸" },
+  "Hard On":              { color: "text-orange-400", bg: "border-orange-500/30 bg-orange-500/5", emoji: "⚡" },
+  "Wrapper":              { color: "text-yellow-400", bg: "border-yellow-500/30 bg-yellow-500/5", emoji: "🎤" },
+  "Jerry Country Singer": { color: "text-amber-400",  bg: "border-amber-500/30 bg-amber-500/5",   emoji: "🤠" },
+  "RaStevefarian":        { color: "text-green-400",  bg: "border-green-500/30 bg-green-500/5",   emoji: "🌿" },
+  "Gore Lord":            { color: "text-purple-400", bg: "border-purple-500/30 bg-purple-500/5", emoji: "💀" },
+  "Dehydration Nation":   { color: "text-cyan-400",   bg: "border-cyan-500/30 bg-cyan-500/5",     emoji: "🏷️" },
+};
+
+const COLOR_OPTIONS = [
+  { key: "red",    color: "text-red-400",    bg: "border-red-500/30 bg-red-500/5" },
+  { key: "pink",   color: "text-pink-400",   bg: "border-pink-500/30 bg-pink-500/5" },
+  { key: "orange", color: "text-orange-400", bg: "border-orange-500/30 bg-orange-500/5" },
+  { key: "yellow", color: "text-yellow-400", bg: "border-yellow-500/30 bg-yellow-500/5" },
+  { key: "amber",  color: "text-amber-400",  bg: "border-amber-500/30 bg-amber-500/5" },
+  { key: "lime",   color: "text-lime-400",   bg: "border-lime-500/30 bg-lime-500/5" },
+  { key: "green",  color: "text-green-400",  bg: "border-green-500/30 bg-green-500/5" },
+  { key: "teal",   color: "text-teal-400",   bg: "border-teal-500/30 bg-teal-500/5" },
+  { key: "cyan",   color: "text-cyan-400",   bg: "border-cyan-500/30 bg-cyan-500/5" },
+  { key: "blue",   color: "text-blue-400",   bg: "border-blue-500/30 bg-blue-500/5" },
+  { key: "purple", color: "text-purple-400", bg: "border-purple-500/30 bg-purple-500/5" },
+  { key: "rose",   color: "text-rose-400",   bg: "border-rose-500/30 bg-rose-500/5" },
 ];
 
-const MASTER_CHANNEL = { name: "Dehydration Nation", color: "text-cyan-400", bg: "border-cyan-500/30 bg-cyan-500/5", emoji: "🏷️" };
+function getPersonaStyle(name: string, colorKey?: string | null, emojiOverride?: string | null) {
+  if (KNOWN_STYLES[name]) return { ...KNOWN_STYLES[name], emoji: emojiOverride ?? KNOWN_STYLES[name].emoji };
+  const col = COLOR_OPTIONS.find(c => c.key === colorKey) ?? COLOR_OPTIONS[0];
+  return { color: col.color, bg: col.bg, emoji: emojiOverride ?? "🎵" };
+}
+
+function extractVideoId(url: string): string | null {
+  const m = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
 
 const PLATFORMS = [
   { key: "soundcloud", label: "SoundCloud", icon: Radio,     color: "text-orange-400" },
@@ -109,6 +134,8 @@ interface ArtistChannel {
   upload_to_master: boolean;
   auto_interact: boolean;
   active: boolean;
+  emoji: string | null;
+  color_key: string | null;
 }
 
 interface PromptConfig {
@@ -211,6 +238,13 @@ export default function LabelPage() {
   const [postJobForm, setPostJobForm] = useState({ persona_name: "ThirstyBoy", platform: "soundcloud", title: "", audio_url: "", video_url: "", description: "", tags: "" });
   const [launchingPost, setLaunchingPost] = useState(false);
 
+  // New artist + YouTube connect
+  const [connectedServices, setConnectedServices] = useState<string[]>([]);
+  const [showNewArtist, setShowNewArtist] = useState(false);
+  const [newArtistForm, setNewArtistForm] = useState({ name: "", emoji: "🎵", color_key: "purple", channel_name: "", youtube_channel_id: "", genre_description: "" });
+  const [creatingArtist, setCreatingArtist] = useState(false);
+  const [creatingPlaylist, setCreatingPlaylist] = useState<string | null>(null);
+
   // ── Load ──────────────────────────────────────────────────────────────────
 
   const loadChannels = useCallback(async () => {
@@ -262,12 +296,18 @@ export default function LabelPage() {
     setPlatformPostJobs(data ?? []);
   }, []);
 
+  const loadConnectedServices = useCallback(async () => {
+    const { data } = await supabase.from("oauth_tokens").select("service").like("service", "youtube%");
+    setConnectedServices((data ?? []).map((r: { service: string }) => r.service));
+  }, []);
+
   useEffect(() => { loadChannels(); }, [loadChannels]);
   useEffect(() => { loadAlbums(); }, [loadAlbums]);
   useEffect(() => { loadFanJobs(); }, [loadFanJobs]);
   useEffect(() => { loadPrompts(promptPersona); }, [promptPersona, loadPrompts]);
   useEffect(() => { loadPlatformAccounts(); }, [loadPlatformAccounts]);
   useEffect(() => { loadPlatformPostJobs(); }, [loadPlatformPostJobs]);
+  useEffect(() => { loadConnectedServices(); }, [loadConnectedServices]);
 
   // ── Channel actions ───────────────────────────────────────────────────────
 
@@ -300,6 +340,73 @@ export default function LabelPage() {
     }
     setEditChannel(prev => { const n = { ...prev }; delete n[personaName]; return n; });
     setSavingChannel(null);
+  }
+
+  async function createArtist() {
+    if (!newArtistForm.name.trim()) return;
+    setCreatingArtist(true);
+    const { data } = await supabase.from("artist_channels").insert({
+      persona_name: newArtistForm.name.trim(),
+      channel_name: newArtistForm.channel_name || null,
+      youtube_channel_id: newArtistForm.youtube_channel_id || null,
+      emoji: newArtistForm.emoji,
+      color_key: newArtistForm.color_key,
+      is_master: false,
+      upload_to_master: true,
+      auto_interact: false,
+      active: true,
+    }).select().single();
+    if (data) {
+      setChannels(prev => [...prev, data]);
+      // Seed default prompts (blank templates so Prompt Studio can fill them)
+      const seeds = ["lyrics", "art", "title", "metadata", "comment_reply"].map(t => ({
+        persona_name: newArtistForm.name.trim(),
+        prompt_type: t,
+        template: newArtistForm.genre_description
+          ? `Write ${t} content for ${newArtistForm.name.trim()} — ${newArtistForm.genre_description}.`
+          : "",
+      }));
+      await supabase.from("artist_prompt_configs").insert(seeds);
+    }
+    setNewArtistForm({ name: "", emoji: "🎵", color_key: "purple", channel_name: "", youtube_channel_id: "", genre_description: "" });
+    setShowNewArtist(false);
+    setCreatingArtist(false);
+  }
+
+  async function createPlaylist(album: Album) {
+    setCreatingPlaylist(album.id);
+    try {
+      const res = await fetch("/api/youtube/playlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: album.title,
+          description: album.description ?? "",
+          privacy: "public",
+          persona_name: album.persona_name,
+        }),
+      });
+      const json = await res.json();
+      if (json.playlistId) {
+        await supabase.from("albums").update({ youtube_playlist_id: json.playlistId }).eq("id", album.id);
+        setAlbums(prev => prev.map(a => a.id === album.id ? { ...a, youtube_playlist_id: json.playlistId } : a));
+        // Add any tracks with YouTube URLs to the new playlist
+        const tracks = albumTracks[album.id] ?? [];
+        for (const t of tracks) {
+          const vid = t.youtube_url ? extractVideoId(t.youtube_url) : null;
+          if (vid) {
+            await fetch("/api/youtube/playlist", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ playlist_id: json.playlistId, video_id: vid, persona_name: album.persona_name }),
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error("createPlaylist error", e);
+    }
+    setCreatingPlaylist(null);
   }
 
   // ── Prompt actions ────────────────────────────────────────────────────────
@@ -454,7 +561,7 @@ export default function LabelPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const allArtists = [...PERSONAS.map(p => p.name), MASTER_CHANNEL.name];
+  const allArtists = channels.map(c => c.persona_name);
 
   return (
     <div className="flex min-h-screen crt">
@@ -500,73 +607,157 @@ export default function LabelPage() {
         {/* ── TAB: Artists ── */}
         {tab === "artists" && (
           <div className="space-y-3">
-            <p className="text-xs text-green-700 font-mono mb-4">
-              Configure each artist&apos;s YouTube channel ID. Tracks uploaded via the pipeline will post to that channel (and optionally to Dehydration Nation too).
-            </p>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs text-green-700 font-mono">
+                Configure each artist&apos;s YouTube channel. Click &quot;Connect YouTube&quot; to authorize a separate Google account per artist.
+              </p>
+              <button
+                onClick={() => setShowNewArtist(v => !v)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all flex-shrink-0 ml-4"
+              >
+                <Plus className="w-3.5 h-3.5" /> New Artist
+              </button>
+            </div>
 
-            {/* Master channel first */}
-            {[MASTER_CHANNEL, ...PERSONAS].map(persona => {
-              const isMaster = persona.name === "Dehydration Nation";
-              const ch = channels.find(c => c.persona_name === persona.name);
-              const isDirty = !!editChannel[persona.name] && Object.keys(editChannel[persona.name]).length > 0;
-              return (
-                <div key={persona.name} className={`rounded-xl border ${persona.bg} p-4`}>
-                  <div className="flex items-center gap-3 mb-3">
-                    <span className="text-xl">{persona.emoji}</span>
-                    <div>
-                      <p className={`text-sm font-mono font-black ${persona.color}`}>{persona.name}</p>
-                      {isMaster && <p className="text-xs text-green-800 font-mono">Master label channel — receives all tracks</p>}
-                    </div>
-                    <div className="ml-auto flex items-center gap-3">
-                      {!isMaster && (
+            {/* New artist form */}
+            {showNewArtist && (
+              <div className="holo-card rounded-xl border border-green-400/30 bg-black/40 p-5 mb-2">
+                <p className="text-xs font-mono font-black uppercase tracking-wider gradient-text mb-3">New Artist</p>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <input
+                    className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                    placeholder="Artist / persona name *"
+                    value={newArtistForm.name}
+                    onChange={e => setNewArtistForm(p => ({ ...p, name: e.target.value }))}
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      className="w-16 bg-black/60 border border-green-500/30 rounded-lg px-2 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60 text-center"
+                      placeholder="🎵"
+                      value={newArtistForm.emoji}
+                      onChange={e => setNewArtistForm(p => ({ ...p, emoji: e.target.value }))}
+                    />
+                    <select
+                      className="flex-1 bg-black/60 border border-green-500/30 rounded-lg px-2 py-2 text-sm text-green-300 font-mono focus:outline-none focus:border-green-400/60"
+                      value={newArtistForm.color_key}
+                      onChange={e => setNewArtistForm(p => ({ ...p, color_key: e.target.value }))}
+                    >
+                      {COLOR_OPTIONS.map(c => <option key={c.key} value={c.key}>{c.key}</option>)}
+                    </select>
+                  </div>
+                  <input
+                    className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                    placeholder="Display / channel name"
+                    value={newArtistForm.channel_name}
+                    onChange={e => setNewArtistForm(p => ({ ...p, channel_name: e.target.value }))}
+                  />
+                  <input
+                    className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                    placeholder="YouTube channel ID (UCxxxxxxxx)"
+                    value={newArtistForm.youtube_channel_id}
+                    onChange={e => setNewArtistForm(p => ({ ...p, youtube_channel_id: e.target.value }))}
+                  />
+                  <input
+                    className="col-span-2 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                    placeholder="Genre / vibe description (used to seed prompts)"
+                    value={newArtistForm.genre_description}
+                    onChange={e => setNewArtistForm(p => ({ ...p, genre_description: e.target.value }))}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={createArtist}
+                    disabled={creatingArtist || !newArtistForm.name.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40"
+                  >
+                    {creatingArtist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                    Create Artist
+                  </button>
+                  <button onClick={() => setShowNewArtist(false)} className="text-xs font-mono text-green-800 hover:text-green-600 transition-colors px-2">Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {loadingChannels ? (
+              <div className="flex items-center gap-2 text-green-700 font-mono text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>
+            ) : (
+              channels.map(ch => {
+                const style = getPersonaStyle(ch.persona_name, ch.color_key, ch.emoji);
+                const isDirty = !!editChannel[ch.persona_name] && Object.keys(editChannel[ch.persona_name]).length > 0;
+                const serviceKey = `youtube_${ch.persona_name}`;
+                const isConnected = connectedServices.includes(serviceKey) || (ch.is_master && connectedServices.includes("youtube"));
+                return (
+                  <div key={ch.id} className={`rounded-xl border ${style.bg} p-4`}>
+                    <div className="flex items-center gap-3 mb-3">
+                      <span className="text-xl">{style.emoji}</span>
+                      <div>
+                        <p className={`text-sm font-mono font-black ${style.color}`}>{ch.persona_name}</p>
+                        {ch.is_master && <p className="text-xs text-green-800 font-mono">Master label channel — receives all tracks</p>}
+                      </div>
+                      <div className="ml-auto flex items-center gap-3">
+                        {/* YouTube OAuth connect */}
+                        {isConnected ? (
+                          <span className="flex items-center gap-1 text-xs font-mono text-green-400">
+                            <Check className="w-3 h-3" /> YT connected
+                          </span>
+                        ) : (
+                          <a
+                            href={`/api/auth/youtube?persona=${encodeURIComponent(ch.is_master ? "" : ch.persona_name)}`}
+                            className="flex items-center gap-1 text-xs font-mono text-red-400 hover:text-red-300 transition-colors border border-red-500/30 px-2 py-1 rounded-lg"
+                          >
+                            <Youtube className="w-3 h-3" /> Connect YouTube
+                          </a>
+                        )}
+                        {!ch.is_master && (
+                          <label className="flex items-center gap-1.5 text-xs font-mono text-green-700 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="accent-green-400"
+                              checked={Boolean(getChannelEdit(ch.persona_name, "upload_to_master", ch.upload_to_master ?? true))}
+                              onChange={e => setChannelField(ch.persona_name, "upload_to_master", e.target.checked)}
+                            />
+                            post to DN
+                          </label>
+                        )}
                         <label className="flex items-center gap-1.5 text-xs font-mono text-green-700 cursor-pointer">
                           <input
                             type="checkbox"
                             className="accent-green-400"
-                            checked={Boolean(getChannelEdit(persona.name, "upload_to_master", ch?.upload_to_master ?? true))}
-                            onChange={e => setChannelField(persona.name, "upload_to_master", e.target.checked)}
+                            checked={Boolean(getChannelEdit(ch.persona_name, "auto_interact", ch.auto_interact ?? false))}
+                            onChange={e => setChannelField(ch.persona_name, "auto_interact", e.target.checked)}
                           />
-                          post to DN
+                          auto-interact
                         </label>
-                      )}
-                      <label className="flex items-center gap-1.5 text-xs font-mono text-green-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="accent-green-400"
-                          checked={Boolean(getChannelEdit(persona.name, "auto_interact", ch?.auto_interact ?? false))}
-                          onChange={e => setChannelField(persona.name, "auto_interact", e.target.checked)}
-                        />
-                        auto-interact
-                      </label>
+                      </div>
                     </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        className="bg-black/60 border border-green-500/20 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                        placeholder="Display name"
+                        value={String(getChannelEdit(ch.persona_name, "channel_name", ch.channel_name ?? ""))}
+                        onChange={e => setChannelField(ch.persona_name, "channel_name", e.target.value)}
+                      />
+                      <input
+                        className="bg-black/60 border border-green-500/20 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                        placeholder="YouTube channel ID (UCxxxxxxxx)"
+                        value={String(getChannelEdit(ch.persona_name, "youtube_channel_id", ch.youtube_channel_id ?? ""))}
+                        onChange={e => setChannelField(ch.persona_name, "youtube_channel_id", e.target.value)}
+                      />
+                    </div>
+                    {isDirty && (
+                      <button
+                        onClick={() => saveChannel(ch.persona_name)}
+                        disabled={savingChannel === ch.persona_name}
+                        className="mt-2 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40"
+                      >
+                        {savingChannel === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                        Save
+                      </button>
+                    )}
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      className="bg-black/60 border border-green-500/20 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                      placeholder="Display name"
-                      value={String(getChannelEdit(persona.name, "channel_name", ch?.channel_name ?? ""))}
-                      onChange={e => setChannelField(persona.name, "channel_name", e.target.value)}
-                    />
-                    <input
-                      className="bg-black/60 border border-green-500/20 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                      placeholder="YouTube channel ID (UCxxxxxxxx)"
-                      value={String(getChannelEdit(persona.name, "youtube_channel_id", ch?.youtube_channel_id ?? ""))}
-                      onChange={e => setChannelField(persona.name, "youtube_channel_id", e.target.value)}
-                    />
-                  </div>
-                  {isDirty && (
-                    <button
-                      onClick={() => saveChannel(persona.name)}
-                      disabled={savingChannel === persona.name}
-                      className="mt-2 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40"
-                    >
-                      {savingChannel === persona.name ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                      Save
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         )}
 
@@ -576,19 +767,19 @@ export default function LabelPage() {
             <div className="flex items-center gap-3 mb-5">
               <p className="text-xs text-green-700 font-mono">Artist:</p>
               <div className="flex gap-1 flex-wrap">
-                {[...PERSONAS.map(p => p.name), "Dehydration Nation"].map(name => {
-                  const meta = name === "Dehydration Nation" ? MASTER_CHANNEL : PERSONAS.find(p => p.name === name)!;
+                {channels.map(ch => {
+                  const style = getPersonaStyle(ch.persona_name, ch.color_key, ch.emoji);
                   return (
                     <button
-                      key={name}
-                      onClick={() => setPromptPersona(name)}
+                      key={ch.persona_name}
+                      onClick={() => setPromptPersona(ch.persona_name)}
                       className={`text-xs px-2.5 py-1 rounded-lg font-mono font-bold transition-all border ${
-                        promptPersona === name
-                          ? `${meta.bg} ${meta.color} border-current/50`
+                        promptPersona === ch.persona_name
+                          ? `${style.bg} ${style.color} border-current/50`
                           : "text-green-800 border-green-500/20 hover:text-green-600"
                       }`}
                     >
-                      {name}
+                      {style.emoji} {ch.persona_name}
                     </button>
                   );
                 })}
@@ -708,7 +899,8 @@ export default function LabelPage() {
             ) : (
               <div className="space-y-3">
                 {albums.map(album => {
-                  const meta = album.persona_name === "Dehydration Nation" ? MASTER_CHANNEL : PERSONAS.find(p => p.name === album.persona_name) ?? PERSONAS[0];
+                  const albumCh = channels.find(c => c.persona_name === album.persona_name);
+                  const meta = getPersonaStyle(album.persona_name, albumCh?.color_key, albumCh?.emoji);
                   const tracks = albumTracks[album.id];
                   const isExpanded = expandedAlbum === album.id;
                   const uploadedCount = (tracks ?? []).filter(t => t.status === "uploaded").length;
@@ -821,15 +1013,12 @@ export default function LabelPage() {
                               </a>
                             ) : (
                               <button
-                                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all"
-                                onClick={async () => {
-                                  const pid = prompt("Paste the YouTube playlist ID (from the URL after ?list=):");
-                                  if (!pid) return;
-                                  await supabase.from("albums").update({ youtube_playlist_id: pid }).eq("id", album.id);
-                                  setAlbums(prev => prev.map(a => a.id === album.id ? { ...a, youtube_playlist_id: pid } : a));
-                                }}
+                                disabled={creatingPlaylist === album.id}
+                                onClick={() => createPlaylist(album)}
+                                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40"
                               >
-                                <ListMusic className="w-3.5 h-3.5" /> Link Playlist
+                                {creatingPlaylist === album.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ListMusic className="w-3.5 h-3.5" />}
+                                Create Playlist
                               </button>
                             )}
                             <button
@@ -943,16 +1132,18 @@ export default function LabelPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-green-500/10">
-                  {[MASTER_CHANNEL, ...PERSONAS].map(persona => (
-                    <tr key={persona.name}>
+                  {channels.map(ch => {
+                    const style = getPersonaStyle(ch.persona_name, ch.color_key, ch.emoji);
+                    return (
+                    <tr key={ch.persona_name}>
                       <td className="py-3 pr-4">
-                        <span className={`font-bold ${persona.color}`}>{persona.emoji} {persona.name}</span>
+                        <span className={`font-bold ${style.color}`}>{style.emoji} {ch.persona_name}</span>
                       </td>
                       {PLATFORMS.map(platform => {
-                        const key = getPlatformKey(persona.name, platform.key);
+                        const key = getPlatformKey(ch.persona_name, platform.key);
                         const isDirty = !!platformDrafts[key] && Object.keys(platformDrafts[key]).length > 0;
-                        const isActive = Boolean(getPlatformField(persona.name, platform.key, "active", false));
-                        const handle = String(getPlatformField(persona.name, platform.key, "handle", ""));
+                        const isActive = Boolean(getPlatformField(ch.persona_name, platform.key, "active", false));
+                        const handle = String(getPlatformField(ch.persona_name, platform.key, "handle", ""));
                         return (
                           <td key={platform.key} className="py-3 px-2">
                             <div className="flex flex-col items-center gap-1.5">
@@ -961,7 +1152,7 @@ export default function LabelPage() {
                                   type="checkbox"
                                   className="accent-green-400"
                                   checked={isActive}
-                                  onChange={e => setPlatformField(persona.name, platform.key, "active", e.target.checked)}
+                                  onChange={e => setPlatformField(ch.persona_name, platform.key, "active", e.target.checked)}
                                 />
                                 <span className={isActive ? "text-green-400" : "text-green-800"}>on</span>
                               </label>
@@ -969,11 +1160,11 @@ export default function LabelPage() {
                                 className="w-24 bg-black/60 border border-green-500/20 rounded px-1.5 py-1 text-green-400 placeholder-green-900 focus:outline-none focus:border-green-400/60 text-center"
                                 placeholder="@handle"
                                 value={handle}
-                                onChange={e => setPlatformField(persona.name, platform.key, "handle", e.target.value)}
+                                onChange={e => setPlatformField(ch.persona_name, platform.key, "handle", e.target.value)}
                               />
                               {isDirty && (
                                 <button
-                                  onClick={() => savePlatformAccount(persona.name, platform.key)}
+                                  onClick={() => savePlatformAccount(ch.persona_name, platform.key)}
                                   disabled={savingPlatform === key}
                                   className="text-green-600 hover:text-green-300 transition-colors"
                                 >
@@ -985,7 +1176,8 @@ export default function LabelPage() {
                         );
                       })}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

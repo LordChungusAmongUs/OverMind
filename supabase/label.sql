@@ -10,8 +10,14 @@ CREATE TABLE IF NOT EXISTS artist_channels (
   upload_to_master BOOLEAN DEFAULT TRUE,
   auto_interact BOOLEAN DEFAULT FALSE,
   active BOOLEAN DEFAULT TRUE,
+  emoji TEXT,
+  color_key TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration: add emoji/color_key to existing artist_channels tables
+ALTER TABLE artist_channels ADD COLUMN IF NOT EXISTS emoji TEXT;
+ALTER TABLE artist_channels ADD COLUMN IF NOT EXISTS color_key TEXT;
 
 -- Per-artist customizable ChatGPT prompt templates
 CREATE TABLE IF NOT EXISTS artist_prompt_configs (

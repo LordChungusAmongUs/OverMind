@@ -1705,27 +1705,29 @@ async function runWardrobeSplitPipeline(job) {
       item_brand ? `Brand: ${item_brand}`         : null,
     ].filter(Boolean).join("\n");
 
-    const focusNote = item_type
-      ? `The product is a ${item_type.toLowerCase()}. If the image shows a model wearing multiple items, focus ONLY on the ${item_type.toLowerCase()} — ignore every other garment on the model.`
-      : `Focus only on the main product being sold, ignoring any other garments a model may be wearing.`;
+    const productName = item_name || item_type || "clothing item";
+    const focusNote = item_name
+      ? `The product being sold is: "${item_name}". Identify ONLY this specific product. If a model is wearing other clothing in the image, ignore everything except the "${item_name}".`
+      : item_type
+        ? `Focus ONLY on the ${item_type.toLowerCase()}. Ignore any other garments visible on a model.`
+        : `Focus only on the main product being sold.`;
 
-    const imageNote = imageB64
-      ? `I'm showing you the product image.`
-      : `No image is available — use the product name to determine the items.`;
+    const imageNote = imageB64 ? `I'm showing you the product listing image.` : `No image available — use the product name.`;
 
     await sendGPTMessage(analysisTabId,
-      `${imageNote} Analyze the specific product and return ONLY a JSON object — no markdown, no explanation.
+      `${imageNote} Return ONLY a JSON object — no markdown, no explanation.
 
-${productContext}
+Product: ${productName}
+${item_brand ? `Brand: ${item_brand}` : ""}
 
 ${focusNote}
 
 {
-  "count": <total individual pieces in this purchase, e.g. 1 for single, 7 for a 7-pack>,
+  "count": <total individual pieces in this purchase e.g. 1 for single, 7 for a 7-pack>,
   "items": [
     {
-      "item_type": "<specific singular item e.g. boxer brief, t-shirt, crew sock>",
-      "color": "<specific color e.g. Black, Heather Grey, Navy Blue>",
+      "item_type": "<exact item type matching the product name e.g. boxer brief, t-shirt, crew sock>",
+      "color": "<specific color>",
       "brand": "<brand or null>",
       "occasions": [<from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
       "style_notes": "<one sentence about cut, fit, material>"
@@ -1733,11 +1735,12 @@ ${focusNote}
   ]
 }
 
-Counting rules:
-- Single item → count:1, one items[] entry
-- Multi-pack, all same color → count:N, one items[] entry
-- Multi-pack, different colors → count:total pieces, one items[] entry PER unique color
-- Variety pack (colors not visible) → list the most likely colors sold for this item type`
+Rules:
+- items[] length must NEVER exceed count
+- Single item → count:1, one entry
+- Multi-pack same color → count:N, one entry
+- Multi-pack different colors → count:total pieces, one entry PER unique color (items[].length = number of unique colors)
+- Variety pack → list most likely colors, items[].length must equal count`
     );
 
     await waitForGPTDone(analysisTabId);
@@ -1765,7 +1768,9 @@ Counting rules:
     if (parsedItems.length === 0) {
       parsedItems = [{ item_type: item_type ?? "clothing item", color: "unknown", brand: item_brand ?? null, occasions: ["Casual"], style_notes: "" }];
     }
-    console.log("[split] Parsed", parsedItems.length, "items, total count:", totalCount);
+    // Never generate more unique images than the total item count
+    if (parsedItems.length > totalCount) parsedItems = parsedItems.slice(0, totalCount);
+    console.log("[split] Parsed", parsedItems.length, "unique items, total count:", totalCount);
 
     // ── Step 3: For each unique item, generate catalog image ──────────
     // If parsedItems has 1 entry but count > 1 → same-color pack (generate 1 image, add N entries)
