@@ -141,36 +141,41 @@ export async function POST(req: Request) {
 
   console.log("[scrape] url:", url, "isAmazon:", isAmazon, "asin:", asin);
 
-  // ── Amazon: parse from URL slug (no fetch required), image is best-effort
+  // ── Amazon: try slug first, fall back to fetching the page
   if (isAmazon) {
     const slugTitle = slugToTitle(url);
     console.log("[scrape] Amazon slug title:", slugTitle);
 
-    if (!slugTitle) {
-      return NextResponse.json({ error: "Could not read product name from URL. Try entering manually." }, { status: 422 });
+    // Try fetching the page for image + richer title (works for most product pages)
+    let pageHtml: string | null = null;
+    const fetchUrl = asin ? `https://www.amazon.com/dp/${asin}` : url;
+    pageHtml = await tryFetch(fetchUrl);
+
+    const { imageUrl: pageImageUrl, title: pageTitle } = pageHtml ? extractMeta(pageHtml) : { imageUrl: null, title: "" };
+
+    // Best available title: prefer page title (actual product name) over URL slug
+    const rawTitle = pageTitle
+      ? pageTitle.replace(/\s*[-|:].*(Amazon\.com|Amazon).*$/i, "").trim()
+      : slugTitle;
+
+    if (!rawTitle) {
+      return NextResponse.json({ error: "Could not read product name from this Amazon URL. Try copying the image URL directly (right-click product image → Copy image address) and paste that instead." }, { status: 422 });
     }
 
-    // Parse slug locally — no API call needed, always works
-    let parsed: Record<string, unknown> = parseSlug(slugTitle);
+    console.log("[scrape] Using title:", rawTitle);
 
-    // Try Claude to improve quality (optional — fall back to slug parse if it fails)
+    // Parse with Claude, fall back to slug parse
+    let parsed: Record<string, unknown> = parseSlug(rawTitle);
     try {
       const claudeResult = await claudeParse(
-        `You are a clothing item parser. Given only a product name, return structured data.\n\nProduct: ${slugTitle}\n\nReturn ONLY raw JSON (no markdown, no explanation):\n${JSON_SCHEMA}\n\nIf not clothing: {"error":"Not a clothing item"}`
+        `You are a clothing item parser. Given only a product name, return structured data.\n\nProduct: ${rawTitle}\n\nReturn ONLY raw JSON (no markdown, no explanation):\n${JSON_SCHEMA}\n\nIf not clothing: {"error":"Not a clothing item"}`
       );
       if (!claudeResult.error) parsed = claudeResult;
     } catch (e) {
       console.warn("[scrape] Claude unavailable, using slug parse:", e);
     }
 
-    // Try to grab image (best-effort, don't block on failure)
-    let imageUrl: string | null = null;
-    if (asin) {
-      const html = await tryFetch(`https://www.amazon.com/dp/${asin}`);
-      if (html) imageUrl = extractMeta(html).imageUrl;
-    }
-
-    return NextResponse.json({ ...parsed, image_url: imageUrl });
+    return NextResponse.json({ ...parsed, image_url: pageImageUrl ?? null });
   }
 
   // ── Non-Amazon: fetch the page
