@@ -5,10 +5,19 @@ import { supabase } from "@/lib/supabase";
 import Sidebar from "@/components/layout/Sidebar";
 import {
   Shirt, RefreshCw, Calendar, Plus, X, Sparkles,
-  Loader2, CloudSun, History, Zap, ChevronDown, ChevronUp, Link, Trash2,
+  Loader2, CloudSun, History, Zap, ChevronDown, ChevronUp, Link, Trash2, Eye, Pencil,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+interface SplitResultItem {
+  name: string;
+  type: string;
+  color: string;
+  brand: string | null;
+  occasions: string[];
+  image_url: string | null;
+}
 
 interface WardrobeItem {
   id: string;
@@ -68,12 +77,13 @@ function Chip({ label, active, onClick }: { label: string; active: boolean; onCl
 
 // ─── Item card ────────────────────────────────────────────────────────────────
 
-function ItemCard({ item, isDirty, onMarkWorn, onMarkClean, onDelete }: {
+function ItemCard({ item, isDirty, onMarkWorn, onMarkClean, onDelete, onEdit }: {
   item: WardrobeItem;
   isDirty: boolean;
   onMarkWorn: (id: string) => void;
   onMarkClean: (id: string) => void;
   onDelete: (id: string) => void;
+  onEdit: (item: WardrobeItem) => void;
 }) {
   return (
     <div className={`holo-card rounded-xl border overflow-hidden transition-all ${
@@ -94,12 +104,22 @@ function ItemCard({ item, isDirty, onMarkWorn, onMarkClean, onDelete }: {
             <p className="text-sm font-mono font-bold text-green-300 truncate">{item.name}</p>
             {item.brand && <p className="text-xs text-green-700 font-mono">{item.brand}</p>}
           </div>
-          <button
-            onClick={() => onDelete(item.id)}
-            className="text-green-900 hover:text-red-500 transition-colors ml-2 flex-shrink-0 mt-0.5"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+            <button
+              onClick={() => onEdit(item)}
+              className="text-green-900 hover:text-green-400 transition-colors"
+              title="Edit"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onDelete(item.id)}
+              className="text-green-900 hover:text-red-500 transition-colors"
+              title="Delete"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-1 mb-2">
@@ -146,10 +166,11 @@ export default function StylistPage() {
   const [loading, setLoading] = useState(true);
 
   const [showAdd, setShowAdd] = useState(false);
-  const [addMode, setAddMode] = useState<"url" | "manual">("url");
+  const [addMode, setAddMode] = useState<"import" | "manual">("import");
   const [importUrl, setImportUrl] = useState("");
+  const [resolvedImageUrl, setResolvedImageUrl] = useState<string | null>(null);
   const [scraping, setScraping] = useState(false);
-  const [scrapeError, setScrapeError] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const [newItem, setNewItem] = useState({ ...BLANK_ITEM });
   const [saving, setSaving] = useState(false);
 
@@ -166,6 +187,16 @@ export default function StylistPage() {
   const [outfitImage, setOutfitImage] = useState<string | null>(null);
   const [userPhotos, setUserPhotos] = useState<{ id: string; url: string }[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
+  const [splitJobId, setSplitJobId] = useState<string | null>(null);
+  const [splitting, setSplitting] = useState(false);
+  const [splitError, setSplitError] = useState<string | null>(null);
+  const [splitItems, setSplitItems] = useState<SplitResultItem[] | null>(null);
+
+  const [editingItem, setEditingItem] = useState<WardrobeItem | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -219,34 +250,109 @@ export default function StylistPage() {
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
-  async function importFromUrl() {
-    if (!importUrl.trim()) return;
+  function isDirectImageUrl(url: string) {
+    return /\.(jpe?g|png|webp|gif|avif|bmp)(\?|$)/i.test(url) ||
+      /images[-.]amazon\.com|m\.media-amazon\.com|cdn\.shopify\.com|images\.unsplash/i.test(url);
+  }
+
+  async function resolveImage() {
+    const raw = importUrl.trim();
+    if (!raw) return;
     setScraping(true);
-    setScrapeError(null);
-    let cleanUrl = importUrl.trim();
-    if (!/^https?:\/\//i.test(cleanUrl)) cleanUrl = `https://${cleanUrl}`;
+    setImportError(null);
+    setResolvedImageUrl(null);
+    setSplitItems(null);
+
+    let url = raw;
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+
+    if (isDirectImageUrl(url)) {
+      setResolvedImageUrl(url);
+      setScraping(false);
+      return;
+    }
+
     const res = await fetch("/api/stylist/scrape", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: cleanUrl }),
+      body: JSON.stringify({ url }),
     });
     const data = await res.json();
     if (data.error) {
-      setScrapeError(data.error);
+      setImportError(data.error);
+    } else if (data.image_url) {
+      setResolvedImageUrl(data.image_url);
     } else {
-      setNewItem({
-        name: data.name ?? "",
-        type: ITEM_TYPES.includes(data.type) ? data.type : "Top",
-        color: data.color ?? "",
-        brand: data.brand ?? "",
-        size: data.size ?? "",
-        occasions: Array.isArray(data.occasions) ? data.occasions : [],
-        notes: data.notes ?? "",
-        image_url: data.image_url ?? "",
-      });
-      setAddMode("manual");
+      setImportError("Could not extract an image from that URL. Try right-clicking the product image → Copy image address, and paste that URL instead.");
     }
     setScraping(false);
+  }
+
+  async function analyzeWithChatGPT() {
+    if (!resolvedImageUrl) return;
+    setSplitting(true);
+    setSplitError(null);
+    setSplitItems(null);
+    setSplitJobId(null);
+    try {
+      const res = await fetch("/api/stylist/split", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_image_url: resolvedImageUrl }),
+      });
+      const data = await res.json();
+      if (data.error) { setSplitError(data.error); setSplitting(false); return; }
+      setSplitJobId(data.jobId);
+      const poll = setInterval(async () => {
+        const { data: job } = await supabase
+          .from("wardrobe_split_jobs")
+          .select("status, result_items, error_message")
+          .eq("id", data.jobId)
+          .single();
+        if (!job) return;
+        if (job.status === "complete") {
+          clearInterval(poll);
+          setSplitItems(job.result_items as SplitResultItem[]);
+          setSplitting(false);
+          setSplitJobId(null);
+        } else if (job.status === "error") {
+          clearInterval(poll);
+          setSplitError(job.error_message ?? "Extension pipeline failed.");
+          setSplitting(false);
+          setSplitJobId(null);
+        }
+      }, 5000);
+    } catch {
+      setSplitError("Failed to start job.");
+      setSplitting(false);
+    }
+  }
+
+  async function saveAllSplitItems() {
+    if (!splitItems?.length) return;
+    setSaving(true);
+    const inserted: WardrobeItem[] = [];
+    for (const item of splitItems) {
+      const { data } = await supabase.from("wardrobe_items").insert({
+        name: item.name,
+        type: item.type,
+        color: item.color || null,
+        brand: item.brand || null,
+        size: null,
+        occasions: item.occasions,
+        notes: null,
+        image_url: item.image_url || null,
+      }).select().single();
+      if (data) inserted.push(data);
+    }
+    setItems(prev => [...inserted.reverse(), ...prev]);
+    setSplitItems(null);
+    setSplitJobId(null);
+    setSplitting(false);
+    setImportUrl("");
+    setResolvedImageUrl(null);
+    setShowAdd(false);
+    setSaving(false);
   }
 
   async function markWorn(itemId: string) {
@@ -291,20 +397,22 @@ export default function StylistPage() {
     if (data) setItems(prev => [data, ...prev]);
     setNewItem({ ...BLANK_ITEM });
     setImportUrl("");
-    setAddMode("url");
+    setAddMode("import");
     setShowAdd(false);
     setSaving(false);
   }
 
   async function uploadPhoto(file: File) {
     setUploadingPhoto(true);
-    const ext = file.name.split(".").pop() ?? "jpg";
-    const path = `user-photos/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from("pipeline-assets").upload(path, file, { upsert: true });
-    if (!error) {
-      const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/pipeline-assets/${path}`;
-      const { data } = await supabase.from("user_photos").insert({ url }).select().single();
-      if (data) setUserPhotos(prev => [data, ...prev]);
+    setUploadError(null);
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/stylist/upload-photo", { method: "POST", body: fd });
+    const data = await res.json();
+    if (data.error) {
+      setUploadError(data.error);
+    } else {
+      setUserPhotos(prev => [{ id: data.id, url: data.url }, ...prev]);
     }
     setUploadingPhoto(false);
   }
@@ -320,14 +428,50 @@ export default function StylistPage() {
     setShowAdd(false);
     setNewItem({ ...BLANK_ITEM });
     setImportUrl("");
-    setAddMode("url");
-    setScrapeError(null);
+    setResolvedImageUrl(null);
+    setAddMode("import");
+    setImportError(null);
+    setSplitItems(null);
+    setSplitJobId(null);
+    setSplitting(false);
   }
 
   async function deleteItem(id: string) {
     await supabase.from("wardrobe_items").delete().eq("id", id);
     setItems(prev => prev.filter(i => i.id !== id));
     setWearLog(prev => prev.filter(w => w.item_id !== id));
+  }
+
+  async function updateItem() {
+    if (!editingItem) return;
+    setEditSaving(true);
+    const { data, error } = await supabase
+      .from("wardrobe_items")
+      .update({
+        name: editingItem.name,
+        type: editingItem.type,
+        color: editingItem.color || null,
+        brand: editingItem.brand || null,
+        size: editingItem.size || null,
+        occasions: editingItem.occasions,
+        notes: editingItem.notes || null,
+        image_url: editingItem.image_url || null,
+      })
+      .eq("id", editingItem.id)
+      .select()
+      .single();
+    if (data) setItems(prev => prev.map(i => i.id === data.id ? data : i));
+    if (error) console.error("updateItem error:", error);
+    setEditSaving(false);
+    setEditingItem(null);
+  }
+
+  function toggleEditOccasion(o: string) {
+    if (!editingItem) return;
+    setEditingItem(prev => prev ? {
+      ...prev,
+      occasions: prev.occasions.includes(o) ? prev.occasions.filter(x => x !== o) : [...prev.occasions, o],
+    } : null);
   }
 
   async function generateOutfit() {
@@ -539,14 +683,11 @@ export default function StylistPage() {
 
         {/* My Photos */}
         <div className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-5 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-xs font-mono font-black uppercase tracking-widest gradient-text">My Photos</p>
-              <p className="text-xs text-green-800 font-mono mt-0.5">Upload photos of yourself — the extension will use your face when generating outfit images.</p>
-            </div>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs font-mono font-black uppercase tracking-widest gradient-text">My Photos</p>
             <label className="flex items-center gap-1.5 text-xs font-mono font-semibold px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 hover:bg-green-500/20 transition-all cursor-pointer">
               {uploadingPhoto ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-              {uploadingPhoto ? "Uploading..." : "Add Photo"}
+              {uploadingPhoto ? "Uploading..." : "Upload Photo"}
               <input
                 type="file"
                 accept="image/*"
@@ -555,35 +696,177 @@ export default function StylistPage() {
               />
             </label>
           </div>
+          <p className="text-xs text-green-800 font-mono mb-4">
+            {userPhotos.length > 0
+              ? `${userPhotos.length} photo${userPhotos.length !== 1 ? "s" : ""} saved — first 3 are used when generating outfit images.`
+              : "Upload photos of yourself so the AI can generate outfit images with your likeness."}
+          </p>
 
-          {userPhotos.length === 0 && (
-            <p className="text-xs text-green-800 font-mono">No photos yet. Add a clear photo of your face and full body for best results.</p>
+          {uploadError && (
+            <p className="text-xs text-red-400 font-mono mb-3 px-3 py-2 rounded-lg border border-red-500/20 bg-red-500/5">{uploadError}</p>
+          )}
+
+          {userPhotos.length === 0 && !uploadingPhoto && (
+            <div className="border border-dashed border-green-500/20 rounded-xl py-8 flex flex-col items-center gap-2">
+              <p className="text-xs text-green-800 font-mono">No photos yet.</p>
+              <p className="text-xs text-green-900 font-mono">Use a clear full-body or face photo for best results.</p>
+            </div>
           )}
 
           {userPhotos.length > 0 && (
-            <div className="flex gap-3 flex-wrap">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
               {userPhotos.map((photo, i) => (
-                <div key={photo.id} className="relative group">
+                <div key={photo.id} className="relative">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={photo.url}
-                    alt="reference"
-                    className={`w-20 h-20 object-cover rounded-xl border-2 transition-all ${i < 3 ? "border-green-400" : "border-green-500/20"}`}
+                    alt={`reference photo ${i + 1}`}
+                    className={`w-full aspect-square object-cover rounded-xl border-2 cursor-pointer transition-all hover:opacity-90 ${
+                      i < 3 ? "border-green-400" : "border-green-500/20"
+                    }`}
+                    onClick={() => setLightboxUrl(photo.url)}
+                    onError={e => { (e.target as HTMLImageElement).src = ""; (e.target as HTMLImageElement).alt = "failed to load"; }}
                   />
                   {i < 3 && (
-                    <span className="absolute -top-1.5 -right-1.5 text-xs bg-green-500 text-black font-mono font-bold px-1 rounded">IN USE</span>
+                    <span className="absolute top-1.5 left-1.5 text-xs bg-green-500 text-black font-mono font-bold px-1.5 py-0.5 rounded">
+                      IN USE
+                    </span>
                   )}
-                  <button
-                    onClick={() => deletePhoto(photo.id, photo.url)}
-                    className="absolute inset-0 rounded-xl bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                  >
-                    <Trash2 className="w-4 h-4 text-red-400" />
-                  </button>
+                  <div className="absolute top-1.5 right-1.5 flex gap-1">
+                    <button
+                      onClick={() => setLightboxUrl(photo.url)}
+                      className="w-6 h-6 rounded-md bg-black/70 border border-green-500/30 flex items-center justify-center text-green-400 hover:bg-black/90 transition-all"
+                      title="View full size"
+                    >
+                      <Eye className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => deletePhoto(photo.id, photo.url)}
+                      className="w-6 h-6 rounded-md bg-black/70 border border-red-500/30 flex items-center justify-center text-red-400 hover:bg-black/90 transition-all"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
+
+        {/* Edit Item Modal */}
+        {editingItem && (
+          <div
+            className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6"
+            onClick={() => setEditingItem(null)}
+          >
+            <div
+              className="holo-card bg-black rounded-2xl border border-green-500/30 p-6 w-full max-w-md"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-xs font-mono font-black uppercase tracking-widest gradient-text">Edit Item</p>
+                <button onClick={() => setEditingItem(null)} className="text-green-800 hover:text-green-500 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {editingItem.image_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={editingItem.image_url} alt={editingItem.name} className="w-full h-40 object-cover rounded-xl border border-green-500/20 mb-4" />
+              )}
+
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <input
+                  className="col-span-2 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                  placeholder="Name *"
+                  value={editingItem.name}
+                  onChange={e => setEditingItem(p => p ? { ...p, name: e.target.value } : p)}
+                />
+                <select
+                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono focus:outline-none focus:border-green-400/60"
+                  value={editingItem.type}
+                  onChange={e => setEditingItem(p => p ? { ...p, type: e.target.value } : p)}
+                >
+                  {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <input
+                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                  placeholder="Color"
+                  value={editingItem.color ?? ""}
+                  onChange={e => setEditingItem(p => p ? { ...p, color: e.target.value } : p)}
+                />
+                <input
+                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                  placeholder="Brand"
+                  value={editingItem.brand ?? ""}
+                  onChange={e => setEditingItem(p => p ? { ...p, brand: e.target.value } : p)}
+                />
+                <input
+                  className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                  placeholder="Size"
+                  value={editingItem.size ?? ""}
+                  onChange={e => setEditingItem(p => p ? { ...p, size: e.target.value } : p)}
+                />
+              </div>
+
+              <p className="text-xs text-green-700 font-mono mb-2 uppercase tracking-wider">Occasions</p>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {OCCASIONS.map(o => (
+                  <Chip key={o} label={o} active={editingItem.occasions.includes(o)} onClick={() => toggleEditOccasion(o)} />
+                ))}
+              </div>
+
+              <input
+                className="w-full bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60 mb-4"
+                placeholder="Notes (optional)"
+                value={editingItem.notes ?? ""}
+                onChange={e => setEditingItem(p => p ? { ...p, notes: e.target.value } : p)}
+              />
+
+              <div className="flex gap-2">
+                <button
+                  onClick={updateItem}
+                  disabled={editSaving || !editingItem.name.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {editSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pencil className="w-3.5 h-3.5" />}
+                  {editSaving ? "Saving..." : "Save Changes"}
+                </button>
+                <button
+                  onClick={() => { deleteItem(editingItem.id); setEditingItem(null); }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-red-500/30 bg-red-500/5 text-red-400 font-mono font-bold text-sm hover:bg-red-500/10 transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Lightbox */}
+        {lightboxUrl && (
+          <div
+            className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6"
+            onClick={() => setLightboxUrl(null)}
+          >
+            <div className="relative max-w-lg w-full" onClick={e => e.stopPropagation()}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={lightboxUrl}
+                alt="full size"
+                className="w-full rounded-2xl border border-green-500/30 object-contain max-h-[80vh]"
+              />
+              <button
+                onClick={() => setLightboxUrl(null)}
+                className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/80 border border-green-500/20 flex items-center justify-center text-green-400 hover:text-green-200 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Wardrobe */}
         <div className="mb-6">
@@ -613,76 +896,158 @@ export default function StylistPage() {
           {showAdd && (
             <div className="holo-card rounded-xl border border-green-400/30 bg-black/40 p-5 mb-4">
               <div className="flex items-center justify-between mb-4">
-                <p className="text-xs font-mono font-black uppercase tracking-widest gradient-text">Add New Item</p>
-                <div className="flex gap-1 p-0.5 rounded-lg border border-green-500/20 bg-black/40">
-                  <button
-                    onClick={() => setAddMode("url")}
-                    className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md font-mono transition-all ${
-                      addMode === "url" ? "bg-green-500/20 text-green-300" : "text-green-700 hover:text-green-500"
-                    }`}
-                  >
-                    <Link className="w-3 h-3" /> URL Import
-                  </button>
-                  <button
-                    onClick={() => setAddMode("manual")}
-                    className={`text-xs px-2.5 py-1 rounded-md font-mono transition-all ${
-                      addMode === "manual" ? "bg-green-500/20 text-green-300" : "text-green-700 hover:text-green-500"
-                    }`}
-                  >
-                    Manual
+                <p className="text-xs font-mono font-black uppercase tracking-widest gradient-text">Add Item</p>
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1 p-0.5 rounded-lg border border-green-500/20 bg-black/40">
+                    <button
+                      onClick={() => { setAddMode("import"); setResolvedImageUrl(null); setSplitItems(null); }}
+                      className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-md font-mono transition-all ${addMode === "import" ? "bg-green-500/20 text-green-300" : "text-green-700 hover:text-green-500"}`}
+                    >
+                      <Sparkles className="w-3 h-3" /> Via ChatGPT
+                    </button>
+                    <button
+                      onClick={() => setAddMode("manual")}
+                      className={`text-xs px-2.5 py-1 rounded-md font-mono transition-all ${addMode === "manual" ? "bg-green-500/20 text-green-300" : "text-green-700 hover:text-green-500"}`}
+                    >
+                      Manual
+                    </button>
+                  </div>
+                  <button onClick={resetAddForm} className="text-green-800 hover:text-green-500 transition-colors">
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
               </div>
 
-              {/* URL import mode */}
-              {addMode === "url" && (
+              {/* ── ChatGPT import mode ── */}
+              {addMode === "import" && (
                 <div>
-                  <p className="text-xs text-green-700 font-mono mb-2">Paste an Amazon, ASOS, Nike, or any product URL:</p>
-                  <div className="flex gap-2 mb-2">
-                    <input
-                      className="flex-1 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                      placeholder="https://amazon.com/dp/..."
-                      value={importUrl}
-                      onChange={e => { setImportUrl(e.target.value); setScrapeError(null); }}
-                      onKeyDown={e => e.key === "Enter" && importFromUrl()}
-                    />
-                    <button
-                      onClick={importFromUrl}
-                      disabled={scraping || !importUrl.trim()}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
-                    >
-                      {scraping ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                      {scraping ? "Fetching..." : "Auto-fill"}
-                    </button>
-                  </div>
-                  {scrapeError && (
-                    <p className="text-xs text-red-400 font-mono mb-2">{scrapeError}</p>
+                  {/* Step 1: get image */}
+                  {!resolvedImageUrl && (
+                    <>
+                      <p className="text-xs text-green-700 font-mono mb-2">
+                        Paste a product URL <span className="text-green-900">or</span> paste the image URL directly (right-click product image → Copy image address):
+                      </p>
+                      <div className="flex gap-2 mb-2">
+                        <input
+                          className="flex-1 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                          placeholder="https://amazon.com/dp/...  or  https://m.media-amazon.com/images/..."
+                          value={importUrl}
+                          onChange={e => { setImportUrl(e.target.value); setImportError(null); }}
+                          onKeyDown={e => e.key === "Enter" && resolveImage()}
+                        />
+                        <button
+                          onClick={resolveImage}
+                          disabled={scraping || !importUrl.trim()}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+                        >
+                          {scraping ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link className="w-3.5 h-3.5" />}
+                          {scraping ? "Getting image..." : "Get Image"}
+                        </button>
+                      </div>
+                      {importError && <p className="text-xs text-red-400 font-mono mb-2">{importError}</p>}
+                    </>
                   )}
-                  <button
-                    onClick={() => setAddMode("manual")}
-                    className="text-xs text-green-800 font-mono hover:text-green-600 transition-colors underline underline-offset-2"
-                  >
-                    or enter manually →
-                  </button>
-                </div>
-              )}
 
-              {/* Manual / review mode */}
-              {addMode === "manual" && (
-                <>
-                  {/* Image preview */}
-                  {newItem.image_url && (
-                    <div className="mb-3 rounded-lg overflow-hidden border border-green-500/20 bg-black/40 relative w-32 h-32">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={newItem.image_url}
-                        alt="preview"
-                        className="w-full h-full object-cover object-top"
-                        onError={e => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}
-                      />
+                  {/* Step 2: confirm image + analyze */}
+                  {resolvedImageUrl && !splitting && !splitItems && (
+                    <div className="flex items-start gap-4">
+                      <div className="w-32 h-32 flex-shrink-0 rounded-xl overflow-hidden border border-green-500/20 bg-black/40">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={resolvedImageUrl}
+                          alt="product"
+                          className="w-full h-full object-cover object-top"
+                          onError={e => { (e.target as HTMLImageElement).alt = "Image failed to load"; }}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs text-green-400 font-mono font-bold mb-1">Image ready ✓</p>
+                        <p className="text-xs text-green-800 font-mono mb-3 leading-relaxed">
+                          ChatGPT will identify how many items are in the photo, analyze each one (type, color, brand), generate a clean catalog image for each, and add them all to your wardrobe.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={analyzeWithChatGPT}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Analyze &amp; Add to Wardrobe
+                          </button>
+                          <button
+                            onClick={() => { setResolvedImageUrl(null); setImportUrl(""); }}
+                            className="text-xs font-mono text-green-800 hover:text-green-500 transition-colors px-2"
+                          >
+                            Use different image
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
 
+                  {/* Step 3: extension working */}
+                  {splitting && (
+                    <div className="flex items-center gap-3 py-4">
+                      <Loader2 className="w-5 h-5 text-green-400 animate-spin flex-shrink-0" />
+                      <div>
+                        <p className="text-sm font-mono font-bold text-green-300">
+                          {splitJobId ? "Extension working..." : "Starting..."}
+                        </p>
+                        {splitJobId && (
+                          <p className="text-xs text-green-700 font-mono mt-0.5">
+                            ChatGPT is analyzing the image, counting items, and generating individual catalog photos. This takes a few minutes.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {splitError && <p className="text-xs text-red-400 font-mono mt-2">{splitError}</p>}
+
+                  {/* Step 4: review results */}
+                  {splitItems && splitItems.length > 0 && (
+                    <div>
+                      <p className="text-xs font-mono font-black uppercase tracking-widest gradient-text mb-1">
+                        {splitItems.length} item{splitItems.length !== 1 ? "s" : ""} found
+                      </p>
+                      <p className="text-xs text-green-700 font-mono mb-3">Edit any names before saving.</p>
+                      <div className="grid grid-cols-2 gap-3 mb-4">
+                        {splitItems.map((item, i) => (
+                          <div key={i} className="rounded-lg border border-green-500/20 bg-black/40 overflow-hidden">
+                            {item.image_url
+                              ? <img src={item.image_url} alt={item.name} className="w-full h-28 object-cover" /> // eslint-disable-line @next/next/no-img-element
+                              : <div className="w-full h-28 bg-green-500/5 flex items-center justify-center"><Shirt className="w-6 h-6 text-green-900" /></div>
+                            }
+                            <div className="p-2">
+                              <input
+                                className="w-full text-xs font-mono bg-black/40 border border-green-500/20 rounded px-2 py-1 text-green-300 focus:outline-none focus:border-green-400/40 mb-1"
+                                value={item.name}
+                                onChange={e => setSplitItems(prev => prev!.map((it, j) => j === i ? { ...it, name: e.target.value } : it))}
+                              />
+                              <p className="text-xs text-green-800 font-mono">{item.type}{item.color ? ` · ${item.color}` : ""}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={saveAllSplitItems}
+                          disabled={saving}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40"
+                        >
+                          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                          {saving ? "Saving..." : `Save All ${splitItems.length} Item${splitItems.length !== 1 ? "s" : ""}`}
+                        </button>
+                        <button onClick={() => { setSplitItems(null); setResolvedImageUrl(null); setImportUrl(""); }} className="text-xs font-mono text-green-700 hover:text-green-500 px-2">
+                          Start over
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Manual mode (fallback) ── */}
+              {addMode === "manual" && (
+                <>
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <input
                       className="col-span-2 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
@@ -697,55 +1062,22 @@ export default function StylistPage() {
                     >
                       {ITEM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
-                    <input
-                      className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                      placeholder="Color"
-                      value={newItem.color}
-                      onChange={e => setNewItem(p => ({ ...p, color: e.target.value }))}
-                    />
-                    <input
-                      className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                      placeholder="Brand"
-                      value={newItem.brand}
-                      onChange={e => setNewItem(p => ({ ...p, brand: e.target.value }))}
-                    />
-                    <input
-                      className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                      placeholder="Size"
-                      value={newItem.size}
-                      onChange={e => setNewItem(p => ({ ...p, size: e.target.value }))}
-                    />
+                    <input className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60" placeholder="Color" value={newItem.color} onChange={e => setNewItem(p => ({ ...p, color: e.target.value }))} />
+                    <input className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60" placeholder="Brand" value={newItem.brand} onChange={e => setNewItem(p => ({ ...p, brand: e.target.value }))} />
+                    <input className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60" placeholder="Size" value={newItem.size} onChange={e => setNewItem(p => ({ ...p, size: e.target.value }))} />
                   </div>
-
                   <p className="text-xs text-green-700 font-mono mb-2 uppercase tracking-wider">Occasions</p>
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {OCCASIONS.map(o => (
-                      <Chip key={o} label={o} active={newItem.occasions.includes(o)} onClick={() => toggleOccasion(o)} />
-                    ))}
+                    {OCCASIONS.map(o => <Chip key={o} label={o} active={newItem.occasions.includes(o)} onClick={() => toggleOccasion(o)} />)}
                   </div>
-
-                  <input
-                    className="w-full bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60 mb-4"
-                    placeholder="Notes (optional)"
-                    value={newItem.notes}
-                    onChange={e => setNewItem(p => ({ ...p, notes: e.target.value }))}
-                  />
-
-                  {addError && (
-                    <p className="text-xs text-red-400 font-mono mb-3">{addError}</p>
-                  )}
+                  <input className="w-full bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60 mb-4" placeholder="Notes (optional)" value={newItem.notes} onChange={e => setNewItem(p => ({ ...p, notes: e.target.value }))} />
+                  {addError && <p className="text-xs text-red-400 font-mono mb-3">{addError}</p>}
                   <div className="flex gap-2">
-                    <button
-                      onClick={addItem}
-                      disabled={saving || !newItem.name.trim()}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
+                    <button onClick={addItem} disabled={saving || !newItem.name.trim()} className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
                       {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                       {saving ? "Saving..." : "Add to Wardrobe"}
                     </button>
-                    <button onClick={resetAddForm} className="px-4 py-2 rounded-lg text-xs font-mono text-green-700 hover:text-green-500 transition-colors">
-                      Cancel
-                    </button>
+                    <button onClick={resetAddForm} className="px-4 py-2 rounded-lg text-xs font-mono text-green-700 hover:text-green-500 transition-colors">Cancel</button>
                   </div>
                 </>
               )}
@@ -777,6 +1109,7 @@ export default function StylistPage() {
                   onMarkWorn={markWorn}
                   onMarkClean={markClean}
                   onDelete={deleteItem}
+                  onEdit={setEditingItem}
                 />
               ))}
             </div>

@@ -1588,11 +1588,248 @@ async function runFanInteractionPipeline(job) {
   return { commentsReplied, likesGiven };
 }
 
+// ── WARDROBE SPLIT PIPELINE ──────────────────────────────────────
+
+async function getSplitJob() {
+  const res = await fetch(`${db("wardrobe_split_jobs")}?status=eq.pending&limit=1`, { headers });
+  const rows = await res.json();
+  const job = rows?.[0];
+  if (!job) return null;
+  const claimRes = await fetch(`${db("wardrobe_split_jobs")}?id=eq.${job.id}&status=eq.pending`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ status: "running", updated_at: new Date().toISOString() }),
+  });
+  const claimed = await claimRes.json();
+  if (!claimed?.length) return null;
+  return claimed[0];
+}
+
+async function updateSplitJob(id, fields) {
+  await fetch(`${db("wardrobe_split_jobs")}?id=eq.${id}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ ...fields, updated_at: new Date().toISOString() }),
+  });
+}
+
+async function waitForImageGen(tabId) {
+  for (let i = 0; i < 30; i++) {
+    const appeared = await injectAndRun(tabId, () =>
+      !!document.querySelector('[data-testid="stop-button"]') ||
+      !!document.querySelector('button[aria-label*="Stop"]')
+    ).catch(() => false);
+    if (appeared) break;
+    await sleep(2000);
+  }
+  for (let i = 0; i < 90; i++) {
+    const done = await injectAndRun(tabId, () =>
+      !document.querySelector('[data-testid="stop-button"]') &&
+      !document.querySelector('button[aria-label*="Stop"]')
+    ).catch(() => true);
+    if (done) break;
+    await sleep(3000);
+  }
+}
+
+// Catalog images render faster — start polling at 30s instead of 75s
+async function extractCatalogImage(tabId) {
+  await sleep(30000);
+  let imgSrc = "";
+  for (let i = 0; i < 30 && !imgSrc; i++) {
+    await injectAndRun(tabId, () => {
+      (document.querySelector("main") || document.body).scrollTo(0, 999999);
+    }).catch(() => {});
+    await sleep(3000);
+    imgSrc = await injectAndRun(tabId, () => {
+      const main = document.querySelector("main");
+      if (!main) return "";
+      const imgs = Array.from(main.querySelectorAll("img")).reverse();
+      for (const img of imgs) {
+        const src = img.currentSrc || img.src || "";
+        if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
+        const r = img.getBoundingClientRect();
+        if (r.width > 150 && r.height > 150) return src;
+      }
+      return "";
+    }).catch(() => "");
+  }
+  if (!imgSrc) return null;
+  return await injectAndRun(tabId, (src) => new Promise(async resolve => {
+    try {
+      const r = await fetch(src, { credentials: "include" });
+      if (!r.ok) { resolve(null); return; }
+      const blob = await r.blob();
+      const fr = new FileReader();
+      fr.onloadend = () => resolve(fr.result);
+      fr.readAsDataURL(blob);
+    } catch { resolve(null); }
+  }), [imgSrc]).catch(() => null);
+}
+
+// Map a ChatGPT item_type string to a wardrobe category
+function mapWardrobeType(t) {
+  const s = (t || "").toLowerCase();
+  if (/shirt|tee|t-shirt|top|blouse|tank|polo|henley|hoodie|sweatshirt|crewneck|sweater|vest|bra|bralette|camisole|bodysuit|jersey|tunic/.test(s)) return "Top";
+  if (/pant|jean|chino|short|trouser|legging|jogger|sweatpant|skirt|brief|boxer|underwear|thong|boyshort/.test(s)) return "Bottom";
+  if (/shoe|sneaker|boot|sandal|loafer|slip-on|running|trainer|heel|flat|pump|slipper|clog|mule/.test(s)) return "Shoes";
+  if (/jacket|coat|puffer|windbreaker|blazer|cardigan|fleece|parka|anorak|raincoat/.test(s)) return "Outerwear";
+  if (/dress|jumpsuit|romper|overall|gown|playsuit/.test(s)) return "Dress/Jumpsuit";
+  if (/hat|cap|beanie|snapback|bucket|beret|visor|fedora/.test(s)) return "Hat";
+  if (/bag|backpack|tote|duffel|satchel|purse|clutch|fanny/.test(s)) return "Bag";
+  if (/watch|belt|wallet|sunglasses|necklace|bracelet|ring|sock|glove|scarf|tie|bowtie|suspender/.test(s)) return "Accessory";
+  return "Top";
+}
+
+async function runWardrobeSplitPipeline(job) {
+  const { id, source_image_url } = job;
+  try {
+    // ── Step 1: Download the product image ───────────────────────────
+    const imageB64 = await urlToBase64(source_image_url);
+    if (!imageB64) {
+      await updateSplitJob(id, { status: "error", error_message: "Could not download the product image. Try right-clicking the product image → Copy image address and paste that URL instead." });
+      return;
+    }
+
+    // ── Step 2: Open ChatGPT, attach image, get analysis ─────────────
+    const analysisTabId = await openTab("https://chatgpt.com/");
+    await waitForTab(analysisTabId);
+    await sleep(4000);
+
+    await attachFilesToTab(analysisTabId, [imageB64]);
+    await sleep(2000);
+
+    await sendGPTMessage(analysisTabId,
+      `I'm showing you a clothing product image from an online store. Analyze it and return ONLY a JSON object — no markdown, no explanation:
+
+{
+  "count": <total number of individual garments shown>,
+  "items": [
+    {
+      "item_type": "<singular item name e.g. boxer brief, t-shirt, hoodie, sock, sneaker>",
+      "color": "<specific color e.g. heather grey, navy blue, olive green>",
+      "brand": "<brand name if visible anywhere in the image or on tags/packaging, else null>",
+      "occasions": [<pick relevant from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
+      "style_notes": "<one sentence describing cut, fit, material cues, or style details visible in the image>"
+    }
+  ]
+}
+
+Rules:
+- If the image has a model wearing the item, describe only the clothing — ignore the model entirely
+- For a multi-pack with different colors, create one entry per unique color in items[]
+- For a multi-pack of identical items (same color), set count > 1 but only one entry in items[]
+- Be specific about color`
+    );
+
+    await waitForGPTDone(analysisTabId);
+
+    const analysisText = await injectAndRun(analysisTabId, () => {
+      const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+      return msgs[msgs.length - 1]?.innerText ?? "";
+    });
+
+    await new Promise(r => chrome.tabs.remove(analysisTabId, () => r())).catch(() => {});
+
+    // Parse analysis JSON
+    let parsedItems = [];
+    let totalCount = 1;
+    try {
+      const m = analysisText.match(/\{[\s\S]*\}/);
+      if (m) {
+        const parsed = JSON.parse(m[0]);
+        if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+          parsedItems = parsed.items;
+          totalCount = typeof parsed.count === "number" ? Math.max(1, Math.min(20, parsed.count)) : parsedItems.length;
+        }
+      }
+    } catch {}
+
+    // Fallback if parse failed
+    if (parsedItems.length === 0) {
+      parsedItems = [{ item_type: "clothing item", color: "unknown", brand: null, occasions: ["Casual"], style_notes: "" }];
+    }
+
+    // ── Step 3: For each unique item, generate catalog image ──────────
+    // If parsedItems has 1 entry but count > 1 → same-color pack (generate 1 image, add N entries)
+    const resultItems = [];
+
+    for (let i = 0; i < parsedItems.length; i++) {
+      const item = parsedItems[i];
+      const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+
+      const imgTabId = await openTab("https://chatgpt.com/");
+      await waitForTab(imgTabId);
+      await sleep(4000);
+
+      // Attach the original product image so ChatGPT can reference it
+      await attachFilesToTab(imgTabId, [imageB64]);
+      await sleep(2000);
+
+      const brandStr = item.brand ? `${item.brand} ` : "";
+      const styleNotes = item.style_notes ? ` ${item.style_notes}` : "";
+
+      await sendGPTMessage(imgTabId,
+        `I'm showing you a product image. Generate a clean, professional catalog photograph of this specific garment:
+
+Item: ${brandStr}${item.color} ${item.item_type}${styleNotes}
+
+Requirements:
+- Plain white or very light neutral background — nothing else
+- NO model, NO mannequin, NO person whatsoever — clothing only
+- If the product image shows a model wearing it, recreate just the garment without the model
+- Flat lay, hanging, or floating ghost-mannequin style — your choice of whichever looks most professional
+- Full item visible, sharp focus, clean retail lighting
+- Quality matching what you'd see on Nike.com, Hanes.com, or a premium Amazon listing`
+      );
+
+      await waitForImageGen(imgTabId);
+      const imgB64result = await extractCatalogImage(imgTabId);
+      await new Promise(r => chrome.tabs.remove(imgTabId, () => r())).catch(() => {});
+
+      // Upload to storage
+      let imageUrl = null;
+      if (imgB64result && imgB64result.startsWith("data:image")) {
+        try {
+          const base64 = imgB64result.split(",")[1];
+          const byteChars = atob(base64);
+          const byteArr = new Uint8Array(byteChars.length);
+          for (let j = 0; j < byteChars.length; j++) byteArr[j] = byteChars.charCodeAt(j);
+          const blob = new Blob([byteArr], { type: "image/png" });
+          imageUrl = await uploadToStorage(`wardrobe-items/${Date.now()}-${i}.png`, blob, "image/png");
+        } catch {}
+        if (!imageUrl) imageUrl = imgB64result; // fall back to data URL
+      }
+
+      const wardrobeType = mapWardrobeType(item.item_type);
+      const itemName = `${brandStr}${cap(item.item_type)} — ${cap(item.color)}`;
+
+      // Single entry per unique item (if pack has same color, duplicate entries below)
+      const entriesForThisItem = (parsedItems.length === 1 && totalCount > 1) ? totalCount : 1;
+      for (let k = 0; k < entriesForThisItem; k++) {
+        resultItems.push({
+          name: entriesForThisItem > 1 ? `${itemName} (${k + 1}/${entriesForThisItem})` : itemName,
+          type: wardrobeType,
+          color: cap(item.color),
+          brand: item.brand || null,
+          occasions: Array.isArray(item.occasions) ? item.occasions : ["Casual"],
+          image_url: imageUrl,
+        });
+      }
+    }
+
+    await updateSplitJob(id, { status: "complete", result_items: resultItems });
+  } catch (err) {
+    await updateSplitJob(id, { status: "error", error_message: err.message });
+  }
+}
+
 // ── ALARM POLLING ─────────────────────────────────────────────────
-chrome.alarms.create("poll", { periodInMinutes: 0.1 }); // every 6 seconds
+chrome.alarms.create("poll",         { periodInMinutes: 0.1 }); // every 6 seconds
 chrome.alarms.create("stylist-poll", { periodInMinutes: 0.1 });
-chrome.alarms.create("social-poll", { periodInMinutes: 0.1 }); // every 6 seconds
-chrome.alarms.create("fan-poll", { periodInMinutes: 0.5 });    // every 30 seconds
+chrome.alarms.create("split-poll",   { periodInMinutes: 0.1 });
+chrome.alarms.create("social-poll",  { periodInMinutes: 0.1 }); // every 6 seconds
+chrome.alarms.create("fan-poll",     { periodInMinutes: 0.5 }); // every 30 seconds
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   // ── Social media posting pipeline ────────────────────────────────
@@ -1643,6 +1880,19 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       if (job) await runStylePipeline(job);
     } catch {}
     await chrome.storage.local.set({ stylistRunning: false });
+    return;
+  }
+
+  // ── Wardrobe split pipeline ───────────────────────────────────────
+  if (alarm.name === "split-poll") {
+    const { splitRunning } = await chrome.storage.local.get(["splitRunning"]);
+    if (splitRunning) return;
+    await chrome.storage.local.set({ splitRunning: true });
+    try {
+      const job = await getSplitJob();
+      if (job) await runWardrobeSplitPipeline(job);
+    } catch {}
+    await chrome.storage.local.set({ splitRunning: false });
     return;
   }
 
@@ -1701,8 +1951,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create("poll",        { periodInMinutes: 0.1 });
-  chrome.alarms.create("stylist-poll",{ periodInMinutes: 0.1 });
-  chrome.alarms.create("social-poll", { periodInMinutes: 0.1 });
-  chrome.alarms.create("fan-poll",    { periodInMinutes: 0.5 });
+  chrome.alarms.create("poll",         { periodInMinutes: 0.1 });
+  chrome.alarms.create("stylist-poll", { periodInMinutes: 0.1 });
+  chrome.alarms.create("split-poll",   { periodInMinutes: 0.1 });
+  chrome.alarms.create("social-poll",  { periodInMinutes: 0.1 });
+  chrome.alarms.create("fan-poll",     { periodInMinutes: 0.5 });
 });

@@ -9,25 +9,35 @@ const supabase = createClient(
 
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
+  const state = req.nextUrl.searchParams.get("state") ?? "";
+
   if (!code) {
     return NextResponse.json({ error: "No code provided" }, { status: 400 });
   }
 
+  // Parse persona from state param (format: "persona:PersonaName")
+  const persona = state.startsWith("persona:") ? state.slice("persona:".length) : null;
+  const service = persona ? `youtube_${persona}` : "youtube";
+
   const client = getOAuthClient();
   const { tokens } = await client.getToken(code);
 
-  // Store tokens in Supabase
-  await supabase.from("oauth_tokens").upsert({
-    service: "youtube",
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token,
-    expires_at: tokens.expiry_date
-      ? new Date(tokens.expiry_date).toISOString()
-      : null,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "service" });
-
-  return NextResponse.redirect(
-    new URL("/youtube?connected=true", req.nextUrl.origin)
+  await supabase.from("oauth_tokens").upsert(
+    {
+      service,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: tokens.expiry_date
+        ? new Date(tokens.expiry_date).toISOString()
+        : null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "service" }
   );
+
+  const redirectTo = persona
+    ? `/music/label?connected=${encodeURIComponent(persona)}`
+    : "/youtube?connected=true";
+
+  return NextResponse.redirect(new URL(redirectTo, req.nextUrl.origin));
 }

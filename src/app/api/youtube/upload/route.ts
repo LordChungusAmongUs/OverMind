@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOAuthClient } from "@/lib/youtube-auth";
+import { getYouTubeClient } from "@/lib/youtube-auth";
 import { google } from "googleapis";
 import { createClient } from "@supabase/supabase-js";
 import { Readable } from "stream";
@@ -13,44 +13,26 @@ const supabase = createClient(
 
 export async function POST(req: NextRequest) {
   try {
-    // Get stored tokens
-    const { data: tokenRow } = await supabase
-      .from("oauth_tokens")
-      .select("*")
-      .eq("service", "youtube")
-      .single();
-
-    if (!tokenRow) {
-      return NextResponse.json({ error: "YouTube not connected. Please authorize first." }, { status: 401 });
-    }
-
-    const oauth = getOAuthClient();
-    oauth.setCredentials({
-      access_token: tokenRow.access_token,
-      refresh_token: tokenRow.refresh_token,
-    });
-
-    // Refresh token if expired
-    if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
-      const { credentials } = await oauth.refreshAccessToken();
-      oauth.setCredentials(credentials);
-      await supabase.from("oauth_tokens").update({
-        access_token: credentials.access_token,
-        expires_at: credentials.expiry_date ? new Date(credentials.expiry_date).toISOString() : null,
-        updated_at: new Date().toISOString(),
-      }).eq("service", "youtube");
-    }
-
     const formData = await req.formData();
     const videoFile = formData.get("video") as File;
     const title = formData.get("title") as string;
     const description = formData.get("description") as string;
+    const personaName = formData.get("persona_name") as string | null;
+    const playlistId = formData.get("playlist_id") as string | null;
 
     if (!videoFile || !title) {
       return NextResponse.json({ error: "Missing video or title" }, { status: 400 });
     }
 
-    const youtube = google.youtube({ version: "v3", auth: oauth });
+    const result = await getYouTubeClient(supabase, personaName);
+    if (!result) {
+      return NextResponse.json(
+        { error: "YouTube not connected. Please authorize first." },
+        { status: 401 }
+      );
+    }
+
+    const youtube = google.youtube({ version: "v3", auth: result.oauth });
     const buffer = Buffer.from(await videoFile.arrayBuffer());
     const stream = Readable.from(buffer);
 
@@ -73,10 +55,29 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    const videoId = response.data.id!;
+
+    // Auto-add to playlist if provided
+    if (playlistId && videoId) {
+      try {
+        await youtube.playlistItems.insert({
+          part: ["snippet"],
+          requestBody: {
+            snippet: {
+              playlistId,
+              resourceId: { kind: "youtube#video", videoId },
+            },
+          },
+        });
+      } catch (e) {
+        console.error("Playlist add after upload error:", e);
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      videoId: response.data.id,
-      url: `https://www.youtube.com/watch?v=${response.data.id}`,
+      videoId,
+      url: `https://www.youtube.com/watch?v=${videoId}`,
     });
   } catch (err: any) {
     console.error("Upload error:", err);

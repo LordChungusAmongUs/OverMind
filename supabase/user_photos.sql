@@ -7,3 +7,6 @@ CREATE TABLE IF NOT EXISTS user_photos (
 );
 
 ALTER TABLE stylist_jobs ADD COLUMN IF NOT EXISTS reference_photo_url TEXT;
+
+-- Required: disable RLS so the anon key can read/write
+ALTER TABLE user_photos DISABLE ROW LEVEL SECURITY;
