@@ -1682,75 +1682,87 @@ function mapWardrobeType(t) {
 }
 
 async function runWardrobeSplitPipeline(job) {
-  const { id, source_image_url, item_name, item_type, item_brand, item_notes } = job;
+  const { id, source_image_url, item_name, item_type, item_brand } = job;
   try {
-    // ── Step 1: Use pre-analyzed items from server (Claude), or fall back to ChatGPT image analysis
+    // ── Step 1: Download the product image from Supabase (re-hosted by server, always reliable)
+    console.log("[split] Downloading image:", source_image_url);
+    const imageB64 = await urlToBase64(source_image_url);
+    if (!imageB64) {
+      await updateSplitJob(id, { status: "error", error_message: "Could not download the product image. Make sure the pipeline-assets bucket is public in Supabase Storage." });
+      return;
+    }
+    console.log("[split] Image downloaded, opening ChatGPT for analysis...");
+
+    // ── Step 2: ChatGPT analysis — image + product context → item breakdown
+    const analysisTabId = await openTab("https://chatgpt.com/");
+    await waitForTab(analysisTabId);
+    await sleep(4000);
+    await attachFilesToTab(analysisTabId, [imageB64]);
+    await sleep(2000);
+
+    const productContext = [
+      item_name  ? `Product name: ${item_name}`  : null,
+      item_type  ? `Category: ${item_type}`       : null,
+      item_brand ? `Brand: ${item_brand}`         : null,
+    ].filter(Boolean).join("\n");
+
+    const focusNote = item_type
+      ? `The product is a ${item_type.toLowerCase()}. If the image shows a model wearing multiple items, focus ONLY on the ${item_type.toLowerCase()} — ignore every other garment on the model.`
+      : `Focus only on the main product being sold, ignoring any other garments a model may be wearing.`;
+
+    await sendGPTMessage(analysisTabId,
+      `I'm showing you an online store product image. Analyze the specific product and return ONLY a JSON object — no markdown, no explanation.
+
+${productContext}
+
+${focusNote}
+
+{
+  "count": <total individual pieces in this purchase, e.g. 1 for single, 7 for a 7-pack>,
+  "items": [
+    {
+      "item_type": "<specific singular item e.g. boxer brief, t-shirt, crew sock>",
+      "color": "<specific color e.g. Black, Heather Grey, Navy Blue>",
+      "brand": "<brand or null>",
+      "occasions": [<from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
+      "style_notes": "<one sentence about cut, fit, material>"
+    }
+  ]
+}
+
+Counting rules:
+- Single item → count:1, one items[] entry
+- Multi-pack, all same color → count:N, one items[] entry
+- Multi-pack, different colors → count:total pieces, one items[] entry PER unique color
+- Variety pack (colors not visible) → list the most likely colors sold for this item type`
+    );
+
+    await waitForGPTDone(analysisTabId);
+    const analysisText = await injectAndRun(analysisTabId, () => {
+      const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+      return msgs[msgs.length - 1]?.innerText ?? "";
+    });
+    await new Promise(r => chrome.tabs.remove(analysisTabId, () => r())).catch(() => {});
+    console.log("[split] Analysis done, raw text:", analysisText?.slice(0, 200));
+
+    // Parse the JSON response
     let parsedItems = [];
     let totalCount = 1;
-
-    // item_notes contains JSON from server-side Claude analysis when a product URL was used
-    if (item_notes) {
-      try {
-        const pre = JSON.parse(item_notes);
-        if (Array.isArray(pre.items) && pre.items.length > 0) {
-          parsedItems = pre.items;
-          totalCount = typeof pre.count === "number" ? Math.max(1, Math.min(20, pre.count)) : parsedItems.length;
-          console.log("[split] Using server pre-analysis:", parsedItems.length, "items, count=", totalCount);
+    try {
+      const m = analysisText.match(/\{[\s\S]*\}/);
+      if (m) {
+        const parsed = JSON.parse(m[0]);
+        if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+          parsedItems = parsed.items;
+          totalCount = typeof parsed.count === "number" ? Math.max(1, Math.min(20, parsed.count)) : parsedItems.length;
         }
-      } catch {}
-    }
-
-    // Fallback: ChatGPT image analysis (used when user pastes a direct image URL with no product context)
-    if (parsedItems.length === 0) {
-      console.log("[split] No pre-analysis, downloading image for ChatGPT analysis...");
-      const imageB64 = await urlToBase64(source_image_url);
-      if (!imageB64) {
-        await updateSplitJob(id, { status: "error", error_message: "Could not download the product image. Try using the product page URL instead of a direct image URL, or enter the item manually." });
-        return;
       }
+    } catch {}
 
-      const analysisTabId = await openTab("https://chatgpt.com/");
-      await waitForTab(analysisTabId);
-      await sleep(4000);
-      await attachFilesToTab(analysisTabId, [imageB64]);
-      await sleep(2000);
-
-      const focusClause = item_type
-        ? `Focus ONLY on the ${item_type.toLowerCase()} — ignore any other garments or accessories visible.`
-        : `Focus only on the main featured product.`;
-
-      await sendGPTMessage(analysisTabId,
-        `Analyze this clothing product image and return ONLY a JSON object — no markdown:
-{
-  "count": <total individual pieces>,
-  "items": [{ "item_type": "<singular name>", "color": "<specific color>", "brand": "<brand or null>", "occasions": [<from: Casual,Work,Gym,Going Out,Date Night,Errands,Church,Travel,Formal>], "style_notes": "<one sentence>" }]
-}
-Rules: ${focusClause} One items[] entry per unique color. For same-color multi-pack, count>1 one entry. Be specific about color.`
-      );
-
-      await waitForGPTDone(analysisTabId);
-      const analysisText = await injectAndRun(analysisTabId, () => {
-        const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
-        return msgs[msgs.length - 1]?.innerText ?? "";
-      });
-      await new Promise(r => chrome.tabs.remove(analysisTabId, () => r())).catch(() => {});
-
-      try {
-        const m = analysisText.match(/\{[\s\S]*\}/);
-        if (m) {
-          const parsed = JSON.parse(m[0]);
-          if (Array.isArray(parsed.items) && parsed.items.length > 0) {
-            parsedItems = parsed.items;
-            totalCount = typeof parsed.count === "number" ? Math.max(1, Math.min(20, parsed.count)) : parsedItems.length;
-          }
-        }
-      } catch {}
-    }
-
-    // Final fallback
     if (parsedItems.length === 0) {
       parsedItems = [{ item_type: item_type ?? "clothing item", color: "unknown", brand: item_brand ?? null, occasions: ["Casual"], style_notes: "" }];
     }
+    console.log("[split] Parsed", parsedItems.length, "items, total count:", totalCount);
 
     // ── Step 3: For each unique item, generate catalog image ──────────
     // If parsedItems has 1 entry but count > 1 → same-color pack (generate 1 image, add N entries)
@@ -1759,6 +1771,7 @@ Rules: ${focusClause} One items[] entry per unique color. For same-color multi-p
     for (let i = 0; i < parsedItems.length; i++) {
       const item = parsedItems[i];
       const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+      console.log(`[split] Generating image ${i + 1}/${parsedItems.length}:`, item.color, item.item_type);
 
       const imgTabId = await openTab("https://chatgpt.com/");
       await waitForTab(imgTabId);

@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 15000, maxRetries: 0 });
 
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -10,51 +7,29 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-async function analyzeProductWithClaude(
-  item_name: string,
-  item_type: string | null,
-  item_brand: string | null,
-): Promise<{ count: number; items: object[] } | null> {
+// Download an image and re-host it in Supabase so the extension can reliably fetch it.
+// Amazon CDN URLs often block extension service worker fetches; our own storage doesn't.
+async function reHostImage(imageUrl: string, jobId: string): Promise<string | null> {
   try {
-    const msg = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 600,
-      messages: [{
-        role: "user",
-        content: `You are analyzing a clothing product for a wardrobe catalog app. Given the product name, determine all individual items to add.
-
-Product: ${item_name}
-Category: ${item_type ?? "unknown"}
-Brand: ${item_brand ?? "unknown"}
-
-Return ONLY a raw JSON object (no markdown, no explanation):
-{
-  "count": <total individual pieces in this purchase>,
-  "items": [
-    {
-      "item_type": "<specific singular item e.g. boxer brief, t-shirt, crew sock, sneaker>",
-      "color": "<specific color e.g. Black, White, Navy Blue, Heather Grey>",
-      "brand": "<brand or null>",
-      "occasions": [<from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
-      "style_notes": "<one sentence about fit, cut, or material>"
-    }
-  ]
-}
-
-Rules:
-- For a multi-pack with different colors, create one items[] entry per unique color
-- For a multi-pack of identical color, set count > 1 and one items[] entry
-- For a variety/assorted pack where specific colors are not listed, infer the most common colors sold for this item type
-- count = total number of individual pieces across all colors
-- Keep item_type singular and specific`,
-      }],
+    const res = await fetch(imageUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Referer": "https://www.amazon.com/",
+      },
+      signal: AbortSignal.timeout(10000),
     });
-    const text = (msg.content[0] as { text: string }).text.trim();
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    const parsed = JSON.parse(match[0]);
-    if (!Array.isArray(parsed.items) || parsed.items.length === 0) return null;
-    return parsed;
+    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type") ?? "image/jpeg";
+    const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const path = `scraped-images/${jobId}.${ext}`;
+    const supabase = getSupabase();
+    const { error } = await supabase.storage
+      .from("pipeline-assets")
+      .upload(path, buffer, { contentType, upsert: true });
+    if (error) return null;
+    const { data } = supabase.storage.from("pipeline-assets").getPublicUrl(path);
+    return data.publicUrl;
   } catch {
     return null;
   }
@@ -75,15 +50,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No image URL" }, { status: 400 });
   }
 
-  // If we have a product name, analyze with Claude server-side so the extension
-  // can skip the ChatGPT analysis tab and go straight to image generation.
-  let pre_analyzed: string | null = null;
-  if (body.item_name) {
-    const result = await analyzeProductWithClaude(body.item_name, body.item_type ?? null, body.item_brand ?? null);
-    if (result) pre_analyzed = JSON.stringify(result);
-  }
-
   const supabase = getSupabase();
+
+  // Create the job first to get an ID for the image path
   const { data, error } = await supabase.from("wardrobe_split_jobs").insert({
     source_image_url: body.source_image_url,
     item_name: body.item_name ?? null,
@@ -92,9 +61,18 @@ export async function POST(req: Request) {
     item_color: body.item_color ?? null,
     item_occasions: body.item_occasions ?? [],
     item_size: body.item_size ?? null,
-    item_notes: pre_analyzed,  // JSON string of pre-analyzed items, or null
+    item_notes: null,
   }).select().single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Re-host image to Supabase so the extension can reliably download it
+  const hostedUrl = await reHostImage(body.source_image_url, data.id);
+  if (hostedUrl) {
+    await supabase.from("wardrobe_split_jobs")
+      .update({ source_image_url: hostedUrl })
+      .eq("id", data.id);
+  }
+
   return NextResponse.json({ jobId: data.id });
 }
