@@ -5,14 +5,7 @@
   "description": "Automates the @djthirstyboy track pipeline — ChatGPT + Suno",
   "permissions": ["tabs", "scripting", "storage", "alarms", "cookies"],
   "host_permissions": [
-    "https://chatgpt.com/*",
-    "https://chat.openai.com/*",
-    "https://suno.com/*",
-    "https://*.suno.ai/*",
-    "https://*.suno.com/*",
-    "https://*.oaiusercontent.com/*",
-    "https://*.openai.com/*",
-    "https://yrvxxnhwkmukhtwpcusw.supabase.co/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"

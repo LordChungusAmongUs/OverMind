@@ -847,17 +847,17 @@ async function runPipeline(job) {
 
 // ── STYLIST HELPERS ──────────────────────────────────────────────
 
-// Convert a URL to base64 data URL
+// Convert a URL to base64 data URL (uses btoa, safe in MV3 service workers)
 async function urlToBase64(url) {
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
-    const blob = await res.blob();
-    return await new Promise(resolve => {
-      const fr = new FileReader();
-      fr.onloadend = () => resolve(fr.result);
-      fr.readAsDataURL(blob);
-    });
+    const contentType = res.headers.get("content-type") ?? "image/jpeg";
+    const buffer = await res.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return `data:${contentType};base64,${btoa(binary)}`;
   } catch { return null; }
 }
 
@@ -1684,21 +1684,20 @@ function mapWardrobeType(t) {
 async function runWardrobeSplitPipeline(job) {
   const { id, source_image_url, item_name, item_type, item_brand } = job;
   try {
-    // ── Step 1: Download the product image from Supabase (re-hosted by server, always reliable)
+    // ── Step 1: Download the product image (best-effort; continue without it if unavailable)
     console.log("[split] Downloading image:", source_image_url);
     const imageB64 = await urlToBase64(source_image_url);
-    if (!imageB64) {
-      await updateSplitJob(id, { status: "error", error_message: "Could not download the product image. Make sure the pipeline-assets bucket is public in Supabase Storage." });
-      return;
-    }
-    console.log("[split] Image downloaded, opening ChatGPT for analysis...");
+    console.log("[split] Image download:", imageB64 ? "success" : "failed — will use text-only analysis");
 
-    // ── Step 2: ChatGPT analysis — image + product context → item breakdown
+    // ── Step 2: ChatGPT analysis — image (if available) + product context → item breakdown
     const analysisTabId = await openTab("https://chatgpt.com/");
     await waitForTab(analysisTabId);
     await sleep(4000);
-    await attachFilesToTab(analysisTabId, [imageB64]);
-    await sleep(2000);
+
+    if (imageB64) {
+      await attachFilesToTab(analysisTabId, [imageB64]);
+      await sleep(2000);
+    }
 
     const productContext = [
       item_name  ? `Product name: ${item_name}`  : null,
@@ -1710,8 +1709,12 @@ async function runWardrobeSplitPipeline(job) {
       ? `The product is a ${item_type.toLowerCase()}. If the image shows a model wearing multiple items, focus ONLY on the ${item_type.toLowerCase()} — ignore every other garment on the model.`
       : `Focus only on the main product being sold, ignoring any other garments a model may be wearing.`;
 
+    const imageNote = imageB64
+      ? `I'm showing you the product image.`
+      : `No image is available — use the product name to determine the items.`;
+
     await sendGPTMessage(analysisTabId,
-      `I'm showing you an online store product image. Analyze the specific product and return ONLY a JSON object — no markdown, no explanation.
+      `${imageNote} Analyze the specific product and return ONLY a JSON object — no markdown, no explanation.
 
 ${productContext}
 
