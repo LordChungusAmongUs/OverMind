@@ -1907,10 +1907,19 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
   // ── Wardrobe split pipeline ───────────────────────────────────────
   if (alarm.name === "split-poll") {
-    const { splitRunning } = await chrome.storage.local.get(["splitRunning"]);
-    console.log("[split-poll] tick, splitRunning=", splitRunning);
-    if (splitRunning) return;
-    await chrome.storage.local.set({ splitRunning: true });
+    const { splitRunning, splitRunningStarted } = await chrome.storage.local.get(["splitRunning", "splitRunningStarted"]);
+    // Watchdog: auto-reset if stuck for more than 8 minutes
+    if (splitRunning) {
+      const staleMs = Date.now() - (splitRunningStarted ?? 0);
+      if (staleMs > 8 * 60 * 1000) {
+        console.log("[split-poll] watchdog: resetting stuck splitRunning after", Math.round(staleMs / 1000), "s");
+        await chrome.storage.local.set({ splitRunning: false, splitRunningStarted: null });
+      } else {
+        console.log("[split-poll] tick, splitRunning= true for", Math.round(staleMs / 1000), "s");
+        return;
+      }
+    }
+    await chrome.storage.local.set({ splitRunning: true, splitRunningStarted: Date.now() });
     try {
       const job = await getSplitJob();
       console.log("[split-poll] job=", job?.id ?? "none");
@@ -1918,7 +1927,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     } catch (err) {
       console.error("[split-poll] error:", err);
     }
-    await chrome.storage.local.set({ splitRunning: false });
+    await chrome.storage.local.set({ splitRunning: false, splitRunningStarted: null });
     return;
   }
 
