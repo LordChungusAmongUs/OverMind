@@ -1778,25 +1778,25 @@ Rules:
       await waitForTab(imgTabId);
       await sleep(4000);
 
-      // Attach the original product image so ChatGPT can reference it
-      await attachFilesToTab(imgTabId, [imageB64]);
-      await sleep(2000);
-
       const brandStr = item.brand ? `${item.brand} ` : "";
-      const styleNotes = item.style_notes ? ` ${item.style_notes}` : "";
+      const styleNotes = item.style_notes ? ` Style details: ${item.style_notes}.` : "";
 
+      // Generate from text description only — do NOT send the original image.
+      // Sending the image causes ChatGPT to focus on whatever the model is wearing most prominently
+      // (often a shirt) instead of the actual product being cataloged.
       await sendGPTMessage(imgTabId,
-        `I'm showing you a product image. Generate a clean, professional catalog photograph of this specific garment:
+        `Generate a clean, professional catalog photograph of this exact clothing item:
 
 Item: ${brandStr}${item.color} ${item.item_type}${styleNotes}
 
 Requirements:
-- Plain white or very light neutral background — nothing else
-- NO model, NO mannequin, NO person whatsoever — clothing only
-- If the product image shows a model wearing it, recreate just the garment without the model
-- Flat lay, hanging, or floating ghost-mannequin style — your choice of whichever looks most professional
+- Generate ONLY a ${item.item_type} — do not generate any other garment or accessory
+- ${item.color} color — match this exactly
+- Plain white or very light neutral background
+- NO model, NO mannequin, NO person — garment only
+- Flat lay, hanging, or ghost-mannequin style — whichever looks most professional for this item type
 - Full item visible, sharp focus, clean retail lighting
-- Quality matching what you'd see on Nike.com, Hanes.com, or a premium Amazon listing`
+- Quality matching a premium brand's official product page`
       );
 
       await waitForImageGen(imgTabId);
