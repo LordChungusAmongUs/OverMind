@@ -8,6 +8,7 @@ import {
   Plus, X, Check, Loader2, Save, ChevronDown, ChevronUp,
   Mic2, Globe, Users, Heart, BookOpen, ListMusic, Share2, Radio,
   Pencil, Trash2, ExternalLink, RefreshCw, Eye, ThumbsUp, Tag,
+  Layers, ArrowRight, Image as ImageIcon,
 } from "lucide-react";
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -117,19 +118,33 @@ const DEFAULT_PROMPTS: Record<string, Record<string, string>> = {
 };
 
 const PROMPT_VARS: Record<string, string> = {
-  lyrics:        "{{genre}}  {{theme}}",
-  art:           "{{genre}}  {{theme}}",
-  title:         "{{genre}}  {{theme}}",
-  metadata:      "{{genre}}  {{theme}}",
-  comment_reply: "{{comment}}",
+  // Track
+  lyrics:            "{{genre}}  {{theme}}",
+  art:               "{{genre}}  {{theme}}",
+  title:             "{{genre}}  {{theme}}",
+  metadata:          "{{genre}}  {{theme}}",
+  comment_reply:     "{{comment}}",
+  // Album
+  album_title:       "{{genre}}  {{theme}}  {{track_count}}",
+  album_art:         "{{album_title}}  {{genre}}",
+  track_art_overlay: "{{album_art_url}}  {{album_title}}  {{genre}}  {{theme}}",
+  // Playlist
+  playlist_name:     "{{vibe}}  {{playlist_type}}",
 };
 
 const PROMPT_TYPES = [
-  { key: "lyrics",        label: "Lyrics / Notes",  icon: Music2 },
-  { key: "art",           label: "Cover Art",        icon: Wand2 },
-  { key: "title",         label: "Track Title",      icon: BookOpen },
-  { key: "metadata",      label: "YT Description",   icon: Globe },
-  { key: "comment_reply", label: "Comment Reply",    icon: MessageSquare },
+  // ── Track ──
+  { key: "lyrics",            group: "track",   label: "Lyrics / Notes",   icon: Music2,       fallback: "" },
+  { key: "art",               group: "track",   label: "Cover Art",         icon: Wand2,        fallback: "" },
+  { key: "title",             group: "track",   label: "Track Title",       icon: BookOpen,     fallback: "" },
+  { key: "metadata",          group: "track",   label: "YT Description",    icon: Globe,        fallback: "" },
+  { key: "comment_reply",     group: "track",   label: "Comment Reply",     icon: MessageSquare, fallback: "" },
+  // ── Album ──
+  { key: "album_title",       group: "album",   label: "Album Title",       icon: Disc3,        fallback: "Generate a 2-4 word album title for a {{genre}} artist exploring {{theme}}. Return ONLY the title — no quotes, no explanation." },
+  { key: "album_art",         group: "album",   label: "Album Art",         icon: ImageIcon,    fallback: "Generate professional square album cover art for '{{album_title}}' — a {{genre}} release. Dark, atmospheric, no text on the image." },
+  { key: "track_art_overlay", group: "album",   label: "Track Art Style",   icon: Layers,       fallback: "Create artwork for a {{genre}} track from the album '{{album_title}}'. Theme: {{theme}}. Visually match the album's aesthetic and color palette. No text on image." },
+  // ── Playlist ──
+  { key: "playlist_name",     group: "playlist", label: "Playlist Name",    icon: ListMusic,    fallback: "Generate a creative 3-5 word YouTube playlist name. Vibe: {{vibe}}. Type: {{playlist_type}}. Return ONLY the name." },
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -146,6 +161,7 @@ interface ArtistChannel {
   emoji: string | null;
   color_key: string | null;
   playlist_auto_sync: boolean;
+  current_album_id: string | null;
 }
 
 interface PromptConfig {
@@ -163,6 +179,8 @@ interface Album {
   description: string | null;
   status: string;
   youtube_playlist_id: string | null;
+  max_tracks: number;
+  auto_generated: boolean;
   created_at: string;
 }
 
@@ -259,6 +277,8 @@ export default function LabelPage() {
   const [expandedAlbum, setExpandedAlbum] = useState<string | null>(null);
   const [addingTrack, setAddingTrack] = useState<string | null>(null);
   const [newTrack, setNewTrack] = useState({ title: "", youtube_url: "" });
+  const [generatingAlbum, setGeneratingAlbum] = useState<string | null>(null);
+  const [albumTrackCounts, setAlbumTrackCounts] = useState<Record<string, number>>({});
 
   // Fan
   const [fanJobs, setFanJobs] = useState<FanJob[]>([]);
@@ -320,7 +340,7 @@ export default function LabelPage() {
     const drafts: Record<string, string> = {};
     PROMPT_TYPES.forEach(pt => {
       const saved = data?.find(p => p.prompt_type === pt.key);
-      drafts[pt.key] = saved?.template ?? DEFAULT_PROMPTS[persona]?.[pt.key] ?? "";
+      drafts[pt.key] = saved?.template ?? DEFAULT_PROMPTS[persona]?.[pt.key] ?? pt.fallback;
     });
     setPromptDrafts(drafts);
     setLoadingPrompts(false);
@@ -336,6 +356,14 @@ export default function LabelPage() {
   const loadAlbumTracks = useCallback(async (albumId: string) => {
     const { data } = await supabase.from("album_tracks").select("*").eq("album_id", albumId).order("track_number");
     setAlbumTracks(prev => ({ ...prev, [albumId]: data ?? [] }));
+  }, []);
+
+  const loadAlbumTrackCounts = useCallback(async () => {
+    const { data } = await supabase.from("album_tracks").select("album_id");
+    if (!data) return;
+    const counts: Record<string, number> = {};
+    for (const row of data) counts[row.album_id] = (counts[row.album_id] ?? 0) + 1;
+    setAlbumTrackCounts(counts);
   }, []);
 
   const loadFanJobs = useCallback(async () => {
@@ -361,7 +389,7 @@ export default function LabelPage() {
   }, []);
 
   useEffect(() => { loadChannels(); }, [loadChannels]);
-  useEffect(() => { loadAlbums(); }, [loadAlbums]);
+  useEffect(() => { loadAlbums(); loadAlbumTrackCounts(); }, [loadAlbums, loadAlbumTrackCounts]);
   useEffect(() => { loadFanJobs(); }, [loadFanJobs]);
   useEffect(() => { loadPrompts(promptPersona); }, [promptPersona, loadPrompts]);
   const loadPlaylists = useCallback(async (persona: string) => {
@@ -687,6 +715,28 @@ export default function LabelPage() {
   async function deleteAlbum(id: string) {
     await supabase.from("albums").delete().eq("id", id);
     setAlbums(prev => prev.filter(a => a.id !== id));
+  }
+
+  async function generateNextAlbum(personaName: string) {
+    setGeneratingAlbum(personaName);
+    try {
+      const res = await fetch("/api/youtube/generate-album", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ persona_name: personaName }),
+      });
+      const json = await res.json();
+      if (json.album) {
+        setAlbums(prev => [json.album, ...prev]);
+        setChannels(prev => prev.map(c => c.persona_name === personaName ? { ...c, current_album_id: json.album.id } : c));
+      }
+    } catch {}
+    setGeneratingAlbum(null);
+  }
+
+  async function setAsCurrentAlbum(personaName: string, albumId: string | null) {
+    await supabase.from("artist_channels").update({ current_album_id: albumId }).eq("persona_name", personaName);
+    setChannels(prev => prev.map(c => c.persona_name === personaName ? { ...c, current_album_id: albumId } : c));
   }
 
   async function addTrack(albumId: string) {
@@ -1047,17 +1097,50 @@ export default function LabelPage() {
                         <Wand2 className="w-3 h-3" /> Edit Prompts
                       </button>
 
-                      {/* Albums count + link */}
+                      {/* Current album + progress bar */}
                       {(() => {
-                        const artistAlbums = albums.filter(a => a.persona_name === ch.persona_name);
-                        return artistAlbums.length > 0 ? (
+                        const currentAlbum = ch.current_album_id ? albums.find(a => a.id === ch.current_album_id) : null;
+                        const trackCount = currentAlbum ? (albumTrackCounts[currentAlbum.id] ?? 0) : 0;
+                        const maxTracks = currentAlbum?.max_tracks ?? 10;
+                        const isFull = currentAlbum && trackCount >= maxTracks;
+
+                        if (currentAlbum) {
+                          return (
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setTab("albums")} className="flex items-center gap-1 text-xs font-mono text-green-600 hover:text-green-400 transition-colors">
+                                <Disc3 className="w-3 h-3" /> {currentAlbum.title}
+                              </button>
+                              <div className="flex items-center gap-1">
+                                <div className="w-16 h-1 rounded-full bg-green-900/60 overflow-hidden">
+                                  <div className={`h-full rounded-full transition-all ${isFull ? "bg-yellow-400" : "bg-green-500"}`} style={{ width: `${Math.min(100, (trackCount / maxTracks) * 100)}%` }} />
+                                </div>
+                                <span className="text-xs font-mono text-green-800">{trackCount}/{maxTracks}</span>
+                              </div>
+                              {isFull && (
+                                <button
+                                  onClick={() => generateNextAlbum(ch.persona_name)}
+                                  disabled={generatingAlbum === ch.persona_name}
+                                  className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-yellow-500/40 bg-yellow-500/10 text-yellow-300 font-mono font-bold hover:bg-yellow-500/20 transition-all disabled:opacity-40"
+                                >
+                                  {generatingAlbum === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRight className="w-3 h-3" />}
+                                  Next Album
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        const artistAlbumCount = albums.filter(a => a.persona_name === ch.persona_name).length;
+                        return (
                           <button
-                            onClick={() => setTab("albums")}
-                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/20 text-green-700 font-mono hover:text-green-400 transition-colors"
+                            onClick={() => generateNextAlbum(ch.persona_name)}
+                            disabled={generatingAlbum === ch.persona_name}
+                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/20 text-green-700 font-mono hover:text-green-400 transition-colors disabled:opacity-40"
                           >
-                            <Disc3 className="w-3 h-3" /> {artistAlbums.length} album{artistAlbums.length !== 1 ? "s" : ""}
+                            {generatingAlbum === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : <Disc3 className="w-3 h-3" />}
+                            {artistAlbumCount > 0 ? "Generate Album" : "Start First Album"}
                           </button>
-                        ) : null;
+                        );
                       })()}
 
                       {/* Last comment job status */}
@@ -1123,42 +1206,58 @@ export default function LabelPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {PROMPT_TYPES.map(({ key, label, icon: Icon }) => {
-                  const isDefault = (promptDrafts[key] ?? "") === (DEFAULT_PROMPTS[promptPersona]?.[key] ?? "");
-                  return (
-                    <div key={key} className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Icon className="w-4 h-4 text-green-400" />
-                        <p className="text-xs font-mono font-black uppercase tracking-wider text-green-500">{label}</p>
-                        <span className="text-xs font-mono text-yellow-400 ml-2">vars: {PROMPT_VARS[key]}</span>
-                        {!isDefault && <span className="text-xs text-yellow-400 font-mono ml-auto">• modified</span>}
-                      </div>
-                      <textarea
-                        className="w-full bg-black/60 border border-green-500/20 rounded-lg px-3 py-2 text-xs text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60 resize-y min-h-[80px]"
-                        value={promptDrafts[key] ?? ""}
-                        onChange={e => setPromptDrafts(prev => ({ ...prev, [key]: e.target.value }))}
-                      />
-                      <div className="flex gap-2 mt-2">
-                        <button
-                          onClick={() => savePrompt(key)}
-                          disabled={savingPrompt === key}
-                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40"
-                        >
-                          {savingPrompt === key ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                          Save
-                        </button>
-                        {!isDefault && (
+                {(() => {
+                  const GROUP_LABELS: Record<string, string> = {
+                    track: "Track Generation",
+                    album: "Album Generation",
+                    playlist: "Playlist Generation",
+                  };
+                  let lastGroup = "";
+                  return PROMPT_TYPES.flatMap(pt => {
+                    const { key, label, icon: Icon, group, fallback } = pt;
+                    const defaultVal = DEFAULT_PROMPTS[promptPersona]?.[key] ?? fallback;
+                    const isDefault = (promptDrafts[key] ?? "") === defaultVal;
+                    const header = group !== lastGroup ? (lastGroup = group, (
+                      <p key={`g_${group}`} className="text-xs font-mono font-black uppercase tracking-widest text-green-700 pt-2 pb-1 border-b border-green-500/10">
+                        {GROUP_LABELS[group] ?? group}
+                      </p>
+                    )) : null;
+                    const card = (
+                      <div key={key} className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Icon className="w-4 h-4 text-green-400" />
+                          <p className="text-xs font-mono font-black uppercase tracking-wider text-green-500">{label}</p>
+                          <span className="text-xs font-mono text-yellow-400 ml-2">vars: {PROMPT_VARS[key]}</span>
+                          {!isDefault && <span className="text-xs text-yellow-400 font-mono ml-auto">• modified</span>}
+                        </div>
+                        <textarea
+                          className="w-full bg-black/60 border border-green-500/20 rounded-lg px-3 py-2 text-xs text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60 resize-y min-h-[80px]"
+                          value={promptDrafts[key] ?? ""}
+                          onChange={e => setPromptDrafts(prev => ({ ...prev, [key]: e.target.value }))}
+                        />
+                        <div className="flex gap-2 mt-2">
                           <button
-                            onClick={() => resetPrompt(key)}
-                            className="text-xs font-mono text-green-800 hover:text-green-600 transition-colors px-2"
+                            onClick={() => savePrompt(key)}
+                            disabled={savingPrompt === key}
+                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40"
                           >
-                            Reset to default
+                            {savingPrompt === key ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                            Save
                           </button>
-                        )}
+                          {!isDefault && (
+                            <button
+                              onClick={() => resetPrompt(key)}
+                              className="text-xs font-mono text-green-800 hover:text-green-600 transition-colors px-2"
+                            >
+                              Reset to default
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                    return header ? [header, card] : [card];
+                  });
+                })()}
               </div>
             )}
           </div>
@@ -1233,6 +1332,7 @@ export default function LabelPage() {
                   const tracks = albumTracks[album.id];
                   const isExpanded = expandedAlbum === album.id;
                   const uploadedCount = (tracks ?? []).filter(t => t.status === "uploaded").length;
+                  const isCurrent = albumCh?.current_album_id === album.id;
 
                   return (
                     <div key={album.id} className={`rounded-xl border ${meta.bg} bg-black/40`}>
@@ -1252,7 +1352,12 @@ export default function LabelPage() {
                           </div>
                         )}
                         <div className="flex-1 text-left">
-                          <p className={`text-sm font-mono font-black ${meta.color}`}>{album.title}</p>
+                          <div className="flex items-center gap-2">
+                            <p className={`text-sm font-mono font-black ${meta.color}`}>{album.title}</p>
+                            {isCurrent && (
+                              <span className="text-xs font-mono px-1.5 py-0.5 rounded border border-yellow-500/50 text-yellow-400 bg-yellow-500/10">current</span>
+                            )}
+                          </div>
                           <p className="text-xs text-green-800 font-mono">{album.persona_name} · {uploadedCount}/{tracks?.length ?? "?"} uploaded</p>
                         </div>
                         <span className={`text-xs font-mono px-2 py-0.5 rounded-full border ${
@@ -1360,6 +1465,14 @@ export default function LabelPage() {
                             >
                               Mark as {album.status === "released" ? "in progress" : "released"}
                             </button>
+                            {albumCh && (
+                              <button
+                                onClick={() => setAsCurrentAlbum(album.persona_name, isCurrent ? null : album.id)}
+                                className={`text-xs font-mono transition-colors px-2 ${isCurrent ? "text-yellow-600 hover:text-yellow-400" : "text-green-800 hover:text-green-500"}`}
+                              >
+                                {isCurrent ? "Unset current" : "Set as current"}
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}
