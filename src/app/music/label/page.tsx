@@ -244,6 +244,7 @@ export default function LabelPage() {
   const [newArtistForm, setNewArtistForm] = useState({ name: "", emoji: "🎵", color_key: "purple", channel_name: "", youtube_channel_id: "", genre_description: "" });
   const [creatingArtist, setCreatingArtist] = useState(false);
   const [creatingPlaylist, setCreatingPlaylist] = useState<string | null>(null);
+  const [scanningReply, setScanningReply] = useState<string | null>(null); // persona_name being scanned
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -407,6 +408,17 @@ export default function LabelPage() {
       console.error("createPlaylist error", e);
     }
     setCreatingPlaylist(null);
+  }
+
+  async function scanAndReply(personaName: string) {
+    setScanningReply(personaName);
+    const { data } = await supabase.from("fan_interaction_jobs").insert({
+      persona_name: personaName,
+      video_id: null,
+      status: "pending",
+    }).select().single();
+    if (data) setFanJobs(prev => [data, ...prev]);
+    setScanningReply(null);
   }
 
   // ── Prompt actions ────────────────────────────────────────────────────────
@@ -744,16 +756,63 @@ export default function LabelPage() {
                         onChange={e => setChannelField(ch.persona_name, "youtube_channel_id", e.target.value)}
                       />
                     </div>
-                    {isDirty && (
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-green-500/10 flex-wrap">
+                      {/* Scan & Reply comments */}
                       <button
-                        onClick={() => saveChannel(ch.persona_name)}
-                        disabled={savingChannel === ch.persona_name}
-                        className="mt-2 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40"
+                        onClick={() => scanAndReply(ch.persona_name)}
+                        disabled={scanningReply === ch.persona_name}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40"
                       >
-                        {savingChannel === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                        Save
+                        {scanningReply === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : <MessageSquare className="w-3 h-3" />}
+                        Scan & Reply Comments
                       </button>
-                    )}
+
+                      {/* Edit prompts shortcut */}
+                      <button
+                        onClick={() => { setPromptPersona(ch.persona_name); setTab("prompts"); }}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/20 text-green-700 font-mono hover:text-green-400 transition-colors"
+                      >
+                        <Wand2 className="w-3 h-3" /> Edit Prompts
+                      </button>
+
+                      {/* Albums count + link */}
+                      {(() => {
+                        const artistAlbums = albums.filter(a => a.persona_name === ch.persona_name);
+                        return artistAlbums.length > 0 ? (
+                          <button
+                            onClick={() => setTab("albums")}
+                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/20 text-green-700 font-mono hover:text-green-400 transition-colors"
+                          >
+                            <Disc3 className="w-3 h-3" /> {artistAlbums.length} album{artistAlbums.length !== 1 ? "s" : ""}
+                          </button>
+                        ) : null;
+                      })()}
+
+                      {/* Last comment job status */}
+                      {(() => {
+                        const lastJob = fanJobs.find(j => j.persona_name === ch.persona_name);
+                        return lastJob ? (
+                          <span className={`text-xs font-mono ml-auto ${
+                            lastJob.status === "complete" ? "text-green-600" :
+                            lastJob.status === "running"  ? "text-yellow-500" :
+                            lastJob.status === "error"    ? "text-red-500" : "text-green-800"
+                          }`}>
+                            last scan: {lastJob.status} · {lastJob.comments_replied} replies
+                          </span>
+                        ) : null;
+                      })()}
+
+                      {isDirty && (
+                        <button
+                          onClick={() => saveChannel(ch.persona_name)}
+                          disabled={savingChannel === ch.persona_name}
+                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40"
+                        >
+                          {savingChannel === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                          Save
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })

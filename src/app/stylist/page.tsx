@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import Sidebar from "@/components/layout/Sidebar";
 import {
   Shirt, RefreshCw, Calendar, Plus, X, Sparkles,
-  Loader2, CloudSun, History, Zap, ChevronDown, ChevronUp, Link, Trash2, Eye, Pencil,
+  Loader2, CloudSun, History, Zap, ChevronDown, ChevronUp, Link, Trash2, Eye, Pencil, Settings,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -30,6 +30,13 @@ interface WardrobeItem {
   notes: string | null;
   image_url: string | null;
   created_at: string;
+}
+
+interface PromptTemplate {
+  id: string;
+  key: string;
+  name: string;
+  body: string;
 }
 
 interface WearLog {
@@ -199,6 +206,11 @@ export default function StylistPage() {
   const [editingItem, setEditingItem] = useState<WardrobeItem | null>(null);
   const [editSaving, setEditSaving] = useState(false);
 
+  const [prompts, setPrompts] = useState<PromptTemplate[]>([]);
+  const [promptEdits, setPromptEdits] = useState<Record<string, string>>({});
+  const [savingPrompt, setSavingPrompt] = useState<string | null>(null);
+  const [showPrompts, setShowPrompts] = useState(false);
+
   // ── Data loading ────────────────────────────────────────────────────────────
 
   const loadAll = useCallback(async () => {
@@ -217,11 +229,18 @@ export default function StylistPage() {
     const { data: wears } = await wearQuery;
 
     const { data: photosData } = await supabase.from("user_photos").select("*").order("created_at", { ascending: false });
+    const { data: promptsData } = await supabase.from("prompt_templates").select("*").order("created_at", { ascending: true });
 
     setItems(itemsData ?? []);
     setWearLog(wears ?? []);
     setOutfitHistory(historyData ?? []);
     setUserPhotos(photosData ?? []);
+    if (promptsData?.length) {
+      setPrompts(promptsData);
+      const edits: Record<string, string> = {};
+      promptsData.forEach(p => { edits[p.key] = p.body; });
+      setPromptEdits(edits);
+    }
     setLoading(false);
   }, []);
 
@@ -539,6 +558,17 @@ export default function StylistPage() {
       setOutfitError("Failed to start outfit generation.");
       setGenerating(false);
     }
+  }
+
+  async function savePrompt(key: string) {
+    const prompt = prompts.find(p => p.key === key);
+    if (!prompt) return;
+    setSavingPrompt(key);
+    await supabase.from("prompt_templates")
+      .update({ body: promptEdits[key], updated_at: new Date().toISOString() })
+      .eq("key", key);
+    setPrompts(prev => prev.map(p => p.key === key ? { ...p, body: promptEdits[key] } : p));
+    setSavingPrompt(null);
   }
 
   function toggleActivity(a: string) {
@@ -1125,6 +1155,58 @@ export default function StylistPage() {
                   onEdit={setEditingItem}
                 />
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Prompt Templates */}
+        <div className="holo-card rounded-xl border border-green-500/20 bg-black/40 mb-6">
+          <button
+            onClick={() => setShowPrompts(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-3 border-b border-green-500/20 bg-green-500/5"
+          >
+            <div className="flex items-center gap-2">
+              <Settings className="w-4 h-4 text-green-600" />
+              <span className="text-xs font-mono font-black uppercase tracking-widest text-green-500">ChatGPT Prompt Templates</span>
+            </div>
+            {showPrompts ? <ChevronUp className="w-4 h-4 text-green-700" /> : <ChevronDown className="w-4 h-4 text-green-700" />}
+          </button>
+
+          {showPrompts && (
+            <div className="p-5 space-y-6">
+              {prompts.length === 0 && (
+                <p className="text-xs text-green-800 font-mono">No prompts found. Run <code className="text-green-600">supabase/prompt_templates.sql</code> in Supabase to seed defaults.</p>
+              )}
+              {prompts.map(prompt => {
+                const vars: Record<string, string> = {
+                  "wardrobe_analysis": "{{imageNote}}  {{productName}}  {{brandLine}}  {{focusNote}}",
+                  "wardrobe_generation": "{{brand}}  {{color}}  {{item_type}}  {{styleNotes}}",
+                };
+                return (
+                  <div key={prompt.key}>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs font-mono font-bold text-green-400 uppercase tracking-wider">{prompt.name}</p>
+                      <button
+                        onClick={() => savePrompt(prompt.key)}
+                        disabled={savingPrompt === prompt.key || promptEdits[prompt.key] === prompt.body}
+                        className="flex items-center gap-1 text-xs font-mono px-3 py-1 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {savingPrompt === prompt.key ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                        {savingPrompt === prompt.key ? "Saving..." : "Save"}
+                      </button>
+                    </div>
+                    {vars[prompt.key] && (
+                      <p className="text-xs text-green-900 font-mono mb-2">Variables: <span className="text-green-700">{vars[prompt.key]}</span></p>
+                    )}
+                    <textarea
+                      className="w-full bg-black/60 border border-green-500/20 rounded-lg px-3 py-2 text-xs text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/40 resize-y"
+                      rows={12}
+                      value={promptEdits[prompt.key] ?? prompt.body}
+                      onChange={e => setPromptEdits(prev => ({ ...prev, [prompt.key]: e.target.value }))}
+                    />
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

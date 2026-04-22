@@ -1590,6 +1590,65 @@ async function runFanInteractionPipeline(job) {
 
 // ── WARDROBE SPLIT PIPELINE ──────────────────────────────────────
 
+// ── PROMPT TEMPLATE HELPERS ──────────────────────────────────────
+const DEFAULT_PROMPTS = {
+  wardrobe_analysis: `{{imageNote}} Return ONLY a JSON object — no markdown, no explanation.
+
+Product: {{productName}}
+{{brandLine}}
+
+{{focusNote}}
+
+{
+  "count": <total individual pieces in this purchase e.g. 1 for single, 7 for a 7-pack>,
+  "items": [
+    {
+      "item_type": "<exact item type matching the product name e.g. boxer brief, t-shirt, crew sock>",
+      "color": "<specific color>",
+      "brand": "<brand or null>",
+      "occasions": [<from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
+      "style_notes": "<one sentence about cut, fit, material>"
+    }
+  ]
+}
+
+Rules:
+- items[] length must NEVER exceed count
+- Single item → count:1, one entry
+- Multi-pack same color → count:N, one entry
+- Multi-pack different colors → count:total pieces, one entry PER unique color
+- Variety pack → list most likely colors, items[].length must equal count`,
+
+  wardrobe_generation: `Generate a clean, professional catalog photograph of this exact clothing item:
+
+Item: {{brand}}{{color}} {{item_type}}{{styleNotes}}
+
+Requirements:
+- Generate ONLY a {{item_type}} — do not generate any other garment or accessory
+- {{color}} color — match this exactly
+- Plain white or very light neutral background
+- NO model, NO mannequin, NO person — garment only
+- Flat lay, hanging, or ghost-mannequin style — whichever looks most professional for this item type
+- Full item visible, sharp focus, clean retail lighting
+- Quality matching a premium brand's official product page`,
+};
+
+async function fetchPrompts() {
+  try {
+    const res = await fetch(`${db("prompt_templates")}?select=key,body`, { headers });
+    const rows = await res.json();
+    const map = { ...DEFAULT_PROMPTS };
+    if (Array.isArray(rows)) rows.forEach(r => { if (r.key && r.body) map[r.key] = r.body; });
+    return map;
+  } catch {
+    return { ...DEFAULT_PROMPTS };
+  }
+}
+
+function fillTemplate(template, vars) {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? "");
+}
+
 async function getSplitJob() {
   const res = await fetch(`${db("wardrobe_split_jobs")}?status=eq.pending&limit=1`, { headers });
   const rows = await res.json();
@@ -1684,6 +1743,7 @@ function mapWardrobeType(t) {
 async function runWardrobeSplitPipeline(job) {
   const { id, source_image_url, item_name, item_type, item_brand } = job;
   try {
+    const promptTemplates = await fetchPrompts();
     // ── Step 1: Download the product image (best-effort; continue without it if unavailable)
     console.log("[split] Downloading image:", source_image_url);
     const imageB64 = await urlToBase64(source_image_url);
@@ -1699,12 +1759,6 @@ async function runWardrobeSplitPipeline(job) {
       await sleep(2000);
     }
 
-    const productContext = [
-      item_name  ? `Product name: ${item_name}`  : null,
-      item_type  ? `Category: ${item_type}`       : null,
-      item_brand ? `Brand: ${item_brand}`         : null,
-    ].filter(Boolean).join("\n");
-
     const productName = item_name || item_type || "clothing item";
     const focusNote = item_name
       ? `The product being sold is: "${item_name}". Identify ONLY this specific product. If a model is wearing other clothing in the image, ignore everything except the "${item_name}".`
@@ -1712,36 +1766,14 @@ async function runWardrobeSplitPipeline(job) {
         ? `Focus ONLY on the ${item_type.toLowerCase()}. Ignore any other garments visible on a model.`
         : `Focus only on the main product being sold.`;
 
-    const imageNote = imageB64 ? `I'm showing you the product listing image.` : `No image available — use the product name.`;
+    const analysisPrompt = fillTemplate(promptTemplates.wardrobe_analysis, {
+      imageNote: imageB64 ? "I'm showing you the product listing image." : "No image available — use the product name.",
+      productName,
+      brandLine: item_brand ? `Brand: ${item_brand}` : "",
+      focusNote,
+    });
 
-    await sendGPTMessage(analysisTabId,
-      `${imageNote} Return ONLY a JSON object — no markdown, no explanation.
-
-Product: ${productName}
-${item_brand ? `Brand: ${item_brand}` : ""}
-
-${focusNote}
-
-{
-  "count": <total individual pieces in this purchase e.g. 1 for single, 7 for a 7-pack>,
-  "items": [
-    {
-      "item_type": "<exact item type matching the product name e.g. boxer brief, t-shirt, crew sock>",
-      "color": "<specific color>",
-      "brand": "<brand or null>",
-      "occasions": [<from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
-      "style_notes": "<one sentence about cut, fit, material>"
-    }
-  ]
-}
-
-Rules:
-- items[] length must NEVER exceed count
-- Single item → count:1, one entry
-- Multi-pack same color → count:N, one entry
-- Multi-pack different colors → count:total pieces, one entry PER unique color (items[].length = number of unique colors)
-- Variety pack → list most likely colors, items[].length must equal count`
-    );
+    await sendGPTMessage(analysisTabId, analysisPrompt);
 
     await waitForGPTDone(analysisTabId);
     const analysisText = await injectAndRun(analysisTabId, () => {
@@ -1788,23 +1820,14 @@ Rules:
       const brandStr = item.brand ? `${item.brand} ` : "";
       const styleNotes = item.style_notes ? ` Style details: ${item.style_notes}.` : "";
 
-      // Generate from text description only — do NOT send the original image.
-      // Sending the image causes ChatGPT to focus on whatever the model is wearing most prominently
-      // (often a shirt) instead of the actual product being cataloged.
-      await sendGPTMessage(imgTabId,
-        `Generate a clean, professional catalog photograph of this exact clothing item:
+      const generationPrompt = fillTemplate(promptTemplates.wardrobe_generation, {
+        brand: brandStr,
+        color: cap(item.color) || "unknown",
+        item_type: item.item_type || "clothing item",
+        styleNotes,
+      });
 
-Item: ${brandStr}${item.color} ${item.item_type}${styleNotes}
-
-Requirements:
-- Generate ONLY a ${item.item_type} — do not generate any other garment or accessory
-- ${item.color} color — match this exactly
-- Plain white or very light neutral background
-- NO model, NO mannequin, NO person — garment only
-- Flat lay, hanging, or ghost-mannequin style — whichever looks most professional for this item type
-- Full item visible, sharp focus, clean retail lighting
-- Quality matching a premium brand's official product page`
-      );
+      await sendGPTMessage(imgTabId, generationPrompt);
 
       await waitForImageGen(imgTabId);
       const imgB64result = await extractCatalogImage(imgTabId);
