@@ -7,6 +7,7 @@ import {
   Youtube, Music2, Disc3, MessageSquare, Wand2,
   Plus, X, Check, Loader2, Save, ChevronDown, ChevronUp,
   Mic2, Globe, Users, Heart, BookOpen, ListMusic, Share2, Radio,
+  Pencil, Trash2, ExternalLink,
 } from "lucide-react";
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -192,6 +193,16 @@ interface PlatformAccount {
   active: boolean;
 }
 
+interface ArtistPlaylist {
+  id: string;
+  persona_name: string;
+  name: string;
+  description: string | null;
+  privacy: string;
+  youtube_playlist_id: string | null;
+  created_at: string;
+}
+
 interface PlatformPostJob {
   id: string;
   persona_name: string;
@@ -206,7 +217,7 @@ interface PlatformPostJob {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LabelPage() {
-  const [tab, setTab] = useState<"artists" | "prompts" | "albums" | "fans" | "platforms">("artists");
+  const [tab, setTab] = useState<"artists" | "prompts" | "albums" | "playlists" | "fans" | "platforms">("artists");
 
   // Artists
   const [channels, setChannels] = useState<ArtistChannel[]>([]);
@@ -252,7 +263,20 @@ export default function LabelPage() {
   const [newArtistForm, setNewArtistForm] = useState({ name: "", emoji: "🎵", color_key: "purple", channel_name: "", youtube_channel_id: "", genre_description: "" });
   const [creatingArtist, setCreatingArtist] = useState(false);
   const [creatingPlaylist, setCreatingPlaylist] = useState<string | null>(null);
-  const [scanningReply, setScanningReply] = useState<string | null>(null); // persona_name being scanned
+  const [scanningReply, setScanningReply] = useState<string | null>(null);
+  const [editingArtist, setEditingArtist] = useState<string | null>(null);
+  const [confirmDeleteArtist, setConfirmDeleteArtist] = useState<string | null>(null);
+  const [deletingArtist, setDeletingArtist] = useState<string | null>(null);
+
+  // Playlists
+  const [artistPlaylists, setArtistPlaylists] = useState<ArtistPlaylist[]>([]);
+  const [loadingPlaylists, setLoadingPlaylists] = useState(false);
+  const [playlistPersona, setPlaylistPersona] = useState("");
+  const [showNewPlaylist, setShowNewPlaylist] = useState(false);
+  const [newPlaylist, setNewPlaylist] = useState({ name: "", description: "", privacy: "public" });
+  const [savingNewPlaylist, setSavingNewPlaylist] = useState(false);
+  const [addingVideoTo, setAddingVideoTo] = useState<string | null>(null);
+  const [videoUrlInput, setVideoUrlInput] = useState("");
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -314,9 +338,18 @@ export default function LabelPage() {
   useEffect(() => { loadAlbums(); }, [loadAlbums]);
   useEffect(() => { loadFanJobs(); }, [loadFanJobs]);
   useEffect(() => { loadPrompts(promptPersona); }, [promptPersona, loadPrompts]);
+  const loadPlaylists = useCallback(async (persona: string) => {
+    setLoadingPlaylists(true);
+    const { data } = await supabase.from("artist_playlists").select("*").eq("persona_name", persona).order("created_at", { ascending: false });
+    setArtistPlaylists(data ?? []);
+    setLoadingPlaylists(false);
+  }, []);
+
   useEffect(() => { loadPlatformAccounts(); }, [loadPlatformAccounts]);
   useEffect(() => { loadPlatformPostJobs(); }, [loadPlatformPostJobs]);
   useEffect(() => { loadConnectedServices(); }, [loadConnectedServices]);
+  useEffect(() => { if (playlistPersona) loadPlaylists(playlistPersona); }, [playlistPersona, loadPlaylists]);
+  useEffect(() => { if (channels.length > 0 && !playlistPersona) setPlaylistPersona(channels[0].persona_name); }, [channels, playlistPersona]);
 
   // ── Channel actions ───────────────────────────────────────────────────────
 
@@ -380,6 +413,69 @@ export default function LabelPage() {
     setNewArtistForm({ name: "", emoji: "🎵", color_key: "purple", channel_name: "", youtube_channel_id: "", genre_description: "" });
     setShowNewArtist(false);
     setCreatingArtist(false);
+  }
+
+  async function deleteArtist(personaName: string) {
+    setDeletingArtist(personaName);
+    await supabase.from("artist_prompt_configs").delete().eq("persona_name", personaName);
+    await supabase.from("artist_channels").delete().eq("persona_name", personaName);
+    setChannels(prev => prev.filter(c => c.persona_name !== personaName));
+    setConfirmDeleteArtist(null);
+    setDeletingArtist(null);
+    setEditingArtist(null);
+  }
+
+  async function createGeneralPlaylist() {
+    if (!newPlaylist.name.trim() || !playlistPersona) return;
+    setSavingNewPlaylist(true);
+    const { data: dbRow } = await supabase.from("artist_playlists").insert({
+      persona_name: playlistPersona,
+      name: newPlaylist.name.trim(),
+      description: newPlaylist.description || null,
+      privacy: newPlaylist.privacy,
+    }).select().single();
+    if (dbRow) {
+      try {
+        const res = await fetch("/api/youtube/playlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: newPlaylist.name.trim(),
+            description: newPlaylist.description,
+            privacy: newPlaylist.privacy,
+            persona_name: playlistPersona,
+          }),
+        });
+        const json = await res.json();
+        if (json.playlistId) {
+          await supabase.from("artist_playlists").update({ youtube_playlist_id: json.playlistId }).eq("id", dbRow.id);
+          dbRow.youtube_playlist_id = json.playlistId;
+        }
+      } catch {}
+      setArtistPlaylists(prev => [{ ...dbRow }, ...prev]);
+    }
+    setNewPlaylist({ name: "", description: "", privacy: "public" });
+    setShowNewPlaylist(false);
+    setSavingNewPlaylist(false);
+  }
+
+  async function addVideoToPlaylist(playlist: ArtistPlaylist) {
+    if (!videoUrlInput.trim() || !playlist.youtube_playlist_id) return;
+    const videoId = extractVideoId(videoUrlInput);
+    if (!videoId) return;
+    setAddingVideoTo(playlist.id);
+    await fetch("/api/youtube/playlist", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playlist_id: playlist.youtube_playlist_id, video_id: videoId, persona_name: playlist.persona_name }),
+    });
+    setVideoUrlInput("");
+    setAddingVideoTo(null);
+  }
+
+  async function deleteGeneralPlaylist(playlist: ArtistPlaylist) {
+    await supabase.from("artist_playlists").delete().eq("id", playlist.id);
+    setArtistPlaylists(prev => prev.filter(p => p.id !== playlist.id));
   }
 
   async function createPlaylist(album: Album) {
@@ -606,9 +702,10 @@ export default function LabelPage() {
           {[
             { key: "artists", label: "Artists",       icon: Mic2 },
             { key: "prompts", label: "Prompt Studio", icon: Wand2 },
-            { key: "albums",  label: "Albums",        icon: Disc3 },
-            { key: "fans",      label: "Fan Engagement", icon: Heart  },
-          { key: "platforms", label: "Platforms",      icon: Share2 },
+            { key: "albums",    label: "Albums",        icon: Disc3       },
+            { key: "playlists", label: "Playlists",     icon: ListMusic   },
+            { key: "fans",      label: "Fan Engagement", icon: Heart      },
+            { key: "platforms", label: "Platforms",      icon: Share2     },
           ].map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -715,6 +812,33 @@ export default function LabelPage() {
                         {ch.is_master && <p className="text-xs text-green-800 font-mono">Master label channel — receives all tracks</p>}
                       </div>
                       <div className="ml-auto flex items-center gap-3">
+                        {/* Edit / Delete controls */}
+                        {editingArtist === ch.persona_name ? (
+                          <button onClick={() => setEditingArtist(null)} className="text-green-700 hover:text-green-400 transition-colors" title="Done editing">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button onClick={() => setEditingArtist(ch.persona_name)} className="text-green-800 hover:text-green-500 transition-colors" title="Edit artist">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {confirmDeleteArtist === ch.persona_name ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-mono text-red-400">Delete?</span>
+                            <button
+                              onClick={() => deleteArtist(ch.persona_name)}
+                              disabled={deletingArtist === ch.persona_name}
+                              className="text-xs font-mono text-red-400 hover:text-red-300 border border-red-500/40 px-1.5 py-0.5 rounded"
+                            >
+                              {deletingArtist === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : "Yes"}
+                            </button>
+                            <button onClick={() => setConfirmDeleteArtist(null)} className="text-xs font-mono text-green-800 hover:text-green-600">No</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setConfirmDeleteArtist(ch.persona_name)} className="text-green-900 hover:text-red-500 transition-colors" title="Delete artist">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         {/* YouTube OAuth connect */}
                         {isConnected ? (
                           <span className="flex items-center gap-1 text-xs font-mono text-green-400">
@@ -764,6 +888,26 @@ export default function LabelPage() {
                         onChange={e => setChannelField(ch.persona_name, "youtube_channel_id", e.target.value)}
                       />
                     </div>
+
+                    {/* Inline emoji / color edit */}
+                    {editingArtist === ch.persona_name && (
+                      <div className="flex gap-2 mt-2">
+                        <input
+                          className="w-14 bg-black/60 border border-green-500/20 rounded-lg px-2 py-1.5 text-sm text-green-300 font-mono text-center focus:outline-none focus:border-green-400/60"
+                          placeholder="🎵"
+                          value={String(getChannelEdit(ch.persona_name, "emoji", ch.emoji ?? ""))}
+                          onChange={e => setChannelField(ch.persona_name, "emoji", e.target.value)}
+                        />
+                        <select
+                          className="bg-black/60 border border-green-500/20 rounded-lg px-2 py-1.5 text-xs text-green-300 font-mono focus:outline-none focus:border-green-400/60"
+                          value={String(getChannelEdit(ch.persona_name, "color_key", ch.color_key ?? "green"))}
+                          onChange={e => setChannelField(ch.persona_name, "color_key", e.target.value)}
+                        >
+                          {COLOR_OPTIONS.map(c => <option key={c.key} value={c.key}>{c.key}</option>)}
+                        </select>
+                        <span className="text-xs font-mono text-green-800 self-center">emoji · color</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 mt-3 pt-3 border-t border-green-500/10 flex-wrap">
                       {/* Scan & Reply comments */}
                       <button
@@ -1102,6 +1246,148 @@ export default function LabelPage() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TAB: Playlists ── */}
+        {tab === "playlists" && (
+          <div>
+            {/* Artist picker */}
+            <div className="flex items-center gap-3 mb-5">
+              <p className="text-xs text-green-700 font-mono">Artist:</p>
+              <div className="flex gap-1 flex-wrap">
+                {channels.map(ch => {
+                  const s = getPersonaStyle(ch.persona_name, ch.color_key, ch.emoji);
+                  return (
+                    <button
+                      key={ch.persona_name}
+                      onClick={() => setPlaylistPersona(ch.persona_name)}
+                      className={`text-xs px-2.5 py-1 rounded-lg font-mono font-bold transition-all border ${
+                        playlistPersona === ch.persona_name
+                          ? `${s.bg} ${s.color} border-current/50`
+                          : "text-green-800 border-green-500/20 hover:text-green-600"
+                      }`}
+                    >
+                      {s.emoji} {ch.persona_name}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => setShowNewPlaylist(v => !v)}
+                className="ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all flex-shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" /> New Playlist
+              </button>
+            </div>
+
+            {/* New playlist form */}
+            {showNewPlaylist && (
+              <div className="holo-card rounded-xl border border-green-400/30 bg-black/40 p-5 mb-4">
+                <p className="text-xs font-mono font-black uppercase tracking-wider gradient-text mb-3">New Playlist — {playlistPersona}</p>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <input
+                    className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                    placeholder="Playlist name *"
+                    value={newPlaylist.name}
+                    onChange={e => setNewPlaylist(p => ({ ...p, name: e.target.value }))}
+                  />
+                  <select
+                    className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono focus:outline-none focus:border-green-400/60"
+                    value={newPlaylist.privacy}
+                    onChange={e => setNewPlaylist(p => ({ ...p, privacy: e.target.value }))}
+                  >
+                    <option value="public">Public</option>
+                    <option value="unlisted">Unlisted</option>
+                    <option value="private">Private</option>
+                  </select>
+                  <input
+                    className="col-span-2 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                    placeholder="Description (optional)"
+                    value={newPlaylist.description}
+                    onChange={e => setNewPlaylist(p => ({ ...p, description: e.target.value }))}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={createGeneralPlaylist}
+                    disabled={savingNewPlaylist || !newPlaylist.name.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40"
+                  >
+                    {savingNewPlaylist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                    Create
+                  </button>
+                  <button onClick={() => setShowNewPlaylist(false)} className="text-xs font-mono text-green-800 hover:text-green-600 transition-colors px-2">Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {/* Playlist list */}
+            {loadingPlaylists ? (
+              <div className="flex items-center gap-2 text-green-700 font-mono text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>
+            ) : artistPlaylists.length === 0 ? (
+              <p className="text-xs text-green-800 font-mono">No playlists yet for {playlistPersona}. Create one above.</p>
+            ) : (
+              <div className="space-y-3">
+                {artistPlaylists.map(pl => (
+                  <div key={pl.id} className="rounded-xl border border-green-500/20 bg-black/40 p-4">
+                    <div className="flex items-start gap-3">
+                      <ListMusic className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-mono font-black text-green-300">{pl.name}</p>
+                          <span className={`text-xs font-mono px-1.5 py-0.5 rounded border ${
+                            pl.privacy === "public"   ? "border-green-500/30 text-green-600" :
+                            pl.privacy === "unlisted" ? "border-yellow-500/30 text-yellow-600" :
+                                                        "border-red-500/30 text-red-600"
+                          }`}>{pl.privacy}</span>
+                          {pl.youtube_playlist_id && (
+                            <a
+                              href={`https://www.youtube.com/playlist?list=${pl.youtube_playlist_id}`}
+                              target="_blank" rel="noreferrer"
+                              className="flex items-center gap-1 text-xs font-mono text-red-400 hover:text-red-300 transition-colors"
+                            >
+                              <ExternalLink className="w-3 h-3" /> YouTube
+                            </a>
+                          )}
+                        </div>
+                        {pl.description && <p className="text-xs text-green-800 font-mono mt-1 truncate">{pl.description}</p>}
+
+                        {/* Add video */}
+                        {pl.youtube_playlist_id && (
+                          <div className="flex gap-2 mt-3">
+                            <input
+                              className="flex-1 bg-black/60 border border-green-500/20 rounded-lg px-3 py-1.5 text-xs text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                              placeholder="Paste YouTube video URL to add…"
+                              value={addingVideoTo === pl.id ? videoUrlInput : ""}
+                              onFocus={() => setAddingVideoTo(pl.id)}
+                              onChange={e => { setAddingVideoTo(pl.id); setVideoUrlInput(e.target.value); }}
+                            />
+                            <button
+                              onClick={() => addVideoToPlaylist(pl)}
+                              disabled={addingVideoTo !== pl.id || !videoUrlInput.trim()}
+                              className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40"
+                            >
+                              <Plus className="w-3 h-3" /> Add
+                            </button>
+                          </div>
+                        )}
+                        {!pl.youtube_playlist_id && (
+                          <p className="text-xs text-green-900 font-mono mt-2 italic">Not yet created on YouTube — connect YouTube for this artist and re-create.</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => deleteGeneralPlaylist(pl)}
+                        className="text-green-900 hover:text-red-500 transition-colors flex-shrink-0"
+                        title="Delete playlist"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
