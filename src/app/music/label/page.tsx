@@ -7,7 +7,7 @@ import {
   Youtube, Music2, Disc3, MessageSquare, Wand2,
   Plus, X, Check, Loader2, Save, ChevronDown, ChevronUp,
   Mic2, Globe, Users, Heart, BookOpen, ListMusic, Share2, Radio,
-  Pencil, Trash2, ExternalLink,
+  Pencil, Trash2, ExternalLink, RefreshCw, Eye, ThumbsUp, Tag,
 } from "lucide-react";
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -200,6 +200,22 @@ interface ArtistPlaylist {
   description: string | null;
   privacy: string;
   youtube_playlist_id: string | null;
+  playlist_type: string;
+  auto_tags: string[];
+  top_n: number;
+  created_at: string;
+}
+
+interface ArtistTrackName {
+  id: string;
+  persona_name: string;
+  track_name: string;
+  youtube_video_id: string | null;
+  youtube_url: string | null;
+  tags: string[];
+  view_count: number;
+  like_count: number;
+  last_stats_synced_at: string | null;
   created_at: string;
 }
 
@@ -277,6 +293,14 @@ export default function LabelPage() {
   const [savingNewPlaylist, setSavingNewPlaylist] = useState(false);
   const [addingVideoTo, setAddingVideoTo] = useState<string | null>(null);
   const [videoUrlInput, setVideoUrlInput] = useState("");
+  const [trackCatalog, setTrackCatalog] = useState<ArtistTrackName[]>([]);
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
+  const [syncingPlaylists, setSyncingPlaylists] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [playlistRuleDrafts, setPlaylistRuleDrafts] = useState<Record<string, { playlist_type: string; auto_tags: string; top_n: string }>>({});
+  const [savingRules, setSavingRules] = useState<string | null>(null);
+  const [editingTrackTags, setEditingTrackTags] = useState<string | null>(null);
+  const [tagDraftInput, setTagDraftInput] = useState("");
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -345,10 +369,18 @@ export default function LabelPage() {
     setLoadingPlaylists(false);
   }, []);
 
+  const loadTrackCatalog = useCallback(async (persona: string) => {
+    setLoadingCatalog(true);
+    const { data } = await supabase.from("artist_track_names").select("*").eq("persona_name", persona).order("created_at", { ascending: false });
+    setTrackCatalog(data ?? []);
+    setLoadingCatalog(false);
+  }, []);
+
   useEffect(() => { loadPlatformAccounts(); }, [loadPlatformAccounts]);
   useEffect(() => { loadPlatformPostJobs(); }, [loadPlatformPostJobs]);
   useEffect(() => { loadConnectedServices(); }, [loadConnectedServices]);
   useEffect(() => { if (playlistPersona) loadPlaylists(playlistPersona); }, [playlistPersona, loadPlaylists]);
+  useEffect(() => { if (playlistPersona) loadTrackCatalog(playlistPersona); }, [playlistPersona, loadTrackCatalog]);
   useEffect(() => { if (channels.length > 0 && !playlistPersona) setPlaylistPersona(channels[0].persona_name); }, [channels, playlistPersona]);
 
   // ── Channel actions ───────────────────────────────────────────────────────
@@ -476,6 +508,67 @@ export default function LabelPage() {
   async function deleteGeneralPlaylist(playlist: ArtistPlaylist) {
     await supabase.from("artist_playlists").delete().eq("id", playlist.id);
     setArtistPlaylists(prev => prev.filter(p => p.id !== playlist.id));
+  }
+
+  async function syncPlaylists() {
+    if (!playlistPersona) return;
+    setSyncingPlaylists(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/youtube/playlist-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ persona_name: playlistPersona }),
+      });
+      const json = await res.json();
+      const r = json.results?.[playlistPersona];
+      if (r?.error) setSyncResult(`Error: ${r.error}`);
+      else setSyncResult(`✓ ${r?.statsUpdated ?? 0} stats updated · ${r?.added ?? 0} videos added to playlists`);
+      loadTrackCatalog(playlistPersona);
+    } catch (e) {
+      setSyncResult(`Error: ${String(e)}`);
+    }
+    setSyncingPlaylists(false);
+  }
+
+  function getPlaylistRuleDraft(pl: ArtistPlaylist) {
+    return playlistRuleDrafts[pl.id] ?? {
+      playlist_type: pl.playlist_type ?? "general",
+      auto_tags: (pl.auto_tags ?? []).join(", "),
+      top_n: String(pl.top_n ?? 50),
+    };
+  }
+
+  function setPlaylistRuleField(plId: string, pl: ArtistPlaylist, field: string, value: string) {
+    setPlaylistRuleDrafts(prev => ({
+      ...prev,
+      [plId]: { ...getPlaylistRuleDraft(pl), ...prev[plId], [field]: value },
+    }));
+  }
+
+  async function savePlaylistRules(pl: ArtistPlaylist) {
+    const draft = playlistRuleDrafts[pl.id];
+    if (!draft) return;
+    setSavingRules(pl.id);
+    const tagsArr = draft.auto_tags.split(",").map(t => t.trim()).filter(Boolean);
+    await supabase.from("artist_playlists").update({
+      playlist_type: draft.playlist_type,
+      auto_tags: tagsArr,
+      top_n: parseInt(draft.top_n) || 50,
+    }).eq("id", pl.id);
+    setArtistPlaylists(prev => prev.map(p => p.id === pl.id
+      ? { ...p, playlist_type: draft.playlist_type, auto_tags: tagsArr, top_n: parseInt(draft.top_n) || 50 }
+      : p));
+    setPlaylistRuleDrafts(prev => { const n = { ...prev }; delete n[pl.id]; return n; });
+    setSavingRules(null);
+  }
+
+  async function saveTrackTags(track: ArtistTrackName) {
+    const tagsArr = tagDraftInput.split(",").map(t => t.trim()).filter(Boolean);
+    await supabase.from("artist_track_names").update({ tags: tagsArr }).eq("id", track.id);
+    setTrackCatalog(prev => prev.map(t => t.id === track.id ? { ...t, tags: tagsArr } : t));
+    setEditingTrackTags(null);
+    setTagDraftInput("");
   }
 
   async function createPlaylist(album: Album) {
@@ -1254,16 +1347,16 @@ export default function LabelPage() {
         {/* ── TAB: Playlists ── */}
         {tab === "playlists" && (
           <div>
-            {/* Artist picker */}
-            <div className="flex items-center gap-3 mb-5">
+            {/* Artist picker + Sync button */}
+            <div className="flex items-center gap-3 mb-5 flex-wrap">
               <p className="text-xs text-green-700 font-mono">Artist:</p>
-              <div className="flex gap-1 flex-wrap">
+              <div className="flex gap-1 flex-wrap flex-1">
                 {channels.map(ch => {
                   const s = getPersonaStyle(ch.persona_name, ch.color_key, ch.emoji);
                   return (
                     <button
                       key={ch.persona_name}
-                      onClick={() => setPlaylistPersona(ch.persona_name)}
+                      onClick={() => { setPlaylistPersona(ch.persona_name); setSyncResult(null); }}
                       className={`text-xs px-2.5 py-1 rounded-lg font-mono font-bold transition-all border ${
                         playlistPersona === ch.persona_name
                           ? `${s.bg} ${s.color} border-current/50`
@@ -1275,13 +1368,27 @@ export default function LabelPage() {
                   );
                 })}
               </div>
-              <button
-                onClick={() => setShowNewPlaylist(v => !v)}
-                className="ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all flex-shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" /> New Playlist
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={syncPlaylists}
+                  disabled={syncingPlaylists}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 font-mono font-bold hover:bg-cyan-500/20 transition-all disabled:opacity-40"
+                >
+                  {syncingPlaylists ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  Sync Now
+                </button>
+                <button
+                  onClick={() => setShowNewPlaylist(v => !v)}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5" /> New Playlist
+                </button>
+              </div>
             </div>
+
+            {syncResult && (
+              <p className={`text-xs font-mono mb-4 ${syncResult.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>{syncResult}</p>
+            )}
 
             {/* New playlist form */}
             {showNewPlaylist && (
@@ -1324,72 +1431,183 @@ export default function LabelPage() {
               </div>
             )}
 
-            {/* Playlist list */}
+            {/* Playlist list with routing rules */}
             {loadingPlaylists ? (
               <div className="flex items-center gap-2 text-green-700 font-mono text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>
             ) : artistPlaylists.length === 0 ? (
-              <p className="text-xs text-green-800 font-mono">No playlists yet for {playlistPersona}. Create one above.</p>
+              <p className="text-xs text-green-800 font-mono mb-6">No playlists yet for {playlistPersona}. Create one above.</p>
             ) : (
-              <div className="space-y-3">
-                {artistPlaylists.map(pl => (
-                  <div key={pl.id} className="rounded-xl border border-green-500/20 bg-black/40 p-4">
-                    <div className="flex items-start gap-3">
-                      <ListMusic className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-mono font-black text-green-300">{pl.name}</p>
-                          <span className={`text-xs font-mono px-1.5 py-0.5 rounded border ${
-                            pl.privacy === "public"   ? "border-green-500/30 text-green-600" :
-                            pl.privacy === "unlisted" ? "border-yellow-500/30 text-yellow-600" :
-                                                        "border-red-500/30 text-red-600"
-                          }`}>{pl.privacy}</span>
-                          {pl.youtube_playlist_id && (
-                            <a
-                              href={`https://www.youtube.com/playlist?list=${pl.youtube_playlist_id}`}
-                              target="_blank" rel="noreferrer"
-                              className="flex items-center gap-1 text-xs font-mono text-red-400 hover:text-red-300 transition-colors"
+              <div className="space-y-3 mb-8">
+                {artistPlaylists.map(pl => {
+                  const draft = getPlaylistRuleDraft(pl);
+                  const isDirty = !!playlistRuleDrafts[pl.id];
+                  return (
+                    <div key={pl.id} className="rounded-xl border border-green-500/20 bg-black/40 p-4">
+                      <div className="flex items-start gap-3">
+                        <ListMusic className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          {/* Header */}
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <p className="text-sm font-mono font-black text-green-300">{pl.name}</p>
+                            <span className={`text-xs font-mono px-1.5 py-0.5 rounded border ${
+                              pl.privacy === "public"   ? "border-green-500/30 text-green-600" :
+                              pl.privacy === "unlisted" ? "border-yellow-500/30 text-yellow-600" :
+                                                          "border-red-500/30 text-red-600"
+                            }`}>{pl.privacy}</span>
+                            {(pl.playlist_type ?? "general") !== "general" && (
+                              <span className="text-xs font-mono px-1.5 py-0.5 rounded border border-cyan-500/30 text-cyan-500">
+                                {pl.playlist_type === "top_views" ? `top ${pl.top_n} views` :
+                                 pl.playlist_type === "top_likes" ? `top ${pl.top_n} likes` :
+                                 `tags: ${(pl.auto_tags ?? []).join(", ") || "none"}`}
+                              </span>
+                            )}
+                            {pl.youtube_playlist_id && (
+                              <a href={`https://www.youtube.com/playlist?list=${pl.youtube_playlist_id}`} target="_blank" rel="noreferrer"
+                                className="flex items-center gap-1 text-xs font-mono text-red-400 hover:text-red-300 transition-colors ml-auto">
+                                <ExternalLink className="w-3 h-3" /> YouTube
+                              </a>
+                            )}
+                          </div>
+                          {pl.description && <p className="text-xs text-green-800 font-mono mb-2 truncate">{pl.description}</p>}
+
+                          {/* Routing rules */}
+                          <div className="flex gap-2 flex-wrap items-center mt-2">
+                            <select
+                              className="bg-black/60 border border-green-500/20 rounded px-2 py-1 text-xs text-green-300 font-mono focus:outline-none focus:border-green-400/60"
+                              value={draft.playlist_type}
+                              onChange={e => setPlaylistRuleField(pl.id, pl, "playlist_type", e.target.value)}
                             >
-                              <ExternalLink className="w-3 h-3" /> YouTube
-                            </a>
+                              <option value="general">Manual only</option>
+                              <option value="tag_match">Tag Match</option>
+                              <option value="top_views">Top Views</option>
+                              <option value="top_likes">Top Likes</option>
+                            </select>
+                            {draft.playlist_type === "tag_match" && (
+                              <input
+                                className="flex-1 min-w-32 bg-black/60 border border-green-500/20 rounded px-2 py-1 text-xs text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                                placeholder="Tags: dnb, dark, workout, …"
+                                value={draft.auto_tags}
+                                onChange={e => setPlaylistRuleField(pl.id, pl, "auto_tags", e.target.value)}
+                              />
+                            )}
+                            {(draft.playlist_type === "top_views" || draft.playlist_type === "top_likes") && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs font-mono text-green-700">top</span>
+                                <input
+                                  type="number"
+                                  className="w-14 bg-black/60 border border-green-500/20 rounded px-2 py-1 text-xs text-green-300 font-mono focus:outline-none focus:border-green-400/60"
+                                  value={draft.top_n}
+                                  onChange={e => setPlaylistRuleField(pl.id, pl, "top_n", e.target.value)}
+                                />
+                              </div>
+                            )}
+                            {isDirty && (
+                              <button onClick={() => savePlaylistRules(pl)} disabled={savingRules === pl.id}
+                                className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40">
+                                {savingRules === pl.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                Save Rules
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Manual add video */}
+                          {pl.youtube_playlist_id && (
+                            <div className="flex gap-2 mt-3">
+                              <input
+                                className="flex-1 bg-black/60 border border-green-500/20 rounded-lg px-3 py-1.5 text-xs text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                                placeholder="Paste YouTube video URL to add manually…"
+                                value={addingVideoTo === pl.id ? videoUrlInput : ""}
+                                onFocus={() => setAddingVideoTo(pl.id)}
+                                onChange={e => { setAddingVideoTo(pl.id); setVideoUrlInput(e.target.value); }}
+                              />
+                              <button onClick={() => addVideoToPlaylist(pl)} disabled={addingVideoTo !== pl.id || !videoUrlInput.trim()}
+                                className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40">
+                                <Plus className="w-3 h-3" /> Add
+                              </button>
+                            </div>
                           )}
                         </div>
-                        {pl.description && <p className="text-xs text-green-800 font-mono mt-1 truncate">{pl.description}</p>}
-
-                        {/* Add video */}
-                        {pl.youtube_playlist_id && (
-                          <div className="flex gap-2 mt-3">
-                            <input
-                              className="flex-1 bg-black/60 border border-green-500/20 rounded-lg px-3 py-1.5 text-xs text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                              placeholder="Paste YouTube video URL to add…"
-                              value={addingVideoTo === pl.id ? videoUrlInput : ""}
-                              onFocus={() => setAddingVideoTo(pl.id)}
-                              onChange={e => { setAddingVideoTo(pl.id); setVideoUrlInput(e.target.value); }}
-                            />
-                            <button
-                              onClick={() => addVideoToPlaylist(pl)}
-                              disabled={addingVideoTo !== pl.id || !videoUrlInput.trim()}
-                              className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all disabled:opacity-40"
-                            >
-                              <Plus className="w-3 h-3" /> Add
-                            </button>
-                          </div>
-                        )}
-                        {!pl.youtube_playlist_id && (
-                          <p className="text-xs text-green-900 font-mono mt-2 italic">Not yet created on YouTube — connect YouTube for this artist and re-create.</p>
-                        )}
+                        <button onClick={() => deleteGeneralPlaylist(pl)} className="text-green-900 hover:text-red-500 transition-colors flex-shrink-0" title="Delete">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                      <button
-                        onClick={() => deleteGeneralPlaylist(pl)}
-                        className="text-green-900 hover:text-red-500 transition-colors flex-shrink-0"
-                        title="Delete playlist"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
+
+            {/* Track Catalog */}
+            <div>
+              <p className="text-xs font-mono uppercase tracking-widest text-green-700 mb-3">
+                <span className="text-red-500">&gt;</span> Track Catalog — {playlistPersona} ({trackCatalog.length} tracks)
+              </p>
+              {loadingCatalog ? (
+                <div className="flex items-center gap-2 text-green-700 font-mono text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>
+              ) : trackCatalog.length === 0 ? (
+                <p className="text-xs text-green-900 font-mono italic">
+                  No tracks registered yet. Tracks are automatically added to the catalog when uploaded via the pipeline.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs font-mono">
+                    <thead>
+                      <tr className="text-green-700 border-b border-green-500/10">
+                        <th className="text-left pb-2 pr-3 font-semibold">Track Name</th>
+                        <th className="text-left pb-2 pr-3 font-semibold">Tags</th>
+                        <th className="text-center pb-2 pr-3 font-semibold"><Eye className="w-3 h-3 inline" /></th>
+                        <th className="text-center pb-2 pr-3 font-semibold"><ThumbsUp className="w-3 h-3 inline" /></th>
+                        <th className="text-left pb-2 font-semibold">Link</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-green-500/5">
+                      {trackCatalog.map(track => (
+                        <tr key={track.id} className="group">
+                          <td className="py-2 pr-3 text-green-300 font-bold max-w-48 truncate">{track.track_name}</td>
+                          <td className="py-2 pr-3">
+                            {editingTrackTags === track.id ? (
+                              <div className="flex gap-1">
+                                <input
+                                  autoFocus
+                                  className="bg-black/60 border border-green-500/30 rounded px-2 py-0.5 text-green-300 placeholder-green-800 focus:outline-none focus:border-green-400/60 w-40"
+                                  placeholder="dnb, dark, workout"
+                                  value={tagDraftInput}
+                                  onChange={e => setTagDraftInput(e.target.value)}
+                                  onKeyDown={e => { if (e.key === "Enter") saveTrackTags(track); if (e.key === "Escape") { setEditingTrackTags(null); setTagDraftInput(""); } }}
+                                />
+                                <button onClick={() => saveTrackTags(track)} className="text-green-500 hover:text-green-300"><Check className="w-3 h-3" /></button>
+                                <button onClick={() => { setEditingTrackTags(null); setTagDraftInput(""); }} className="text-green-800 hover:text-green-600"><X className="w-3 h-3" /></button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => { setEditingTrackTags(track.id); setTagDraftInput((track.tags ?? []).join(", ")); }}
+                                className="flex items-center gap-1 text-green-800 hover:text-green-400 transition-colors group/tag"
+                              >
+                                {(track.tags ?? []).length > 0 ? (
+                                  <span className="text-green-600">{track.tags.join(", ")}</span>
+                                ) : (
+                                  <span className="italic text-green-900 group-hover/tag:text-green-700">+ add tags</span>
+                                )}
+                                <Tag className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </button>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 text-center text-green-700">{track.view_count?.toLocaleString() ?? "—"}</td>
+                          <td className="py-2 pr-3 text-center text-green-700">{track.like_count?.toLocaleString() ?? "—"}</td>
+                          <td className="py-2">
+                            {track.youtube_url ? (
+                              <a href={track.youtube_url} target="_blank" rel="noreferrer" className="text-red-500 hover:text-red-400 transition-colors">
+                                <Youtube className="w-3.5 h-3.5" />
+                              </a>
+                            ) : <span className="text-green-900">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

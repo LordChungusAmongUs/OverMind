@@ -68,6 +68,7 @@ interface ApprovalJob {
   description: string;
   lyrics: string;
   styleTags: string;
+  personaName: string;
   isInstrumental: boolean;
   approvedUrls: string[];   // sub-job created / single-audio upload started
   skippedUrls: string[];
@@ -362,6 +363,7 @@ export default function YouTubePage() {
               description: j.description ?? "",
               lyrics: j.lyrics ?? "",
               styleTags: j.style_tags ?? "",
+              personaName: j.persona_name ?? selectedPersona.name,
               isInstrumental: !(j.lyrics || "").replace(/^TITLE:\s*.+\r?\n?/im, "").replace(/^STYLE:\s*.+\r?\n?/im, "").trim(),
               approvedUrls: [],
               skippedUrls: [],
@@ -502,6 +504,7 @@ export default function YouTubePage() {
         metadata_prompt: mp,
         auto_approve: Object.values(autoApproveSteps).every(Boolean),
         auto_approve_steps: autoApproveStepsStr || null,
+        persona_name: selectedPersona.name,
       }).select().single();
       if (!error && data) newJobIds.push(data.id);
     }
@@ -715,6 +718,20 @@ export default function YouTubePage() {
       const ytUrl = await uploadToYouTube(audioUrl, artUrl, title, description);
       setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploaded" }));
       await supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", subJobId);
+
+      // Register in track catalog
+      const parentJob = approvalQueue.find(j => j.jobId === parentJobId);
+      if (parentJob) {
+        const videoId = ytUrl.split("v=")[1];
+        const tagArr = parentJob.styleTags.split(",").map((t: string) => t.trim()).filter(Boolean);
+        supabase.from("artist_track_names").upsert({
+          persona_name: parentJob.personaName,
+          track_name: title,
+          youtube_video_id: videoId,
+          youtube_url: ytUrl,
+          tags: tagArr,
+        }, { onConflict: "persona_name,track_name" });
+      }
       setApprovalQueue(prev => {
         const updated = prev.map(j => {
           if (j.jobId !== parentJobId) return j;
@@ -780,6 +797,17 @@ export default function YouTubePage() {
       setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploaded" }));
       setPublishedUrl(ytUrl);
       setCurrentStep("publish");
+
+      // Register in track catalog (dedup check + stats source)
+      const videoId = ytUrl.split("v=")[1];
+      const tagArr = job.styleTags.split(",").map((t: string) => t.trim()).filter(Boolean);
+      supabase.from("artist_track_names").upsert({
+        persona_name: job.personaName,
+        track_name: job.title,
+        youtube_video_id: videoId,
+        youtube_url: ytUrl,
+        tags: tagArr,
+      }, { onConflict: "persona_name,track_name" });
 
       if (autoNextRef.current && job.audioUrls.filter(u => u !== audioUrl && !job.approvedUrls.includes(u) && !job.skippedUrls.includes(u)).length === 0) {
         setTimeout(() => {
