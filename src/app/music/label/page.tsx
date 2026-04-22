@@ -613,7 +613,6 @@ Return ONLY valid JSON (no markdown):
 
       const { data: job, error: jobErr } = await supabase.from("pipeline_jobs").insert({
         track_theme: "__playlist_gen__",
-        persona_name: playlistPersona,
         lyrics_prompt: contextPrompt,
         status: "pending",
         auto_approve: true,
@@ -833,7 +832,6 @@ Return ONLY valid JSON (no markdown):
       // Use track_theme="__album_gen__" as the job type signal — no extra DB column needed
       const { data: job, error: jobErr } = await supabase.from("pipeline_jobs").insert({
         track_theme: "__album_gen__",
-        persona_name: personaName,
         lyrics_prompt: titlePrompt,
         art_prompt: applyVars(artTmpl),
         status: "pending",
