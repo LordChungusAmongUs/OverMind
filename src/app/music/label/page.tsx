@@ -314,6 +314,7 @@ export default function LabelPage() {
   const [newPlaylist, setNewPlaylist] = useState({ name: "", description: "", privacy: "public", vibe: "" });
   const [savingNewPlaylist, setSavingNewPlaylist] = useState(false);
   const [generatingPlaylist, setGeneratingPlaylist] = useState(false);
+  const [playlistGenError, setPlaylistGenError] = useState<string | null>(null);
   const [generatedPlaylistMeta, setGeneratedPlaylistMeta] = useState<{ playlist_type: string; auto_tags: string[]; top_n: number } | null>(null);
   const [addingVideoTo, setAddingVideoTo] = useState<string | null>(null);
   const [videoUrlInput, setVideoUrlInput] = useState("");
@@ -570,8 +571,9 @@ export default function LabelPage() {
   }
 
   async function generatePlaylistWithChatGPT() {
-    if (!playlistPersona) return;
+    if (!playlistPersona) { setPlaylistGenError("No artist selected"); return; }
     setGeneratingPlaylist(true);
+    setPlaylistGenError(null);
     setGeneratedPlaylistMeta(null);
     try {
       // Build rich analytics context
@@ -618,13 +620,17 @@ Return ONLY valid JSON (no markdown):
         auto_approve: true,
       }).select().single();
 
-      if (jobErr || !job) { setGeneratingPlaylist(false); return; }
+      if (jobErr || !job) {
+        setPlaylistGenError(`Job create failed: ${jobErr?.message ?? "unknown"}`);
+        setGeneratingPlaylist(false);
+        return;
+      }
 
       for (let i = 0; i < 30; i++) {
         await new Promise(r => setTimeout(r, 4000));
         const { data: updated } = await supabase
           .from("pipeline_jobs")
-          .select("status, title, description")
+          .select("status, title, description, error_message")
           .eq("id", job.id)
           .single();
         if (!updated) continue;
@@ -643,9 +649,14 @@ Return ONLY valid JSON (no markdown):
           } catch {}
           break;
         }
-        if (updated.status === "error") break;
+        if (updated.status === "error") {
+          setPlaylistGenError(`Extension error: ${updated.error_message || "unknown"}`);
+          break;
+        }
       }
-    } catch {}
+    } catch (e: unknown) {
+      setPlaylistGenError((e as Error).message ?? "Unknown error");
+    }
     setGeneratingPlaylist(false);
   }
 
@@ -1685,14 +1696,22 @@ Return ONLY valid JSON (no markdown):
                   {syncingPlaylists ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                   Sync Now
                 </button>
-                <button
-                  onClick={generatePlaylistWithChatGPT}
-                  disabled={generatingPlaylist}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 text-purple-300 font-mono font-bold hover:bg-purple-500/20 transition-all disabled:opacity-40"
-                >
-                  {generatingPlaylist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
-                  {generatingPlaylist ? "Asking ChatGPT…" : "Generate with ChatGPT"}
-                </button>
+                <div className="flex flex-col items-end gap-1">
+                  <button
+                    onClick={generatePlaylistWithChatGPT}
+                    disabled={generatingPlaylist}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 text-purple-300 font-mono font-bold hover:bg-purple-500/20 transition-all disabled:opacity-40"
+                  >
+                    {generatingPlaylist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                    {generatingPlaylist ? "Asking ChatGPT…" : "Generate with ChatGPT"}
+                  </button>
+                  {playlistGenError && (
+                    <span className="text-xs font-mono text-red-400">
+                      {playlistGenError}
+                      <button onClick={() => setPlaylistGenError(null)} className="ml-1 text-red-600 hover:text-red-400">×</button>
+                    </span>
+                  )}
+                </div>
                 <button
                   onClick={() => setShowNewPlaylist(v => !v)}
                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all"
