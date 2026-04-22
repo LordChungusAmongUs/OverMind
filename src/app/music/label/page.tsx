@@ -313,6 +313,7 @@ export default function LabelPage() {
   const [newPlaylist, setNewPlaylist] = useState({ name: "", description: "", privacy: "public", vibe: "" });
   const [savingNewPlaylist, setSavingNewPlaylist] = useState(false);
   const [generatingPlaylist, setGeneratingPlaylist] = useState(false);
+  const [generatedPlaylistMeta, setGeneratedPlaylistMeta] = useState<{ playlist_type: string; auto_tags: string[]; top_n: number } | null>(null);
   const [addingVideoTo, setAddingVideoTo] = useState<string | null>(null);
   const [videoUrlInput, setVideoUrlInput] = useState("");
   const [trackCatalog, setTrackCatalog] = useState<ArtistTrackName[]>([]);
@@ -495,6 +496,12 @@ export default function LabelPage() {
       name: newPlaylist.name.trim(),
       description: newPlaylist.description || null,
       privacy: newPlaylist.privacy,
+      // Apply AI-generated routing rules if present
+      ...(generatedPlaylistMeta ? {
+        playlist_type: generatedPlaylistMeta.playlist_type,
+        auto_tags: generatedPlaylistMeta.auto_tags,
+        top_n: generatedPlaylistMeta.top_n,
+      } : {}),
     }).select().single();
     if (dbRow) {
       try {
@@ -517,6 +524,7 @@ export default function LabelPage() {
       setArtistPlaylists(prev => [{ ...dbRow }, ...prev]);
     }
     setNewPlaylist({ name: "", description: "", privacy: "public", vibe: "" });
+    setGeneratedPlaylistMeta(null);
     setShowNewPlaylist(false);
     setSavingNewPlaylist(false);
   }
@@ -556,6 +564,87 @@ export default function LabelPage() {
       });
       const json = await res.json();
       if (json.name) setNewPlaylist(p => ({ ...p, name: json.name, description: json.description ?? p.description }));
+    } catch {}
+    setGeneratingPlaylist(false);
+  }
+
+  async function generatePlaylistWithChatGPT() {
+    if (!playlistPersona) return;
+    setGeneratingPlaylist(true);
+    setGeneratedPlaylistMeta(null);
+    try {
+      // Build rich analytics context
+      const trackLines = trackCatalog.slice(0, 50).map(t =>
+        `  - "${t.track_name}" [tags: ${(t.tags || []).join(", ") || "none"}] [views: ${t.view_count}, likes: ${t.like_count}]`
+      ).join("\n");
+      const albumLines = albums
+        .filter(a => a.persona_name === playlistPersona)
+        .map(a => `  - "${a.title}" (${a.status})`)
+        .join("\n");
+
+      const { data: cfg } = await supabase
+        .from("artist_prompt_configs")
+        .select("template")
+        .eq("persona_name", playlistPersona)
+        .eq("prompt_type", "playlist_name")
+        .single();
+      const stylePart = (cfg?.template || "").slice(0, 200);
+
+      const contextPrompt =
+`Create a YouTube playlist concept for the music artist "${playlistPersona}".${stylePart ? `\nArtist style: ${stylePart}` : ""}
+
+Track catalog (${trackCatalog.length} tracks total):
+${trackLines || "  (no tracks yet — suggest a general concept)"}
+
+Albums:
+${albumLines || "  (none yet)"}
+
+Based on this data, suggest one compelling YouTube playlist idea.
+
+Return ONLY valid JSON (no markdown):
+{
+  "name": "<creative 3-7 word playlist name>",
+  "description": "<one sentence, 10-25 words>",
+  "playlist_type": "<one of: top_views, top_likes, tag_match, general>",
+  "tags": ["<tag1>", "<tag2>"],
+  "top_n": <number 10-100>
+}`;
+
+      const { data: job } = await supabase.from("pipeline_jobs").insert({
+        job_type: "playlist_gen",
+        persona_name: playlistPersona,
+        lyrics_prompt: contextPrompt,
+        status: "pending",
+        auto_approve: true,
+      }).select().single();
+
+      if (!job) { setGeneratingPlaylist(false); return; }
+
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 4000));
+        const { data: updated } = await supabase
+          .from("pipeline_jobs")
+          .select("status, title, description")
+          .eq("id", job.id)
+          .single();
+        if (!updated) continue;
+        if (updated.status === "complete") {
+          try {
+            const parsed = JSON.parse(updated.description || "{}");
+            const name = updated.title || (parsed.name ?? "");
+            const desc = parsed.description ?? "";
+            setNewPlaylist(p => ({ ...p, name, description: desc }));
+            setGeneratedPlaylistMeta({
+              playlist_type: parsed.playlist_type || "general",
+              auto_tags: Array.isArray(parsed.tags) ? parsed.tags : [],
+              top_n: parseInt(parsed.top_n) || 50,
+            });
+            setShowNewPlaylist(true);
+          } catch {}
+          break;
+        }
+        if (updated.status === "error") break;
+      }
     } catch {}
     setGeneratingPlaylist(false);
   }
@@ -717,18 +806,68 @@ export default function LabelPage() {
     setAlbums(prev => prev.filter(a => a.id !== id));
   }
 
-  async function generateNextAlbum(personaName: string) {
+  async function generateAlbumWithChatGPT(personaName: string) {
     setGeneratingAlbum(personaName);
     try {
-      const res = await fetch("/api/youtube/generate-album", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ persona_name: personaName }),
-      });
-      const json = await res.json();
-      if (json.album) {
-        setAlbums(prev => [json.album, ...prev]);
-        setChannels(prev => prev.map(c => c.persona_name === personaName ? { ...c, current_album_id: json.album.id } : c));
+      // Load this artist's album prompts
+      const { data: configs } = await supabase
+        .from("artist_prompt_configs")
+        .select("prompt_type, template")
+        .eq("persona_name", personaName)
+        .in("prompt_type", ["album_title", "album_art", "metadata"]);
+
+      const titleFallback = PROMPT_TYPES.find(p => p.key === "album_title")?.fallback ?? "";
+      const artFallback   = PROMPT_TYPES.find(p => p.key === "album_art")?.fallback ?? "";
+
+      const titleTmpl = configs?.find(c => c.prompt_type === "album_title")?.template || titleFallback;
+      const artTmpl   = configs?.find(c => c.prompt_type === "album_art")?.template   || artFallback;
+      const styleLine = (configs?.find(c => c.prompt_type === "metadata")?.template || "").slice(0, 150);
+
+      // Apply simple vars and append JSON instruction
+      const applyVars = (t: string) => t.replace(/\{\{(\w+)\}\}/g, (_, k) =>
+        ({ persona_name: personaName, genre: "bass music", theme: "dark energy", track_count: "10", album_title: "{{album_title}}" }[k] ?? ""));
+
+      const titlePrompt = `${applyVars(titleTmpl)}${styleLine ? `\nArtist style context: ${styleLine}` : ""}\n\nReturn ONLY valid JSON (no markdown, no extra text):\n{"title": "<2-4 word album title>", "track_count": <number 8-15>}`;
+
+      const { data: job } = await supabase.from("pipeline_jobs").insert({
+        job_type: "album_gen",
+        persona_name: personaName,
+        lyrics_prompt: titlePrompt,
+        art_prompt: applyVars(artTmpl),
+        status: "pending",
+        auto_approve: true,
+      }).select().single();
+
+      if (!job) { setGeneratingAlbum(null); return; }
+
+      // Poll for completion — art gen takes ~3 min
+      for (let i = 0; i < 100; i++) {
+        await new Promise(r => setTimeout(r, 6000));
+        const { data: updated } = await supabase
+          .from("pipeline_jobs")
+          .select("status, title, art_url, description")
+          .eq("id", job.id)
+          .single();
+        if (!updated) continue;
+        if (updated.status === "complete") {
+          let trackCount = 10;
+          try { trackCount = JSON.parse(updated.description || "{}").track_count || 10; } catch {}
+          const { data: album } = await supabase.from("albums").insert({
+            title: updated.title || "New Album",
+            persona_name: personaName,
+            art_url: updated.art_url || null,
+            status: "in_progress",
+            auto_generated: true,
+            max_tracks: trackCount,
+          }).select().single();
+          if (album) {
+            await supabase.from("artist_channels").update({ current_album_id: album.id }).eq("persona_name", personaName);
+            setAlbums(prev => [album, ...prev]);
+            setChannels(prev => prev.map(c => c.persona_name === personaName ? { ...c, current_album_id: album.id } : c));
+          }
+          break;
+        }
+        if (updated.status === "error") break;
       }
     } catch {}
     setGeneratingAlbum(null);
@@ -1118,7 +1257,7 @@ export default function LabelPage() {
                               </div>
                               {isFull && (
                                 <button
-                                  onClick={() => generateNextAlbum(ch.persona_name)}
+                                  onClick={() => generateAlbumWithChatGPT(ch.persona_name)}
                                   disabled={generatingAlbum === ch.persona_name}
                                   className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-yellow-500/40 bg-yellow-500/10 text-yellow-300 font-mono font-bold hover:bg-yellow-500/20 transition-all disabled:opacity-40"
                                 >
@@ -1133,12 +1272,12 @@ export default function LabelPage() {
                         const artistAlbumCount = albums.filter(a => a.persona_name === ch.persona_name).length;
                         return (
                           <button
-                            onClick={() => generateNextAlbum(ch.persona_name)}
+                            onClick={() => generateAlbumWithChatGPT(ch.persona_name)}
                             disabled={generatingAlbum === ch.persona_name}
                             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 text-purple-300 font-mono font-bold hover:bg-purple-500/20 transition-all disabled:opacity-40"
                           >
                             {generatingAlbum === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : <Disc3 className="w-3 h-3" />}
-                            {artistAlbumCount > 0 ? "Generate Album" : "Start First Album"}
+                            {generatingAlbum === ch.persona_name ? "Asking ChatGPT…" : artistAlbumCount > 0 ? "Generate Album" : "Start First Album"}
                           </button>
                         );
                       })()}
@@ -1518,6 +1657,14 @@ export default function LabelPage() {
                   Sync Now
                 </button>
                 <button
+                  onClick={generatePlaylistWithChatGPT}
+                  disabled={generatingPlaylist}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 text-purple-300 font-mono font-bold hover:bg-purple-500/20 transition-all disabled:opacity-40"
+                >
+                  {generatingPlaylist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                  {generatingPlaylist ? "Asking ChatGPT…" : "Generate with ChatGPT"}
+                </button>
+                <button
                   onClick={() => setShowNewPlaylist(v => !v)}
                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 font-mono font-bold hover:bg-green-500/20 transition-all"
                 >
@@ -1555,6 +1702,14 @@ export default function LabelPage() {
             {showNewPlaylist && (
               <div className="holo-card rounded-xl border border-green-400/30 bg-black/40 p-5 mb-4">
                 <p className="text-xs font-mono font-black uppercase tracking-wider gradient-text mb-3">New Playlist — {playlistPersona}</p>
+                {generatedPlaylistMeta && (
+                  <div className="mb-3 p-2 rounded-lg border border-purple-500/30 bg-purple-500/5 text-xs font-mono text-purple-300">
+                    <span className="font-bold">AI routing:</span> type={generatedPlaylistMeta.playlist_type}
+                    {generatedPlaylistMeta.auto_tags.length > 0 && ` · tags: ${generatedPlaylistMeta.auto_tags.join(", ")}`}
+                    {generatedPlaylistMeta.playlist_type !== "tag_match" && ` · top ${generatedPlaylistMeta.top_n}`}
+                    <button onClick={() => setGeneratedPlaylistMeta(null)} className="ml-2 text-purple-600 hover:text-purple-400">×</button>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   {/* Vibe / type field drives AI generation */}
                   <input

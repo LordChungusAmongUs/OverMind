@@ -742,6 +742,93 @@ async function waitForApproval(id, reviewStep) {
   }
 }
 
+// ── ALBUM GENERATION PIPELINE ────────────────────────────────────
+// job fields used: id, persona_name, lyrics_prompt (title prompt), art_prompt (art template with {{album_title}})
+async function runAlbumGen(job) {
+  const { id, persona_name, lyrics_prompt: titlePrompt, art_prompt: artPromptTemplate } = job;
+  try {
+    await updateJob(id, { status: "running", step: "title" });
+
+    // Step 1: Ask ChatGPT for album title + track count as JSON
+    const textResult = await runChatGPT(titlePrompt);
+    let albumTitle = "";
+    let trackCount = 10;
+    try {
+      const m = textResult.match(/\{[\s\S]*?\}/);
+      if (m) {
+        const parsed = JSON.parse(m[0]);
+        albumTitle = (parsed.title || "").trim().replace(/^["']|["']$/g, "");
+        trackCount = Math.max(4, Math.min(20, parseInt(parsed.track_count) || 10));
+      }
+    } catch {}
+    if (!albumTitle) {
+      albumTitle = textResult.split("\n").map(l => l.trim()).find(l => l.length > 1 && l.length < 60) || "New Album";
+    }
+
+    await updateJob(id, { title: albumTitle, step: "art" });
+
+    // Step 2: Generate album art with title substituted in
+    let artUrl = null;
+    if (artPromptTemplate) {
+      const artPrompt = artPromptTemplate.replace(/\{\{album_title\}\}/gi, albumTitle);
+      const b64 = await runChatGPTImage(artPrompt);
+      if (b64 && b64.startsWith("data:image")) {
+        try {
+          const base64Data = b64.split(",")[1];
+          const byteChars = atob(base64Data);
+          const byteArr = new Uint8Array(byteChars.length);
+          for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+          const blob = new Blob([byteArr], { type: "image/png" });
+          artUrl = await uploadToStorage(`albums/${Date.now()}-${(persona_name || "artist").replace(/\s+/g, "_")}.png`, blob, "image/png");
+        } catch {}
+        if (!artUrl) artUrl = b64; // fallback: store data URL directly
+      }
+    }
+
+    await updateJob(id, {
+      art_url: artUrl,
+      description: JSON.stringify({ track_count: trackCount }),
+      status: "complete",
+      step: "complete",
+    });
+  } catch (err) {
+    await updateJob(id, { status: "error", error_message: err.message });
+  }
+}
+
+// ── PLAYLIST GENERATION PIPELINE ─────────────────────────────────
+// job fields used: id, lyrics_prompt (full analytics context + instructions)
+async function runPlaylistGen(job) {
+  const { id, lyrics_prompt: contextPrompt } = job;
+  try {
+    await updateJob(id, { status: "running", step: "generating" });
+
+    const result = await runChatGPT(contextPrompt);
+
+    let playlistData = {};
+    let name = "";
+    try {
+      const m = result.match(/\{[\s\S]*?\}/);
+      if (m) {
+        playlistData = JSON.parse(m[0]);
+        name = (playlistData.name || "").trim().replace(/^["']|["']$/g, "");
+      }
+    } catch {}
+    if (!name) {
+      name = result.split("\n").map(l => l.trim()).find(l => l.length > 1 && l.length < 80) || "New Playlist";
+    }
+
+    await updateJob(id, {
+      title: name,
+      description: JSON.stringify(playlistData),
+      status: "complete",
+      step: "complete",
+    });
+  } catch (err) {
+    await updateJob(id, { status: "error", error_message: err.message });
+  }
+}
+
 // ── MAIN PIPELINE ────────────────────────────────────────────────
 async function runPipeline(job) {
   const { id, lyrics_prompt, art_prompt, metadata_prompt, lyrics: existingLyrics } = job;
@@ -1604,7 +1691,7 @@ Product: {{productName}}
   "items": [
     {
       "item_type": "<exact item type matching the product name e.g. boxer brief, t-shirt, crew sock>",
-      "color": "<specific color>",
+      "color": "<color and any pattern/print e.g. navy blue, red, white with geometric print, black with stripe>",
       "brand": "<brand or null>",
       "occasions": [<from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
       "style_notes": "<one sentence about cut, fit, material>"
@@ -1619,13 +1706,13 @@ Rules:
 - Multi-pack different colors → count:total pieces, one entry PER unique color
 - Variety pack → list most likely colors, items[].length must equal count`,
 
-  wardrobe_generation: `Generate a clean, professional catalog photograph of this exact clothing item:
+  wardrobe_generation: `{{referenceNote}}Generate a clean, professional catalog photograph of this exact clothing item:
 
 Item: {{brand}}{{color}} {{item_type}}{{styleNotes}}
 
 Requirements:
 - Generate ONLY a {{item_type}} — do not generate any other garment or accessory
-- {{color}} color — match this exactly
+- Color/pattern: {{color}} — reproduce this exactly; if a pattern or print is mentioned (e.g. geometric, stripe, logo), include it faithfully
 - Plain white or very light neutral background
 - NO model, NO mannequin, NO person — garment only
 - Flat lay, hanging, or ghost-mannequin style — whichever looks most professional for this item type
@@ -1817,14 +1904,24 @@ async function runWardrobeSplitPipeline(job) {
       await waitForTab(imgTabId);
       await sleep(4000);
 
+      // Attach original product image so generation can match exact colors, patterns, textures
+      if (imageB64) {
+        await attachFilesToTab(imgTabId, [imageB64]);
+        await sleep(2000);
+      }
+
       const brandStr = item.brand ? `${item.brand} ` : "";
       const styleNotes = item.style_notes ? ` Style details: ${item.style_notes}.` : "";
+      const referenceNote = imageB64
+        ? `I've attached the original product listing photo. Study it carefully — pay close attention to the exact color, pattern, print, and texture of the ${item.item_type || "garment"}. Now generate a new clean catalog image of just this item on a plain white background, faithfully reproducing those visual details.\n\n`
+        : "";
 
       const generationPrompt = fillTemplate(promptTemplates.wardrobe_generation, {
         brand: brandStr,
         color: cap(item.color) || "unknown",
         item_type: item.item_type || "clothing item",
         styleNotes,
+        referenceNote,
       });
 
       await sendGPTMessage(imgTabId, generationPrompt);
@@ -2009,7 +2106,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 
   await chrome.storage.local.set({ currentJob: job.id, step: job.step ?? "starting" });
-  await runPipeline(job);
+  if (job.job_type === "album_gen") {
+    await runAlbumGen(job);
+  } else if (job.job_type === "playlist_gen") {
+    await runPlaylistGen(job);
+  } else {
+    await runPipeline(job);
+  }
   await chrome.storage.local.set({ running: false, currentJob: null, step: null });
 });
 
