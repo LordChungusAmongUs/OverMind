@@ -20,9 +20,9 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ results });
 }
 
-// Vercel cron trigger — runs daily, syncs all artists
+// Vercel cron trigger — runs daily, only syncs artists with auto_sync enabled
 export async function GET() {
-  const personas = await getAllPersonas();
+  const personas = await getAllPersonas(true);
   const results: Record<string, unknown> = {};
   for (const p of personas) {
     results[p] = await syncPersona(p).catch(e => ({ error: String(e) }));
@@ -30,8 +30,11 @@ export async function GET() {
   return NextResponse.json({ results });
 }
 
-async function getAllPersonas(): Promise<string[]> {
-  const { data } = await supabase.from("artist_channels").select("persona_name").eq("active", true);
+// POST (manual) syncs whoever you pass; GET (cron) only syncs artists with auto-sync enabled
+async function getAllPersonas(autoSyncOnly = false): Promise<string[]> {
+  let query = supabase.from("artist_channels").select("persona_name").eq("active", true);
+  if (autoSyncOnly) query = query.eq("playlist_auto_sync", true);
+  const { data } = await query;
   return (data ?? []).map((r: { persona_name: string }) => r.persona_name);
 }
 

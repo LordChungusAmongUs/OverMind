@@ -145,6 +145,7 @@ interface ArtistChannel {
   active: boolean;
   emoji: string | null;
   color_key: string | null;
+  playlist_auto_sync: boolean;
 }
 
 interface PromptConfig {
@@ -289,8 +290,9 @@ export default function LabelPage() {
   const [loadingPlaylists, setLoadingPlaylists] = useState(false);
   const [playlistPersona, setPlaylistPersona] = useState("");
   const [showNewPlaylist, setShowNewPlaylist] = useState(false);
-  const [newPlaylist, setNewPlaylist] = useState({ name: "", description: "", privacy: "public" });
+  const [newPlaylist, setNewPlaylist] = useState({ name: "", description: "", privacy: "public", vibe: "" });
   const [savingNewPlaylist, setSavingNewPlaylist] = useState(false);
+  const [generatingPlaylist, setGeneratingPlaylist] = useState(false);
   const [addingVideoTo, setAddingVideoTo] = useState<string | null>(null);
   const [videoUrlInput, setVideoUrlInput] = useState("");
   const [trackCatalog, setTrackCatalog] = useState<ArtistTrackName[]>([]);
@@ -486,7 +488,7 @@ export default function LabelPage() {
       } catch {}
       setArtistPlaylists(prev => [{ ...dbRow }, ...prev]);
     }
-    setNewPlaylist({ name: "", description: "", privacy: "public" });
+    setNewPlaylist({ name: "", description: "", privacy: "public", vibe: "" });
     setShowNewPlaylist(false);
     setSavingNewPlaylist(false);
   }
@@ -508,6 +510,31 @@ export default function LabelPage() {
   async function deleteGeneralPlaylist(playlist: ArtistPlaylist) {
     await supabase.from("artist_playlists").delete().eq("id", playlist.id);
     setArtistPlaylists(prev => prev.filter(p => p.id !== playlist.id));
+  }
+
+  async function generatePlaylistName(playlistType: string) {
+    if (!playlistPersona) return;
+    setGeneratingPlaylist(true);
+    try {
+      const res = await fetch("/api/youtube/generate-playlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          persona_name: playlistPersona,
+          playlist_type: playlistType,
+          tags: newPlaylist.vibe,
+          vibe: newPlaylist.vibe,
+        }),
+      });
+      const json = await res.json();
+      if (json.name) setNewPlaylist(p => ({ ...p, name: json.name, description: json.description ?? p.description }));
+    } catch {}
+    setGeneratingPlaylist(false);
+  }
+
+  async function toggleAutoSync(personaName: string, enabled: boolean) {
+    await supabase.from("artist_channels").update({ playlist_auto_sync: enabled }).eq("persona_name", personaName);
+    setChannels(prev => prev.map(c => c.persona_name === personaName ? { ...c, playlist_auto_sync: enabled } : c));
   }
 
   async function syncPlaylists() {
@@ -1386,6 +1413,27 @@ export default function LabelPage() {
               </div>
             </div>
 
+            {/* Auto-sync toggle */}
+            {(() => {
+              const ch = channels.find(c => c.persona_name === playlistPersona);
+              const autoSync = ch?.playlist_auto_sync ?? false;
+              return ch ? (
+                <div className="flex items-center gap-3 mb-4 p-3 rounded-xl border border-green-500/10 bg-black/30">
+                  <div className="flex-1">
+                    <p className="text-xs font-mono text-green-500 font-bold">Daily Auto-Sync</p>
+                    <p className="text-xs font-mono text-green-800">Runs every day at 6 AM UTC — updates stats &amp; routes new tracks to playlists</p>
+                  </div>
+                  <button
+                    onClick={() => toggleAutoSync(ch.persona_name, !autoSync)}
+                    className={`relative flex-shrink-0 w-10 h-5 rounded-full transition-colors ${autoSync ? "bg-green-500" : "bg-green-900"}`}
+                  >
+                    <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${autoSync ? "translate-x-5" : "translate-x-0.5"}`} />
+                  </button>
+                  <span className={`text-xs font-mono font-bold w-5 ${autoSync ? "text-green-400" : "text-green-800"}`}>{autoSync ? "ON" : "OFF"}</span>
+                </div>
+              ) : null;
+            })()}
+
             {syncResult && (
               <p className={`text-xs font-mono mb-4 ${syncResult.startsWith("Error") ? "text-red-400" : "text-green-400"}`}>{syncResult}</p>
             )}
@@ -1395,11 +1443,34 @@ export default function LabelPage() {
               <div className="holo-card rounded-xl border border-green-400/30 bg-black/40 p-5 mb-4">
                 <p className="text-xs font-mono font-black uppercase tracking-wider gradient-text mb-3">New Playlist — {playlistPersona}</p>
                 <div className="grid grid-cols-2 gap-2 mb-3">
+                  {/* Vibe / type field drives AI generation */}
                   <input
-                    className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                    placeholder="Playlist name *"
-                    value={newPlaylist.name}
-                    onChange={e => setNewPlaylist(p => ({ ...p, name: e.target.value }))}
+                    className="col-span-2 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                    placeholder="Vibe / purpose (e.g. workout, dark club, emotional liquid, top hits…)"
+                    value={newPlaylist.vibe}
+                    onChange={e => setNewPlaylist(p => ({ ...p, vibe: e.target.value }))}
+                  />
+                  <div className="relative col-span-2 flex gap-2">
+                    <input
+                      className="flex-1 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                      placeholder="Playlist name"
+                      value={newPlaylist.name}
+                      onChange={e => setNewPlaylist(p => ({ ...p, name: e.target.value }))}
+                    />
+                    <button
+                      onClick={() => generatePlaylistName("general")}
+                      disabled={generatingPlaylist}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-purple-500/40 bg-purple-500/10 text-purple-300 font-mono font-bold text-xs hover:bg-purple-500/20 transition-all disabled:opacity-40 flex-shrink-0"
+                    >
+                      {generatingPlaylist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                      Generate
+                    </button>
+                  </div>
+                  <input
+                    className="col-span-2 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
+                    placeholder="Description"
+                    value={newPlaylist.description}
+                    onChange={e => setNewPlaylist(p => ({ ...p, description: e.target.value }))}
                   />
                   <select
                     className="bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono focus:outline-none focus:border-green-400/60"
@@ -1410,12 +1481,6 @@ export default function LabelPage() {
                     <option value="unlisted">Unlisted</option>
                     <option value="private">Private</option>
                   </select>
-                  <input
-                    className="col-span-2 bg-black/60 border border-green-500/30 rounded-lg px-3 py-2 text-sm text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60"
-                    placeholder="Description (optional)"
-                    value={newPlaylist.description}
-                    onChange={e => setNewPlaylist(p => ({ ...p, description: e.target.value }))}
-                  />
                 </div>
                 <div className="flex gap-2">
                   <button
