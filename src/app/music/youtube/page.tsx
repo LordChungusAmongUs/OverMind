@@ -87,6 +87,7 @@ export default function YouTubePage() {
   const [lyricsPrompt, setLyricsPrompt] = useState("");
   const [artPrompt, setArtPrompt] = useState("");
   const [metadataPrompt, setMetadataPrompt] = useState("");
+  const [dbTemplates, setDbTemplates] = useState<Record<string, string>>({});
   const [lyrics, setLyrics] = useState("");
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [artFile, setArtFile] = useState<File | null>(null);
@@ -163,6 +164,23 @@ export default function YouTubePage() {
     const interval = setInterval(check, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Load per-artist prompt templates from Prompt Studio when persona changes
+  // Templates are shown raw (with {{genre}} / {{theme}} visible) — variables are substituted at job creation time
+  useEffect(() => {
+    supabase
+      .from("artist_prompt_configs")
+      .select("prompt_type,template")
+      .eq("persona_name", selectedPersona.name)
+      .then(({ data }) => {
+        if (!data?.length) { setDbTemplates({}); return; }
+        const byType = Object.fromEntries(data.map((r: { prompt_type: string; template: string }) => [r.prompt_type, r.template]));
+        setDbTemplates(byType);
+        if (byType.lyrics)   setLyricsPrompt(byType.lyrics);
+        if (byType.art)      setArtPrompt(byType.art);
+        if (byType.metadata) setMetadataPrompt(byType.metadata);
+      });
+  }, [selectedPersona.name]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep refs in sync so callbacks always see latest values
   useEffect(() => { autoNextRef.current = autoNext; }, [autoNext]);
@@ -373,6 +391,9 @@ export default function YouTubePage() {
   const stepIndex = STEPS.findIndex(s => s.key === currentStep);
 
   // ── HELPERS ──────────────────────────────────────────────────
+  const applyTemplate = (template: string, vars: Record<string, string>) =>
+    template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? "");
+
   const copy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
@@ -451,7 +472,14 @@ export default function YouTubePage() {
       // If the user already generated a concept (styleTag is set), use those stored prompts.
       // Only generate fresh prompts if no concept has been built yet.
       let tag: string, lp: string, ap: string, mp: string;
-      if (styleTag && lyricsPrompt && artPrompt && metadataPrompt) {
+      tag = generateStyleTagForPersona(selectedPersona);
+      if (Object.keys(dbTemplates).length > 0) {
+        const vars = { genre: tag, theme: trackTheme.trim() };
+        lp = applyTemplate(dbTemplates.lyrics ?? "", vars);
+        ap = applyTemplate(dbTemplates.art ?? "", vars);
+        mp = applyTemplate(dbTemplates.metadata ?? "", vars);
+        setStyleTag(tag);
+      } else if (styleTag && lyricsPrompt && artPrompt && metadataPrompt) {
         tag = styleTag;
         lp = lyricsPrompt;
         ap = artPrompt;
@@ -488,7 +516,14 @@ export default function YouTubePage() {
     setDebugResult(null);
 
     let tag: string, lp: string, ap: string, mp: string;
-    if (styleTag && lyricsPrompt && artPrompt && metadataPrompt) {
+    tag = generateStyleTagForPersona(selectedPersona);
+    if (Object.keys(dbTemplates).length > 0) {
+      const vars = { genre: tag, theme: trackTheme.trim() };
+      lp = applyTemplate(dbTemplates.lyrics ?? "", vars);
+      ap = applyTemplate(dbTemplates.art ?? "", vars);
+      mp = applyTemplate(dbTemplates.metadata ?? "", vars);
+      setStyleTag(tag);
+    } else if (styleTag && lyricsPrompt && artPrompt && metadataPrompt) {
       tag = styleTag;
       lp = lyricsPrompt;
       ap = artPrompt;
@@ -857,12 +892,16 @@ export default function YouTubePage() {
           <div className="space-y-4">
             <div className="p-3 rounded-lg bg-black/60 border border-green-500/20">
               <div className="flex items-center justify-between mb-1">
-                <p className="text-xs text-green-700 font-mono">Copy this prompt into ChatGPT</p>
+                <p className="text-xs text-green-700 font-mono">Prompt sent to ChatGPT <span className="text-green-900">— edit in Prompt Studio</span></p>
                 <button onClick={() => copy(lyricsPrompt, "lyrics-prompt")} className="text-xs text-green-400 font-mono flex items-center gap-1 hover:text-green-300">
                   {copiedKey === "lyrics-prompt" ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
                 </button>
               </div>
-              <p className="text-sm text-green-300 font-mono">{lyricsPrompt}</p>
+              <textarea
+                className="w-full bg-transparent text-sm text-green-300 font-mono resize-y min-h-[80px] focus:outline-none"
+                value={lyricsPrompt}
+                onChange={e => setLyricsPrompt(e.target.value)}
+              />
             </div>
             <a href="https://chat.openai.com" target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400">
@@ -891,12 +930,16 @@ export default function YouTubePage() {
           <div className="space-y-4">
             <div className="p-3 rounded-lg bg-black/60 border border-green-500/20">
               <div className="flex items-center justify-between mb-1">
-                <p className="text-xs text-green-700 font-mono">Copy this prompt into ChatGPT (DALL-E)</p>
+                <p className="text-xs text-green-700 font-mono">Prompt sent to ChatGPT (DALL-E) <span className="text-green-900">— edit in Prompt Studio</span></p>
                 <button onClick={() => copy(artPrompt, "art-prompt")} className="text-xs text-green-400 font-mono flex items-center gap-1 hover:text-green-300">
                   {copiedKey === "art-prompt" ? <><Check className="w-3 h-3" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
                 </button>
               </div>
-              <p className="text-sm text-green-300 font-mono">{artPrompt}</p>
+              <textarea
+                className="w-full bg-transparent text-sm text-green-300 font-mono resize-y min-h-[60px] focus:outline-none"
+                value={artPrompt}
+                onChange={e => setArtPrompt(e.target.value)}
+              />
             </div>
             <a href="https://chat.openai.com" target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400">
@@ -999,7 +1042,14 @@ export default function YouTubePage() {
         return (
           <div className="space-y-4">
             <div className="p-3 rounded-lg bg-black/60 border border-green-500/20">
-              <p className="text-xs text-green-700 font-mono">Metadata is generated automatically by the pipeline. Fill in or edit title and description below.</p>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-green-700 font-mono">Prompt sent to ChatGPT <span className="text-green-900">— edit in Prompt Studio</span></p>
+              </div>
+              <textarea
+                className="w-full bg-transparent text-sm text-green-300 font-mono resize-y min-h-[60px] focus:outline-none"
+                value={metadataPrompt}
+                onChange={e => setMetadataPrompt(e.target.value)}
+              />
             </div>
             <a href="https://chat.openai.com" target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-black/40 border border-green-500/20 text-green-600 text-sm font-mono font-medium hover:border-green-400/40 hover:text-green-400">

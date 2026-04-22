@@ -115,6 +115,14 @@ const DEFAULT_PROMPTS: Record<string, Record<string, string>> = {
   },
 };
 
+const PROMPT_VARS: Record<string, string> = {
+  lyrics:        "{{genre}}  {{theme}}",
+  art:           "{{genre}}  {{theme}}",
+  title:         "{{genre}}  {{theme}}",
+  metadata:      "{{genre}}  {{theme}}",
+  comment_reply: "{{comment}}",
+};
+
 const PROMPT_TYPES = [
   { key: "lyrics",        label: "Lyrics / Notes",  icon: Music2 },
   { key: "art",           label: "Cover Art",        icon: Wand2 },
@@ -858,10 +866,8 @@ export default function LabelPage() {
                       <div className="flex items-center gap-2 mb-2">
                         <Icon className="w-4 h-4 text-green-400" />
                         <p className="text-xs font-mono font-black uppercase tracking-wider text-green-500">{label}</p>
+                        <span className="text-xs font-mono text-yellow-400 ml-2">vars: {PROMPT_VARS[key]}</span>
                         {!isDefault && <span className="text-xs text-yellow-400 font-mono ml-auto">• modified</span>}
-                        {key === "comment_reply" && (
-                          <span className="text-xs text-green-800 font-mono ml-auto">use {`{comment}`} as placeholder</span>
-                        )}
                       </div>
                       <textarea
                         className="w-full bg-black/60 border border-green-500/20 rounded-lg px-3 py-2 text-xs text-green-300 font-mono placeholder-green-800 focus:outline-none focus:border-green-400/60 resize-y min-h-[80px]"
