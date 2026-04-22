@@ -1107,7 +1107,7 @@ export default function LabelPage() {
                         if (currentAlbum) {
                           return (
                             <div className="flex items-center gap-2">
-                              <button onClick={() => setTab("albums")} className="flex items-center gap-1 text-xs font-mono text-green-600 hover:text-green-400 transition-colors">
+                              <button onClick={() => setTab("albums")} className="flex items-center gap-1 text-xs font-mono text-green-500 hover:text-green-300 transition-colors font-bold">
                                 <Disc3 className="w-3 h-3" /> {currentAlbum.title}
                               </button>
                               <div className="flex items-center gap-1">
@@ -1135,7 +1135,7 @@ export default function LabelPage() {
                           <button
                             onClick={() => generateNextAlbum(ch.persona_name)}
                             disabled={generatingAlbum === ch.persona_name}
-                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-green-500/20 text-green-700 font-mono hover:text-green-400 transition-colors disabled:opacity-40"
+                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 text-purple-300 font-mono font-bold hover:bg-purple-500/20 transition-all disabled:opacity-40"
                           >
                             {generatingAlbum === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : <Disc3 className="w-3 h-3" />}
                             {artistAlbumCount > 0 ? "Generate Album" : "Start First Album"}
