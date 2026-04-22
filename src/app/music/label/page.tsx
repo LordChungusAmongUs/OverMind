@@ -855,25 +855,34 @@ Return ONLY valid JSON (no markdown):
         return;
       }
 
-      // Poll for completion — art gen takes ~3 min, poll every 6s for up to 10 min
+      // Poll status only — art_url is excluded to avoid fetching a large base64 payload
       for (let i = 0; i < 100; i++) {
         await new Promise(r => setTimeout(r, 6000));
         const { data: updated } = await supabase
           .from("pipeline_jobs")
-          .select("status, title, art_url, description, error_message")
+          .select("status, title, description, error_message")
           .eq("id", job.id)
           .single();
         if (!updated) continue;
+
         if (updated.status === "complete") {
+          // Fetch art_url separately now that we know it's done
+          const { data: artRow } = await supabase
+            .from("pipeline_jobs")
+            .select("art_url")
+            .eq("id", job.id)
+            .single();
+          const artUrl = artRow?.art_url || null;
+
           let trackCount = 10;
           try { trackCount = parseInt(JSON.parse(updated.description || "{}").track_count) || 10; } catch {}
+
           const insertPayload: Record<string, unknown> = {
             title: updated.title || "New Album",
             persona_name: personaName,
-            art_url: updated.art_url || null,
+            art_url: artUrl,
             status: "in_progress",
           };
-          // Only include auto_generated/max_tracks if columns exist (SQL may not have run yet)
           try {
             const { data: album } = await supabase.from("albums").insert({
               ...insertPayload,
@@ -888,12 +897,13 @@ Return ONLY valid JSON (no markdown):
               setAlbums(prev => [album, ...prev]);
             }
           } catch {
-            // Fallback if new columns don't exist yet
+            // Fallback: insert without new columns in case SQL hasn't been run
             const { data: album } = await supabase.from("albums").insert(insertPayload).select().single();
             if (album) setAlbums(prev => [album, ...prev]);
           }
           break;
         }
+
         if (updated.status === "error") {
           setAlbumGenError(`Extension error: ${updated.error_message || "unknown"}`);
           break;
