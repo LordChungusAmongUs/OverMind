@@ -824,8 +824,8 @@ Return ONLY valid JSON (no markdown):
       const styleLine = (configs?.find(c => c.prompt_type === "metadata")?.template || "").slice(0, 150);
 
       // Apply simple vars and append JSON instruction
-      const applyVars = (t: string) => t.replace(/\{\{(\w+)\}\}/g, (_, k) =>
-        ({ persona_name: personaName, genre: "bass music", theme: "dark energy", track_count: "10", album_title: "{{album_title}}" }[k] ?? ""));
+      const vars: Record<string, string> = { persona_name: personaName, genre: "bass music", theme: "dark energy", track_count: "10", album_title: "{{album_title}}" };
+      const applyVars = (t: string) => t.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? "");
 
       const titlePrompt = `${applyVars(titleTmpl)}${styleLine ? `\nArtist style context: ${styleLine}` : ""}\n\nReturn ONLY valid JSON (no markdown, no extra text):\n{"title": "<2-4 word album title>", "track_count": <number 8-15>}`;
 

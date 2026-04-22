@@ -90,11 +90,12 @@ async function syncPersona(persona: string): Promise<{ tracked: number; statsUpd
 
   // Route tracks to playlists
   let added = 0;
+  type EnrichedTrack = { youtube_video_id: string; tags: string[]; view_count: number; like_count: number; [k: string]: unknown };
   const enriched = tracks.map((t: Record<string, unknown>) => ({
     ...t,
     view_count: statsMap[t.youtube_video_id as string]?.views ?? (t.view_count as number) ?? 0,
     like_count: statsMap[t.youtube_video_id as string]?.likes ?? (t.like_count as number) ?? 0,
-  }));
+  })) as EnrichedTrack[];
 
   for (const pl of playlists ?? []) {
     let targetIds: string[] = [];

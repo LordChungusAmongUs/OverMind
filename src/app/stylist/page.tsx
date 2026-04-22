@@ -210,6 +210,7 @@ export default function StylistPage() {
   const [promptEdits, setPromptEdits] = useState<Record<string, string>>({});
   const [savingPrompt, setSavingPrompt] = useState<string | null>(null);
   const [showPrompts, setShowPrompts] = useState(false);
+  const [autoAnalyze, setAutoAnalyze] = useState(false);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -245,6 +246,7 @@ export default function StylistPage() {
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => { setAutoAnalyze(localStorage.getItem("wardrobeAutoAnalyze") === "true"); }, []);
 
   useEffect(() => {
     fetch("https://api.open-meteo.com/v1/forecast?latitude=35.9065&longitude=-80.0065&current_weather=true&temperature_unit=fahrenheit&timezone=America/New_York")
@@ -289,6 +291,7 @@ export default function StylistPage() {
     if (isDirectImageUrl(url)) {
       setResolvedImageUrl(url);
       setScraping(false);
+      if (autoAnalyze) await analyzeWithChatGPT(url, null);
       return;
     }
 
@@ -301,11 +304,17 @@ export default function StylistPage() {
     if (data.error) {
       setImportError(data.error);
     } else {
-      if (data.name || data.type) {
-        setProductMeta({ name: data.name, type: data.type, brand: data.brand, color: data.color });
-      }
+      const meta = (data.name || data.type)
+        ? { name: data.name, type: data.type, brand: data.brand, color: data.color }
+        : null;
+      if (meta) setProductMeta(meta);
       if (data.image_url) {
         setResolvedImageUrl(data.image_url);
+        setScraping(false);
+        if (autoAnalyze) {
+          await analyzeWithChatGPT(data.image_url, meta);
+          return;
+        }
       } else {
         setImportError("Could not extract an image from that URL. Try right-clicking the product image → Copy image address, and paste that URL instead.");
       }
@@ -313,8 +322,13 @@ export default function StylistPage() {
     setScraping(false);
   }
 
-  async function analyzeWithChatGPT() {
-    if (!resolvedImageUrl) return;
+  async function analyzeWithChatGPT(
+    imageUrl?: string,
+    meta?: { name?: string; type?: string; brand?: string; color?: string } | null,
+  ) {
+    const url = imageUrl ?? resolvedImageUrl;
+    const m = meta !== undefined ? meta : productMeta;
+    if (!url) return;
     setSplitting(true);
     setSplitError(null);
     setSplitItems(null);
@@ -324,11 +338,11 @@ export default function StylistPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          source_image_url: resolvedImageUrl,
-          item_name: productMeta?.name ?? null,
-          item_type: productMeta?.type ?? null,
-          item_brand: productMeta?.brand ?? null,
-          item_color: productMeta?.color ?? null,
+          source_image_url: url,
+          item_name: m?.name ?? null,
+          item_type: m?.type ?? null,
+          item_brand: m?.brand ?? null,
+          item_color: m?.color ?? null,
         }),
       });
       const data = await res.json();
@@ -964,6 +978,22 @@ export default function StylistPage() {
               {/* ── ChatGPT import mode ── */}
               {addMode === "import" && (
                 <div>
+                  {/* Auto-analyze toggle — always visible in import mode */}
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs font-mono text-green-700 uppercase tracking-wider">Auto-analyze on image resolve</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !autoAnalyze;
+                        setAutoAnalyze(next);
+                        localStorage.setItem("wardrobeAutoAnalyze", String(next));
+                      }}
+                      className={`relative w-10 h-5 rounded-full border transition-all flex-shrink-0 ${autoAnalyze ? "border-green-500/60 bg-green-500/20" : "border-green-500/20 bg-black/40"}`}
+                    >
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${autoAnalyze ? "left-5 bg-green-400" : "left-0.5 bg-green-600"}`} />
+                    </button>
+                  </div>
+
                   {/* Step 1: get image */}
                   {!resolvedImageUrl && (
                     <>
@@ -1010,7 +1040,7 @@ export default function StylistPage() {
                         </p>
                         <div className="flex gap-2">
                           <button
-                            onClick={analyzeWithChatGPT}
+                            onClick={() => analyzeWithChatGPT()}
                             className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all"
                           >
                             <Sparkles className="w-3.5 h-3.5" />
@@ -1180,7 +1210,7 @@ export default function StylistPage() {
               {prompts.map(prompt => {
                 const vars: Record<string, string> = {
                   "wardrobe_analysis": "{{imageNote}}  {{productName}}  {{brandLine}}  {{focusNote}}",
-                  "wardrobe_generation": "{{brand}}  {{color}}  {{item_type}}  {{styleNotes}}",
+                  "wardrobe_generation": "{{brand}}  {{color}}  {{item_type}}  {{styleNotes}}  {{referenceNote}}",
                 };
                 return (
                   <div key={prompt.key}>
