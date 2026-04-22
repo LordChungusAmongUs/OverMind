@@ -1679,9 +1679,13 @@ async function runFanInteractionPipeline(job) {
 
 // ── PROMPT TEMPLATE HELPERS ──────────────────────────────────────
 const DEFAULT_PROMPTS = {
-  wardrobe_analysis: `{{imageNote}} Return ONLY a JSON object — no markdown, no explanation.
+  wardrobe_analysis: `{{imageNote}}
 
-Product: {{productName}}
+CRITICAL: Identify colors by looking at the attached image — do NOT use any color mentioned in the product name or title. Amazon listings often say "Black" even when the pack contains white, red, and navy. The image is the only source of truth for color.
+
+Return ONLY a JSON object — no markdown, no explanation.
+
+Product type: {{productName}}
 {{brandLine}}
 
 {{focusNote}}
@@ -1690,21 +1694,22 @@ Product: {{productName}}
   "count": <total individual pieces in this purchase e.g. 1 for single, 7 for a 7-pack>,
   "items": [
     {
-      "item_type": "<exact item type matching the product name e.g. boxer brief, t-shirt, crew sock>",
-      "color": "<color and any pattern/print e.g. navy blue, red, white with geometric print, black with stripe>",
+      "item_type": "<exact item type e.g. boxer brief, t-shirt, crew sock>",
+      "color": "<color and any pattern/print AS SEEN IN THE IMAGE — e.g. navy blue, red, white with geometric print>",
       "brand": "<brand or null>",
       "occasions": [<from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
-      "style_notes": "<one sentence about cut, fit, material>"
+      "style_notes": "<one sentence about cut, fit, material, and any visible pattern or print>"
     }
   ]
 }
 
 Rules:
+- Colors come from the image only — ignore color words in the product name
 - items[] length must NEVER exceed count
 - Single item → count:1, one entry
 - Multi-pack same color → count:N, one entry
-- Multi-pack different colors → count:total pieces, one entry PER unique color
-- Variety pack → list most likely colors, items[].length must equal count`,
+- Multi-pack different colors → one entry PER unique color seen in the image
+- Variety pack → list each distinct color visible, items[].length must equal count`,
 
   wardrobe_generation: `{{referenceNote}}Generate a clean, professional catalog photograph of this exact clothing item:
 
@@ -2106,9 +2111,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 
   await chrome.storage.local.set({ currentJob: job.id, step: job.step ?? "starting" });
-  if (job.job_type === "album_gen") {
+  if (job.track_theme === "__album_gen__") {
     await runAlbumGen(job);
-  } else if (job.job_type === "playlist_gen") {
+  } else if (job.track_theme === "__playlist_gen__") {
     await runPlaylistGen(job);
   } else {
     await runPipeline(job);

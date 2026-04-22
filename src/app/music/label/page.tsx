@@ -278,6 +278,7 @@ export default function LabelPage() {
   const [addingTrack, setAddingTrack] = useState<string | null>(null);
   const [newTrack, setNewTrack] = useState({ title: "", youtube_url: "" });
   const [generatingAlbum, setGeneratingAlbum] = useState<string | null>(null);
+  const [albumGenError, setAlbumGenError] = useState<string | null>(null);
   const [albumTrackCounts, setAlbumTrackCounts] = useState<Record<string, number>>({});
 
   // Fan
@@ -610,15 +611,15 @@ Return ONLY valid JSON (no markdown):
   "top_n": <number 10-100>
 }`;
 
-      const { data: job } = await supabase.from("pipeline_jobs").insert({
-        job_type: "playlist_gen",
+      const { data: job, error: jobErr } = await supabase.from("pipeline_jobs").insert({
+        track_theme: "__playlist_gen__",
         persona_name: playlistPersona,
         lyrics_prompt: contextPrompt,
         status: "pending",
         auto_approve: true,
       }).select().single();
 
-      if (!job) { setGeneratingPlaylist(false); return; }
+      if (jobErr || !job) { setGeneratingPlaylist(false); return; }
 
       for (let i = 0; i < 30; i++) {
         await new Promise(r => setTimeout(r, 4000));
@@ -808,6 +809,7 @@ Return ONLY valid JSON (no markdown):
 
   async function generateAlbumWithChatGPT(personaName: string) {
     setGeneratingAlbum(personaName);
+    setAlbumGenError(null);
     try {
       // Load this artist's album prompts
       const { data: configs } = await supabase
@@ -823,14 +825,14 @@ Return ONLY valid JSON (no markdown):
       const artTmpl   = configs?.find(c => c.prompt_type === "album_art")?.template   || artFallback;
       const styleLine = (configs?.find(c => c.prompt_type === "metadata")?.template || "").slice(0, 150);
 
-      // Apply simple vars and append JSON instruction
       const vars: Record<string, string> = { persona_name: personaName, genre: "bass music", theme: "dark energy", track_count: "10", album_title: "{{album_title}}" };
       const applyVars = (t: string) => t.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? "");
 
       const titlePrompt = `${applyVars(titleTmpl)}${styleLine ? `\nArtist style context: ${styleLine}` : ""}\n\nReturn ONLY valid JSON (no markdown, no extra text):\n{"title": "<2-4 word album title>", "track_count": <number 8-15>}`;
 
-      const { data: job } = await supabase.from("pipeline_jobs").insert({
-        job_type: "album_gen",
+      // Use track_theme="__album_gen__" as the job type signal — no extra DB column needed
+      const { data: job, error: jobErr } = await supabase.from("pipeline_jobs").insert({
+        track_theme: "__album_gen__",
         persona_name: personaName,
         lyrics_prompt: titlePrompt,
         art_prompt: applyVars(artTmpl),
@@ -838,38 +840,59 @@ Return ONLY valid JSON (no markdown):
         auto_approve: true,
       }).select().single();
 
-      if (!job) { setGeneratingAlbum(null); return; }
+      if (jobErr || !job) {
+        setAlbumGenError(`Failed to create job: ${jobErr?.message ?? "unknown error"}`);
+        setGeneratingAlbum(null);
+        return;
+      }
 
-      // Poll for completion — art gen takes ~3 min
+      // Poll for completion — art gen takes ~3 min, poll every 6s for up to 10 min
       for (let i = 0; i < 100; i++) {
         await new Promise(r => setTimeout(r, 6000));
         const { data: updated } = await supabase
           .from("pipeline_jobs")
-          .select("status, title, art_url, description")
+          .select("status, title, art_url, description, error_message")
           .eq("id", job.id)
           .single();
         if (!updated) continue;
         if (updated.status === "complete") {
           let trackCount = 10;
-          try { trackCount = JSON.parse(updated.description || "{}").track_count || 10; } catch {}
-          const { data: album } = await supabase.from("albums").insert({
+          try { trackCount = parseInt(JSON.parse(updated.description || "{}").track_count) || 10; } catch {}
+          const insertPayload: Record<string, unknown> = {
             title: updated.title || "New Album",
             persona_name: personaName,
             art_url: updated.art_url || null,
             status: "in_progress",
-            auto_generated: true,
-            max_tracks: trackCount,
-          }).select().single();
-          if (album) {
-            await supabase.from("artist_channels").update({ current_album_id: album.id }).eq("persona_name", personaName);
-            setAlbums(prev => [album, ...prev]);
-            setChannels(prev => prev.map(c => c.persona_name === personaName ? { ...c, current_album_id: album.id } : c));
+          };
+          // Only include auto_generated/max_tracks if columns exist (SQL may not have run yet)
+          try {
+            const { data: album } = await supabase.from("albums").insert({
+              ...insertPayload,
+              auto_generated: true,
+              max_tracks: trackCount,
+            }).select().single();
+            if (album) {
+              try {
+                await supabase.from("artist_channels").update({ current_album_id: album.id }).eq("persona_name", personaName);
+                setChannels(prev => prev.map(c => c.persona_name === personaName ? { ...c, current_album_id: album.id } : c));
+              } catch {}
+              setAlbums(prev => [album, ...prev]);
+            }
+          } catch {
+            // Fallback if new columns don't exist yet
+            const { data: album } = await supabase.from("albums").insert(insertPayload).select().single();
+            if (album) setAlbums(prev => [album, ...prev]);
           }
           break;
         }
-        if (updated.status === "error") break;
+        if (updated.status === "error") {
+          setAlbumGenError(`Extension error: ${updated.error_message || "unknown"}`);
+          break;
+        }
       }
-    } catch {}
+    } catch (e: unknown) {
+      setAlbumGenError((e as Error).message ?? "Unknown error");
+    }
     setGeneratingAlbum(null);
   }
 
@@ -1281,6 +1304,14 @@ Return ONLY valid JSON (no markdown):
                           </button>
                         );
                       })()}
+
+                      {/* Album gen error */}
+                      {albumGenError && generatingAlbum !== ch.persona_name && (
+                        <span className="text-xs font-mono text-red-400 ml-1">
+                          {albumGenError}
+                          <button onClick={() => setAlbumGenError(null)} className="ml-1 text-red-600 hover:text-red-400">×</button>
+                        </span>
+                      )}
 
                       {/* Last comment job status */}
                       {(() => {
