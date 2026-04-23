@@ -950,17 +950,8 @@ async function urlToBase64(url) {
 
 // Attach multiple images to the current ChatGPT message box
 async function attachFilesToTab(tabId, base64Array) {
-  await injectAndRun(tabId, () => {
-    const btn =
-      document.querySelector('button[aria-label="Attach files"]') ||
-      document.querySelector('button[aria-label*="ttach"]') ||
-      Array.from(document.querySelectorAll('button')).find(b =>
-        (b.getAttribute('aria-label') || '').toLowerCase().includes('attach')
-      );
-    if (btn) btn.click();
-  });
-  await sleep(1500);
-
+  // Directly set files on the hidden file input — do NOT click the button first,
+  // since clicking it opens the OS native file picker which blocks programmatic injection.
   return await injectAndRun(tabId, (b64Array) => {
     try {
       const files = b64Array.map((b64, i) => {
@@ -975,8 +966,9 @@ async function attachFilesToTab(tabId, base64Array) {
       if (!fileInput) return false;
       const dt = new DataTransfer();
       files.forEach(f => dt.items.add(f));
-      Object.defineProperty(fileInput, 'files', { value: dt.files, writable: false });
+      fileInput.files = dt.files;
       fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+      fileInput.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     } catch (e) { return 'err:' + e.message; }
   }, [base64Array]);
@@ -1833,13 +1825,15 @@ function mapWardrobeType(t) {
 }
 
 async function runWardrobeSplitPipeline(job) {
-  const { id, source_image_url, item_name, item_type, item_brand } = job;
+  const { id, source_image_url, source_image_b64, item_name, item_type, item_brand } = job;
   try {
     const promptTemplates = await fetchPrompts();
-    // ── Step 1: Download the product image (best-effort; continue without it if unavailable)
-    console.log("[split] Downloading image:", source_image_url);
-    const imageB64 = await urlToBase64(source_image_url);
-    console.log("[split] Image download:", imageB64 ? "success" : "failed — will use text-only analysis");
+    // ── Step 1: Get the product image as base64.
+    // Prefer source_image_b64 stored by the API route (no network needed).
+    // Fall back to downloading source_image_url only if base64 wasn't stored.
+    console.log("[split] Getting image, has stored b64:", !!source_image_b64);
+    const imageB64 = source_image_b64 || await urlToBase64(source_image_url);
+    console.log("[split] Image:", imageB64 ? "ready" : "unavailable — will use text-only analysis");
 
     // ── Step 2: ChatGPT analysis — image (if available) + product context → item breakdown
     const analysisTabId = await openTab("https://chatgpt.com/");

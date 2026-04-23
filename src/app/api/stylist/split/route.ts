@@ -7,9 +7,7 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-// Download an image and re-host it in Supabase so the extension can reliably fetch it.
-// Amazon CDN URLs often block extension service worker fetches; our own storage doesn't.
-async function reHostImage(imageUrl: string, jobId: string): Promise<string | null> {
+async function downloadImage(imageUrl: string) {
   try {
     const res = await fetch(imageUrl, {
       headers: {
@@ -22,14 +20,7 @@ async function reHostImage(imageUrl: string, jobId: string): Promise<string | nu
     const contentType = res.headers.get("content-type") ?? "image/jpeg";
     const ext = contentType.includes("png") ? "png" : contentType.includes("webp") ? "webp" : "jpg";
     const buffer = Buffer.from(await res.arrayBuffer());
-    const path = `scraped-images/${jobId}.${ext}`;
-    const supabase = getSupabase();
-    const { error } = await supabase.storage
-      .from("pipeline-assets")
-      .upload(path, buffer, { contentType, upsert: true });
-    if (error) return null;
-    const { data } = supabase.storage.from("pipeline-assets").getPublicUrl(path);
-    return data.publicUrl;
+    return { buffer, contentType, ext };
   } catch {
     return null;
   }
@@ -52,7 +43,6 @@ export async function POST(req: Request) {
 
   const supabase = getSupabase();
 
-  // Create the job first to get an ID for the image path
   const { data, error } = await supabase.from("wardrobe_split_jobs").insert({
     source_image_url: body.source_image_url,
     item_name: body.item_name ?? null,
@@ -66,12 +56,26 @@ export async function POST(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Re-host image to Supabase so the extension can reliably download it
-  const hostedUrl = await reHostImage(body.source_image_url, data.id);
-  if (hostedUrl) {
-    await supabase.from("wardrobe_split_jobs")
-      .update({ source_image_url: hostedUrl })
-      .eq("id", data.id);
+  // Download image once: re-host to Supabase storage (reliable URL) AND store as base64
+  // so the extension reads it directly from the DB without needing to fetch it again.
+  const imageData = await downloadImage(body.source_image_url);
+  if (imageData) {
+    const { buffer, contentType, ext } = imageData;
+    const updates: Record<string, string> = {
+      source_image_b64: `data:${contentType};base64,${buffer.toString("base64")}`,
+    };
+
+    const path = `scraped-images/${data.id}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from("pipeline-assets")
+      .upload(path, buffer, { contentType, upsert: true });
+
+    if (!uploadError) {
+      const { data: urlData } = supabase.storage.from("pipeline-assets").getPublicUrl(path);
+      updates.source_image_url = urlData.publicUrl;
+    }
+
+    await supabase.from("wardrobe_split_jobs").update(updates).eq("id", data.id);
   }
 
   return NextResponse.json({ jobId: data.id });

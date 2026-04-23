@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS wardrobe_split_jobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   status TEXT DEFAULT 'pending',         -- pending | running | complete | error
   source_image_url TEXT NOT NULL,
+  source_image_b64 TEXT,                 -- base64 data URL stored by API so extension skips download
   item_name TEXT,
   item_type TEXT,
   item_brand TEXT,
@@ -16,6 +17,9 @@ CREATE TABLE IF NOT EXISTS wardrobe_split_jobs (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration: add base64 column to existing tables
+ALTER TABLE wardrobe_split_jobs ADD COLUMN IF NOT EXISTS source_image_b64 TEXT;
 
 -- Also add image_url to wardrobe_items if not already there
 ALTER TABLE wardrobe_items ADD COLUMN IF NOT EXISTS image_url TEXT;

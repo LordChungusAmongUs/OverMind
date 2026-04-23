@@ -179,8 +179,8 @@ interface Album {
   description: string | null;
   status: string;
   youtube_playlist_id: string | null;
-  max_tracks: number;
-  auto_generated: boolean;
+  max_tracks: number | null;
+  auto_generated: boolean | null;
   created_at: string;
 }
 
@@ -493,42 +493,61 @@ export default function LabelPage() {
   async function createGeneralPlaylist() {
     if (!newPlaylist.name.trim() || !playlistPersona) return;
     setSavingNewPlaylist(true);
-    const { data: dbRow } = await supabase.from("artist_playlists").insert({
+    setSyncResult(null);
+
+    const { data: dbRow, error: insertError } = await supabase.from("artist_playlists").insert({
       persona_name: playlistPersona,
       name: newPlaylist.name.trim(),
       description: newPlaylist.description || null,
       privacy: newPlaylist.privacy,
-      // Apply AI-generated routing rules if present
+      playlist_type: generatedPlaylistMeta?.playlist_type ?? "general",
       ...(generatedPlaylistMeta ? {
-        playlist_type: generatedPlaylistMeta.playlist_type,
         auto_tags: generatedPlaylistMeta.auto_tags,
         top_n: generatedPlaylistMeta.top_n,
       } : {}),
     }).select().single();
-    if (dbRow) {
-      try {
-        const res = await fetch("/api/youtube/playlist", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: newPlaylist.name.trim(),
-            description: newPlaylist.description,
-            privacy: newPlaylist.privacy,
-            persona_name: playlistPersona,
-          }),
-        });
-        const json = await res.json();
-        if (json.playlistId) {
-          await supabase.from("artist_playlists").update({ youtube_playlist_id: json.playlistId }).eq("id", dbRow.id);
-          dbRow.youtube_playlist_id = json.playlistId;
-        }
-      } catch {}
-      setArtistPlaylists(prev => [{ ...dbRow }, ...prev]);
+
+    if (insertError || !dbRow) {
+      setSyncResult(`Error: ${insertError?.message ?? "Failed to save playlist"}`);
+      setSavingNewPlaylist(false);
+      return;
     }
+
+    let tracksAdded = 0;
+    let onYouTube = false;
+    try {
+      const res = await fetch("/api/youtube/playlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newPlaylist.name.trim(),
+          description: newPlaylist.description,
+          privacy: newPlaylist.privacy,
+          persona_name: playlistPersona,
+        }),
+      });
+      const json = await res.json();
+      if (json.playlistId) {
+        onYouTube = true;
+        await supabase.from("artist_playlists").update({ youtube_playlist_id: json.playlistId }).eq("id", dbRow.id);
+        try {
+          const syncRes = await fetch("/api/youtube/playlist-sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ persona_name: playlistPersona }),
+          });
+          const syncJson = await syncRes.json();
+          tracksAdded = syncJson?.results?.[playlistPersona]?.added ?? 0;
+        } catch {}
+      }
+    } catch {}
+
     setNewPlaylist({ name: "", description: "", privacy: "public", vibe: "" });
     setGeneratedPlaylistMeta(null);
     setShowNewPlaylist(false);
     setSavingNewPlaylist(false);
+    await loadPlaylists(playlistPersona);
+    setSyncResult(`✓ "${dbRow.name}" created${onYouTube ? " on YouTube" : ""} · ${tracksAdded} tracks added`);
   }
 
   async function addVideoToPlaylist(playlist: ArtistPlaylist) {
@@ -890,10 +909,6 @@ Return ONLY valid JSON (no markdown):
               max_tracks: trackCount,
             }).select().single();
             if (album) {
-              try {
-                await supabase.from("artist_channels").update({ current_album_id: album.id }).eq("persona_name", personaName);
-                setChannels(prev => prev.map(c => c.persona_name === personaName ? { ...c, current_album_id: album.id } : c));
-              } catch {}
               setAlbums(prev => [album, ...prev]);
             }
           } catch {
@@ -1278,49 +1293,36 @@ Return ONLY valid JSON (no markdown):
                         <Wand2 className="w-3 h-3" /> Edit Prompts
                       </button>
 
-                      {/* Current album + progress bar */}
+                      {/* All in-progress albums */}
                       {(() => {
-                        const currentAlbum = ch.current_album_id ? albums.find(a => a.id === ch.current_album_id) : null;
-                        const trackCount = currentAlbum ? (albumTrackCounts[currentAlbum.id] ?? 0) : 0;
-                        const maxTracks = currentAlbum?.max_tracks ?? 10;
-                        const isFull = currentAlbum && trackCount >= maxTracks;
-
-                        if (currentAlbum) {
-                          return (
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => setTab("albums")} className="flex items-center gap-1 text-xs font-mono text-green-500 hover:text-green-300 transition-colors font-bold">
-                                <Disc3 className="w-3 h-3" /> {currentAlbum.title}
-                              </button>
-                              <div className="flex items-center gap-1">
-                                <div className="w-16 h-1 rounded-full bg-green-900/60 overflow-hidden">
-                                  <div className={`h-full rounded-full transition-all ${isFull ? "bg-yellow-400" : "bg-green-500"}`} style={{ width: `${Math.min(100, (trackCount / maxTracks) * 100)}%` }} />
-                                </div>
-                                <span className="text-xs font-mono text-green-800">{trackCount}/{maxTracks}</span>
-                              </div>
-                              {isFull && (
-                                <button
-                                  onClick={() => generateAlbumWithChatGPT(ch.persona_name)}
-                                  disabled={generatingAlbum === ch.persona_name}
-                                  className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg border border-yellow-500/40 bg-yellow-500/10 text-yellow-300 font-mono font-bold hover:bg-yellow-500/20 transition-all disabled:opacity-40"
-                                >
-                                  {generatingAlbum === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowRight className="w-3 h-3" />}
-                                  Next Album
-                                </button>
-                              )}
-                            </div>
-                          );
-                        }
-
-                        const artistAlbumCount = albums.filter(a => a.persona_name === ch.persona_name).length;
+                        const inProgress = albums.filter(a => a.persona_name === ch.persona_name && a.status === "in_progress");
                         return (
-                          <button
-                            onClick={() => generateAlbumWithChatGPT(ch.persona_name)}
-                            disabled={generatingAlbum === ch.persona_name}
-                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 text-purple-300 font-mono font-bold hover:bg-purple-500/20 transition-all disabled:opacity-40"
-                          >
-                            {generatingAlbum === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : <Disc3 className="w-3 h-3" />}
-                            {generatingAlbum === ch.persona_name ? "Asking ChatGPT…" : artistAlbumCount > 0 ? "Generate Album" : "Start First Album"}
-                          </button>
+                          <div className="flex flex-col gap-1">
+                            {inProgress.map(album => {
+                              const count = albumTrackCounts[album.id] ?? 0;
+                              const max = album.max_tracks ?? null;
+                              const pct = max ? Math.min(100, (count / max) * 100) : 0;
+                              return (
+                                <div key={album.id} className="flex items-center gap-2">
+                                  <button onClick={() => setTab("albums")} className="flex items-center gap-1 text-xs font-mono text-green-500 hover:text-green-300 transition-colors truncate max-w-[110px]">
+                                    <Disc3 className="w-3 h-3 flex-shrink-0" /> <span className="truncate">{album.title}</span>
+                                  </button>
+                                  <div className="w-12 h-1 rounded-full bg-green-900/60 overflow-hidden flex-shrink-0">
+                                    <div className={`h-full rounded-full transition-all ${max && count >= max ? "bg-yellow-400" : "bg-green-500"}`} style={{ width: `${pct}%` }} />
+                                  </div>
+                                  <span className="text-xs font-mono text-green-800">{count}/{max ?? "?"}</span>
+                                </div>
+                              );
+                            })}
+                            <button
+                              onClick={() => generateAlbumWithChatGPT(ch.persona_name)}
+                              disabled={generatingAlbum === ch.persona_name}
+                              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 text-purple-300 font-mono font-bold hover:bg-purple-500/20 transition-all disabled:opacity-40 w-fit mt-0.5"
+                            >
+                              {generatingAlbum === ch.persona_name ? <Loader2 className="w-3 h-3 animate-spin" /> : <Disc3 className="w-3 h-3" />}
+                              {generatingAlbum === ch.persona_name ? "Asking ChatGPT…" : inProgress.length === 0 ? "Start First Album" : "Generate Album"}
+                            </button>
+                          </div>
                         );
                       })()}
 
@@ -1547,7 +1549,7 @@ Return ONLY valid JSON (no markdown):
                               <span className="text-xs font-mono px-1.5 py-0.5 rounded border border-yellow-500/50 text-yellow-400 bg-yellow-500/10">current</span>
                             )}
                           </div>
-                          <p className="text-xs text-green-800 font-mono">{album.persona_name} · {uploadedCount}/{tracks?.length ?? "?"} uploaded</p>
+                          <p className="text-xs text-green-800 font-mono">{album.persona_name} · {albumTrackCounts[album.id] ?? 0}/{album.max_tracks ?? "?"} tracks</p>
                         </div>
                         <span className={`text-xs font-mono px-2 py-0.5 rounded-full border ${
                           album.status === "released" ? "border-green-400/40 text-green-400" : "border-yellow-500/30 text-yellow-400"
@@ -1555,7 +1557,8 @@ Return ONLY valid JSON (no markdown):
                         {isExpanded ? <ChevronUp className="w-4 h-4 text-green-700" /> : <ChevronDown className="w-4 h-4 text-green-700" />}
                         <button
                           onClick={e => { e.stopPropagation(); deleteAlbum(album.id); }}
-                          className="text-green-900 hover:text-red-500 transition-colors ml-1"
+                          className="text-green-700 hover:text-red-400 transition-colors ml-1"
+                          title="Delete album"
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
@@ -1564,9 +1567,20 @@ Return ONLY valid JSON (no markdown):
                       {isExpanded && (
                         <div className="border-t border-green-500/10 p-4">
                           {album.art_url && (
-                            <p className="text-xs text-green-700 font-mono mb-3">
-                              🖼️ Shared artwork: <a href={album.art_url} target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-green-400">{album.art_url.slice(0, 60)}...</a>
-                            </p>
+                            <div className="flex gap-3 mb-4 items-start">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={album.art_url}
+                                alt={album.title}
+                                className="w-28 h-28 rounded-xl object-cover border border-green-500/20 flex-shrink-0"
+                                onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                              />
+                              <div className="flex flex-col gap-1 min-w-0">
+                                <p className="text-xs text-green-500 font-mono font-bold">{album.title}</p>
+                                <p className="text-xs text-green-800 font-mono">Album art generated by ChatGPT</p>
+                                <a href={album.art_url} target="_blank" rel="noreferrer" className="text-xs text-green-700 hover:text-green-400 font-mono underline underline-offset-2 break-all">{album.art_url.startsWith("data:") ? "data URL (base64)" : album.art_url.slice(0, 60) + "…"}</a>
+                              </div>
+                            </div>
                           )}
 
                           {/* Track list */}
@@ -1644,6 +1658,24 @@ Return ONLY valid JSON (no markdown):
                                 Create Playlist
                               </button>
                             )}
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs font-mono text-green-800">Tracks:</span>
+                              <input
+                                type="number"
+                                min={1}
+                                max={30}
+                                className="w-14 bg-black/60 border border-green-500/20 rounded px-2 py-1 text-xs text-green-300 font-mono focus:outline-none focus:border-green-400/60"
+                                defaultValue={album.max_tracks ?? ""}
+                                placeholder="?"
+                                onBlur={async (e) => {
+                                  const val = parseInt(e.target.value);
+                                  if (val > 0) {
+                                    const { error } = await supabase.from("albums").update({ max_tracks: val }).eq("id", album.id);
+                                    if (!error) setAlbums(prev => prev.map(a => a.id === album.id ? { ...a, max_tracks: val } : a));
+                                  }
+                                }}
+                              />
+                            </div>
                             <button
                               onClick={async () => {
                                 const newStatus = album.status === "released" ? "in_progress" : "released";
@@ -1918,7 +1950,7 @@ Return ONLY valid JSON (no markdown):
                             </div>
                           )}
                         </div>
-                        <button onClick={() => deleteGeneralPlaylist(pl)} className="text-green-900 hover:text-red-500 transition-colors flex-shrink-0" title="Delete">
+                        <button onClick={() => deleteGeneralPlaylist(pl)} className="text-green-700 hover:text-red-400 transition-colors flex-shrink-0" title="Delete playlist">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>

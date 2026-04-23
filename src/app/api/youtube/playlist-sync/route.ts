@@ -43,8 +43,7 @@ async function syncPersona(persona: string): Promise<{ tracked: number; statsUpd
     .from("artist_playlists")
     .select("*")
     .eq("persona_name", persona)
-    .not("youtube_playlist_id", "is", null)
-    .neq("playlist_type", "general");
+    .not("youtube_playlist_id", "is", null);
 
   const { data: tracks } = await supabase
     .from("artist_track_names")

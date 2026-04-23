@@ -495,18 +495,26 @@ export default function YouTubePage() {
       }
       const autoApproveStepsStr = Object.entries(autoApproveSteps)
         .filter(([, v]) => v).map(([k]) => k).join(",");
-      const { data, error } = await supabase.from("pipeline_jobs").insert({
+      const basePayload = {
         status: "pending",
         style_tags: tag,
         track_theme: trackTheme.trim(),
         lyrics_prompt: lp,
         art_prompt: ap,
         metadata_prompt: mp,
+      };
+      let insertResult = await supabase.from("pipeline_jobs").insert({
+        ...basePayload,
         auto_approve: Object.values(autoApproveSteps).every(Boolean),
         auto_approve_steps: autoApproveStepsStr || null,
-        persona_name: selectedPersona.name,
       }).select().single();
-      if (!error && data) newJobIds.push(data.id);
+      if (insertResult.error) {
+        // Retry without columns that may not exist in this schema
+        insertResult = await supabase.from("pipeline_jobs").insert(basePayload).select().single();
+      }
+      const { data, error } = insertResult;
+      if (error) { alert(`Failed to create job: ${error.message}`); break; }
+      if (data) newJobIds.push(data.id);
     }
     setSubmitting(false);
     if (newJobIds.length > 0) setActiveJobIds(newJobIds);
@@ -706,6 +714,30 @@ export default function YouTubePage() {
     return `https://www.youtube.com/watch?v=${videoId}`;
   };
 
+  // Picks a random in-progress album for the persona and records the track in album_tracks.
+  const assignTrackToRandomAlbum = async (personaName: string, trackTitle: string, ytUrl: string) => {
+    const { data: openAlbums } = await supabase
+      .from("albums")
+      .select("id, max_tracks")
+      .eq("persona_name", personaName)
+      .eq("status", "in_progress");
+    if (!openAlbums?.length) return;
+    const album = openAlbums[Math.floor(Math.random() * openAlbums.length)] as { id: string; max_tracks?: number };
+    const { count } = await supabase
+      .from("album_tracks")
+      .select("*", { count: "exact", head: true })
+      .eq("album_id", album.id);
+    const max = album.max_tracks ?? 10;
+    if ((count ?? 0) >= max) return;
+    await supabase.from("album_tracks").insert({
+      album_id: album.id,
+      track_number: (count ?? 0) + 1,
+      title: trackTitle,
+      youtube_url: ytUrl,
+      status: "uploaded",
+    });
+  };
+
   // ── AUTO-UPLOAD FOR SUB-JOB TRACKS ──────────────────────────────
   // Called by the subJobQueue effect — publishingJobId is already set by the caller.
   const autoUploadTrack = async (item: {
@@ -731,6 +763,7 @@ export default function YouTubePage() {
           youtube_url: ytUrl,
           tags: tagArr,
         }, { onConflict: "persona_name,track_name" });
+        assignTrackToRandomAlbum(parentJob.personaName, title, ytUrl);
       }
       setApprovalQueue(prev => {
         const updated = prev.map(j => {
@@ -808,6 +841,7 @@ export default function YouTubePage() {
         youtube_url: ytUrl,
         tags: tagArr,
       }, { onConflict: "persona_name,track_name" });
+      assignTrackToRandomAlbum(job.personaName, job.title, ytUrl);
 
       if (autoNextRef.current && job.audioUrls.filter(u => u !== audioUrl && !job.approvedUrls.includes(u) && !job.skippedUrls.includes(u)).length === 0) {
         setTimeout(() => {
