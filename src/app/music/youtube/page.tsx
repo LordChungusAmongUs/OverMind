@@ -70,6 +70,8 @@ interface ApprovalJob {
   styleTags: string;
   personaName: string;
   isInstrumental: boolean;
+  artPrompt: string;
+  metadataPrompt: string;
   approvedUrls: string[];   // sub-job created / single-audio upload started
   skippedUrls: string[];
   uploadedUrls: string[];   // successfully uploaded to YouTube
@@ -365,6 +367,8 @@ export default function YouTubePage() {
               styleTags: j.style_tags ?? "",
               personaName: j.persona_name ?? selectedPersona.name,
               isInstrumental: !(j.lyrics || "").replace(/^TITLE:\s*.+\r?\n?/im, "").replace(/^STYLE:\s*.+\r?\n?/im, "").trim(),
+              artPrompt: j.art_prompt ?? "",
+              metadataPrompt: j.metadata_prompt ?? "",
               approvedUrls: [],
               skippedUrls: [],
               uploadedUrls: [],
@@ -821,9 +825,30 @@ export default function YouTubePage() {
     if (trackStatuses[audioUrl] || job.skippedUrls.includes(audioUrl)) return;
     if (!audioUrl) { alert("No audio URL found. Cannot auto-publish."); return; }
 
-    // ── DIRECT UPLOAD (all paths) ─────────────────────────────────
-    // Upload the approved track immediately using existing art + metadata.
-    // No sub-jobs — one approval click = one YouTube upload.
+    // ── ADDITIONAL TRACKS: create a sub-job so the extension regenerates art + metadata ──
+    // The first approval uses the already-generated art/title/description directly.
+    // Every additional approval from the same Suno run gets fresh art + metadata via the pipeline.
+    if (job.approvedUrls.length > 0 && job.artPrompt && job.metadataPrompt) {
+      setTrackStatuses(prev => ({ ...prev, [audioUrl]: "processing" }));
+      setApprovalQueue(prev => prev.map(j =>
+        j.jobId !== job.jobId ? j : { ...j, approvedUrls: [...j.approvedUrls, audioUrl] }
+      ));
+      await supabase.from("pipeline_jobs").insert({
+        status: "pending",
+        track_theme: `__subjob:${job.jobId}`,
+        lyrics: job.lyrics,
+        lyrics_prompt: null,
+        art_prompt: job.artPrompt,
+        metadata_prompt: job.metadataPrompt,
+        audio_url: JSON.stringify([audioUrl]),
+        style_tags: job.styleTags,
+        persona_name: job.personaName,
+        auto_approve: true,
+      });
+      return;
+    }
+
+    // ── FIRST TRACK: direct upload using existing art + metadata ──────────────
     setPublishingJobId(job.jobId);
     setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploading" }));
     try {
@@ -1719,6 +1744,22 @@ export default function YouTubePage() {
                   </button>
                 ))}
               </div>
+
+              {/* AUTO-NEXT TOGGLE */}
+              <button
+                onClick={() => {
+                  const next = !autoNext;
+                  setAutoNext(next);
+                  try { localStorage.setItem("autoNext", JSON.stringify(next)); } catch {}
+                }}
+                className={`w-full py-2 rounded-lg border font-mono text-xs uppercase tracking-widest transition-all ${
+                  autoNext
+                    ? "border-green-400/60 bg-green-500/15 text-green-300 shadow-[0_0_10px_rgba(0,255,65,0.15)]"
+                    : "border-green-500/20 bg-black/20 text-green-700 hover:border-green-500/40 hover:text-green-500"
+                }`}
+              >
+                {autoNext ? "✓ Auto-run next job after completion" : "Auto-run next job: off"}
+              </button>
 
               {/* BIG LAUNCH BUTTON */}
               {!automating ? (
