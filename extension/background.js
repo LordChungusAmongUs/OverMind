@@ -1850,8 +1850,8 @@ Product type: {{productName}}
   "count": <total individual pieces in this purchase e.g. 1 for single, 7 for a 7-pack>,
   "items": [
     {
-      "item_type": "<exact item type e.g. boxer brief, t-shirt, crew sock>",
-      "color": "<color and any pattern/print AS SEEN IN THE IMAGE — e.g. navy blue, red, white with geometric print>",
+      "item_type": "<FULL garment name — never abbreviate. 'short sleeve t-shirt' stays 'short sleeve t-shirt', never 'short'. Examples: t-shirt, polo shirt, crew neck sweatshirt, athletic shorts, boxer brief, crew sock>",
+      "color": "<PRIMARY BODY COLOR of the garment AS SEEN IN THE IMAGE — the dominant fabric color only. Ignore logos, text, branding, or accent colors. e.g. black, navy blue, red with white stripe>",
       "brand": "<brand or null>",
       "occasions": [<from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
       "style_notes": "<one sentence about cut, fit, material, and any visible pattern or print>"
@@ -1872,8 +1872,9 @@ Rules:
 Item: {{brand}}{{color}} {{item_type}}{{styleNotes}}
 
 Requirements:
-- Generate ONLY a {{item_type}} — do not generate any other garment or accessory
-- Color/pattern: {{color}} — reproduce this exactly; if a pattern or print is mentioned (e.g. geometric, stripe, logo), include it faithfully
+- The item type is "{{item_type}}" — read it in FULL. Do NOT abbreviate or infer a different garment. "Short sleeve t-shirt" is a T-SHIRT (upper body), not shorts. "Athletic shorts" are shorts (lower body), not a shirt. Generate exactly what is named.
+- PRIMARY GARMENT COLOR is {{color}} — this is the main fabric color of the body of the garment. Ignore any logo, text, or accent colors. The whole garment should be this color.
+- If style notes mention a logo or print, add it as a subtle accent — it must NOT change the primary body color
 - Plain white or very light neutral background
 - NO model, NO mannequin, NO person — garment only
 - Flat lay, hanging, or ghost-mannequin style — whichever looks most professional for this item type
@@ -2074,7 +2075,7 @@ async function runWardrobeSplitPipeline(job) {
       const brandStr = item.brand ? `${item.brand} ` : "";
       const styleNotes = item.style_notes ? ` Style details: ${item.style_notes}.` : "";
       const referenceNote = imageB64
-        ? `I've attached the original product listing photo. Study it carefully — pay close attention to the exact color, pattern, print, and texture of the ${item.item_type || "garment"}. Now generate a new clean catalog image of just this item on a plain white background, faithfully reproducing those visual details.\n\n`
+        ? `I've attached the original product listing photo. Study it carefully — identify the PRIMARY BODY COLOR of the ${item.item_type || "garment"} (the dominant fabric color, NOT logos or branding). Now generate a new clean catalog image of just this exact item on a plain white background, faithfully reproducing its color and details.\n\n`
         : "";
 
       const generationPrompt = fillTemplate(promptTemplates.wardrobe_generation, {
