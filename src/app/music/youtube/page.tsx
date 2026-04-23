@@ -153,11 +153,12 @@ export default function YouTubePage() {
 
   // ── POLL PENDING JOB COUNT (always-on, survives page reload) ──
   useEffect(() => {
-    // On mount: restore any jobs sitting at approval step so they survive a page refresh
+    // On mount: restore any jobs sitting at approval step so they survive a page refresh.
+    // Query by step only — not status — so they reappear even if status got changed.
     supabase.from("pipeline_jobs")
       .select("*")
       .eq("step", "approval")
-      .eq("status", "running")
+      .not("status", "in", '("complete","error")')
       .then(({ data: pendingApprovals }) => {
         if (!pendingApprovals?.length) return;
         setActiveJobIds(prev => {
@@ -191,11 +192,13 @@ export default function YouTubePage() {
         setAutomating(true);
       });
 
-    // On mount: auto-cancel any jobs stuck in pending/running for over 2 hours
+    // On mount: auto-cancel jobs stuck mid-pipeline for over 2 hours.
+    // Excludes approval-step jobs — those wait indefinitely for user action.
     const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     supabase.from("pipeline_jobs")
       .update({ status: "error", error_message: "Auto-cancelled: stale job" })
       .in("status", ["pending", "running"])
+      .neq("step", "approval")
       .lt("updated_at", staleThreshold);
 
     const check = async () => {
