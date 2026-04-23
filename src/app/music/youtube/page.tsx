@@ -502,6 +502,7 @@ export default function YouTubePage() {
         lyrics_prompt: lp,
         art_prompt: ap,
         metadata_prompt: mp,
+        persona_name: persona.name,
       };
       let insertResult = await supabase.from("pipeline_jobs").insert({
         ...basePayload,

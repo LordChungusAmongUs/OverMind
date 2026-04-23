@@ -290,6 +290,89 @@ async function runChatGPTImage(prompt) {
   return null;
 }
 
+// ── CHATGPT IMAGE EDIT (album art → track art) ───────────────────
+// Opens a ChatGPT tab, uploads the album cover, and asks it to add the track title.
+// Returns a base64 data URL of the edited image, or null on failure.
+async function runChatGPTImageEdit(baseImageUrl, trackTitle) {
+  const imageB64 = await urlToBase64(baseImageUrl);
+  if (!imageB64) return null;
+
+  const tabId = await openTab("https://chatgpt.com/");
+  await waitForTab(tabId);
+  await sleep(4000);
+
+  await attachFilesToTab(tabId, [imageB64]);
+  await sleep(2000);
+
+  const prompt = `This is an album cover. Edit it to add the track title "${trackTitle}" in a stylized way that fits the artwork. Keep the overall composition, colors, and aesthetic — just incorporate the track name as a visual element that looks native to this cover.`;
+  await sendGPTMessage(tabId, prompt);
+
+  for (let i = 0; i < 30; i++) {
+    const appeared = await injectAndRun(tabId, () =>
+      !!document.querySelector('[data-testid="stop-button"]') ||
+      !!document.querySelector('button[aria-label*="Stop"]') ||
+      !!document.querySelector('button[aria-label*="stop"]')
+    ).catch(() => false);
+    if (appeared) break;
+    await sleep(2000);
+  }
+  for (let i = 0; i < 90; i++) {
+    const done = await injectAndRun(tabId, () =>
+      !document.querySelector('[data-testid="stop-button"]') &&
+      !document.querySelector('button[aria-label*="Stop"]') &&
+      !document.querySelector('button[aria-label*="stop"]')
+    ).catch(() => true);
+    if (done) break;
+    await sleep(3000);
+  }
+
+  await sleep(75000);
+
+  let imgSrc = "";
+  for (let i = 0; i < 20 && !imgSrc; i++) {
+    await injectAndRun(tabId, () => {
+      (document.querySelector("main") || document.body).scrollTo(0, 999999);
+    }).catch(() => {});
+    await sleep(2000);
+
+    imgSrc = await injectAndRun(tabId, () => {
+      const main = document.querySelector("main");
+      if (!main) return "";
+      const imgs = Array.from(main.querySelectorAll("img")).reverse();
+      for (const img of imgs) {
+        const src = img.currentSrc || img.src || "";
+        if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
+        const r = img.getBoundingClientRect();
+        if (r.width > 150 && r.height > 150) return src;
+      }
+      return "";
+    }).catch(() => "");
+
+    if (!imgSrc) await sleep(3000);
+  }
+
+  if (imgSrc) {
+    const b64 = await injectAndRun(tabId, (src) => new Promise(async resolve => {
+      try {
+        const r = await fetch(src, { credentials: "include" });
+        if (!r.ok) { resolve(`err:${r.status}`); return; }
+        const blob = await r.blob();
+        const fr = new FileReader();
+        fr.onloadend = () => resolve(fr.result);
+        fr.readAsDataURL(blob);
+      } catch (e) { resolve(`exc:${e.message}`); }
+    }), [imgSrc]).catch(() => null);
+
+    if (typeof b64 === "string" && b64.startsWith("data:image")) {
+      await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+      return b64;
+    }
+  }
+
+  await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+  return null;
+}
+
 // ── SUNO AUTOMATION ──────────────────────────────────────────────
 async function runSuno(lyrics, styleTags) {
   const tabId = await getOrOpenTab("suno.com", "https://suno.com/create");
@@ -831,9 +914,11 @@ async function runPlaylistGen(job) {
 
 // ── MAIN PIPELINE ────────────────────────────────────────────────
 async function runPipeline(job) {
-  const { id, lyrics_prompt, art_prompt, metadata_prompt, lyrics: existingLyrics } = job;
+  const { id, lyrics_prompt, art_prompt, metadata_prompt, lyrics: existingLyrics, persona_name } = job;
   // style_tags may be updated after step 1 if ChatGPT returns a STYLE: line
   let style_tags = job.style_tags;
+  // titleFromLyrics is extracted in Step 1 and used in Step 2 for album art editing
+  let titleFromLyrics = job.title || null;
   // Debug jobs skip all approval gates. Per-step auto_approve_steps controls individual steps.
   const isDebug         = (job.track_theme || "").startsWith("__debug:");
   const approvedSteps   = new Set(
@@ -854,7 +939,7 @@ async function runPipeline(job) {
       lyrics = lyricsResult;
       // Extract style tags from ChatGPT's STYLE: header line — use for Suno
       const styleFromLyrics = lyricsResult.match(/^STYLE:\s*(.+)/im)?.[1]?.trim();
-      const titleFromLyrics = lyricsResult.match(/^TITLE:\s*(.+)/im)?.[1]?.trim();
+      titleFromLyrics = lyricsResult.match(/^TITLE:\s*(.+)/im)?.[1]?.trim() || titleFromLyrics;
       if (styleFromLyrics) style_tags = styleFromLyrics;
       const step1Update = { lyrics, step: shouldSkip("lyrics") ? "art" : "lyrics_review" };
       if (styleFromLyrics) step1Update.style_tags = styleFromLyrics;
@@ -867,11 +952,33 @@ async function runPipeline(job) {
     }
 
     // Step 2: Generate art → pause for review
+    // If the job has a persona_name, check for an in-progress album with art and edit it with the track title.
+    // Falls back to generating fresh art from scratch if no album art is available.
     let artUrl = null;
     if (art_prompt) {
       if (await isCancelled(id)) return;
       await updateJob(id, { step: "art" });
-      artUrl = await runChatGPTImage(art_prompt);
+
+      let usedAlbumArt = false;
+      if (persona_name && titleFromLyrics) {
+        try {
+          const albumRes = await fetch(
+            `${db("albums")}?persona_name=eq.${encodeURIComponent(persona_name)}&status=eq.in_progress&art_url=not.is.null&select=id,art_url`,
+            { headers }
+          );
+          const openAlbums = await albumRes.json();
+          if (Array.isArray(openAlbums) && openAlbums.length > 0) {
+            const album = openAlbums[Math.floor(Math.random() * openAlbums.length)];
+            const editedArt = await runChatGPTImageEdit(album.art_url, titleFromLyrics);
+            if (editedArt) { artUrl = editedArt; usedAlbumArt = true; }
+          }
+        } catch {}
+      }
+
+      if (!usedAlbumArt) {
+        artUrl = await runChatGPTImage(art_prompt);
+      }
+
       await updateJob(id, { art_url: artUrl, step: shouldSkip("art") ? "audio" : "art_review" });
       if (!shouldSkip("art")) {
         await waitForApproval(id, "art_review");
