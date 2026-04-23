@@ -293,7 +293,7 @@ async function runChatGPTImage(prompt) {
 // ── CHATGPT IMAGE EDIT (album art → track art) ───────────────────
 // Opens a ChatGPT tab, uploads the album cover, and asks it to add the track title.
 // Returns a base64 data URL of the edited image, or null on failure.
-async function runChatGPTImageEdit(baseImageUrl, trackTitle, artistName) {
+async function runChatGPTImageEdit(baseImageUrl, trackTitle, artistName, hasTitledArt = false) {
   const imageB64 = await urlToBase64(baseImageUrl);
   if (!imageB64) return null;
 
@@ -306,7 +306,9 @@ async function runChatGPTImageEdit(baseImageUrl, trackTitle, artistName) {
   await sleep(5000);
 
   const label = artistName ? `${artistName} - ${trackTitle}` : trackTitle;
-  const prompt = `This is an album cover. Edit it to add the text "${label}" in a stylized font that matches the artwork's aesthetic. Place the text along either the top or the bottom of the image so it does not cover the main artwork. Keep the rest of the composition completely unchanged.`;
+  const prompt = hasTitledArt
+    ? `This image already has a song title on it. Replace only the existing song title text with "${label}". Keep the font, style, placement, colors, and all artwork completely identical — change nothing except the title text itself.`
+    : `This is an album cover. Edit it to add the text "${label}" in a stylized font that matches the artwork's aesthetic. Place the text along either the top or the bottom of the image so it does not cover the main artwork. Keep the rest of the composition completely unchanged.`;
 
   // Type the prompt into the textarea
   await injectAndRun(tabId, (p) => {
@@ -990,7 +992,7 @@ async function runPipeline(job) {
       if (resolvedPersona && titleFromLyrics) {
         try {
           const albumRes = await fetch(
-            `${db("albums")}?persona_name=eq.${encodeURIComponent(resolvedPersona)}&status=eq.in_progress&art_url=not.is.null&select=id,art_url`,
+            `${db("albums")}?persona_name=eq.${encodeURIComponent(resolvedPersona)}&status=eq.in_progress&art_url=not.is.null&select=id,art_url,has_titled_art`,
             { headers }
           );
           const openAlbums = await albumRes.json();
@@ -998,9 +1000,20 @@ async function runPipeline(job) {
           if (Array.isArray(openAlbums) && openAlbums.length > 0) {
             const album = openAlbums[Math.floor(Math.random() * openAlbums.length)];
             albumArtDebug.reason = `editing album ${album.id}`;
-            const editedArt = await runChatGPTImageEdit(album.art_url, titleFromLyrics, resolvedPersona);
+            const editedArt = await runChatGPTImageEdit(album.art_url, titleFromLyrics, resolvedPersona, album.has_titled_art);
             albumArtDebug.editResult = editedArt ? `ok len=${editedArt.length}` : "null";
-            if (editedArt) { artUrl = editedArt; usedAlbumArt = true; }
+            if (editedArt) {
+              artUrl = editedArt;
+              usedAlbumArt = true;
+              // Update album art_url so every subsequent track edits the titled version
+              try {
+                await fetch(`${db("albums")}?id=eq.${album.id}`, {
+                  method: "PATCH",
+                  headers: { ...headers, "Content-Type": "application/json" },
+                  body: JSON.stringify({ art_url: editedArt, has_titled_art: true }),
+                });
+              } catch {}
+            }
           } else {
             albumArtDebug.reason = "no in-progress albums with art_url found";
           }
@@ -1158,9 +1171,12 @@ async function extractGPTImage(tabId) {
     }).catch(() => {});
     await sleep(2000);
     imgSrc = await injectAndRun(tabId, () => {
-      const main = document.querySelector("main");
-      if (!main) return "";
-      const imgs = Array.from(main.querySelectorAll("img")).reverse();
+      // Only search the last assistant message — avoids grabbing reference
+      // photos the user attached in earlier turns of the conversation.
+      const assistantMsgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+      const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+      if (!lastAssistant) return "";
+      const imgs = Array.from(lastAssistant.querySelectorAll("img")).reverse();
       for (const img of imgs) {
         const src = img.currentSrc || img.src || "";
         if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
@@ -1929,9 +1945,12 @@ async function extractCatalogImage(tabId) {
     }).catch(() => {});
     await sleep(3000);
     imgSrc = await injectAndRun(tabId, () => {
-      const main = document.querySelector("main");
-      if (!main) return "";
-      const imgs = Array.from(main.querySelectorAll("img")).reverse();
+      // Only search the last assistant message — avoids grabbing the attached
+      // reference image that appears in the user's message bubble above.
+      const assistantMsgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+      const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+      if (!lastAssistant) return "";
+      const imgs = Array.from(lastAssistant.querySelectorAll("img")).reverse();
       for (const img of imgs) {
         const src = img.currentSrc || img.src || "";
         if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
