@@ -152,6 +152,44 @@ export default function YouTubePage() {
 
   // ── POLL PENDING JOB COUNT (always-on, survives page reload) ──
   useEffect(() => {
+    // On mount: restore any jobs sitting at approval step so they survive a page refresh
+    supabase.from("pipeline_jobs")
+      .select("*")
+      .eq("step", "approval")
+      .eq("status", "running")
+      .then(({ data: pendingApprovals }) => {
+        if (!pendingApprovals?.length) return;
+        setActiveJobIds(prev => {
+          const existing = new Set(prev);
+          const newIds = pendingApprovals.map(j => j.id).filter(id => !existing.has(id));
+          return newIds.length ? [...prev, ...newIds] : prev;
+        });
+        setApprovalQueue(prev => {
+          const existing = new Set(prev.map(a => a.jobId));
+          const toAdd = pendingApprovals
+            .filter(j => !existing.has(j.id) && !(j.track_theme || "").startsWith("__subjob:"))
+            .map(j => ({
+              jobId: j.id,
+              audioUrls: (() => { try { return JSON.parse(j.audio_url ?? "[]"); } catch { return []; } })(),
+              artUrl: j.art_url ?? null,
+              title: j.title ?? "",
+              description: j.description ?? "",
+              lyrics: j.lyrics ?? "",
+              styleTags: j.style_tags ?? "",
+              personaName: j.persona_name ?? "",
+              isInstrumental: !(j.lyrics || "").replace(/^TITLE:\s*.+\r?\n?/im, "").replace(/^STYLE:\s*.+\r?\n?/im, "").trim(),
+              artPrompt: j.art_prompt ?? "",
+              metadataPrompt: j.metadata_prompt ?? "",
+              approvedUrls: [],
+              skippedUrls: [],
+              uploadedUrls: [],
+              errorUrls: {},
+            }));
+          return toAdd.length ? [...prev, ...toAdd] : prev;
+        });
+        setAutomating(true);
+      });
+
     // On mount: auto-cancel any jobs stuck in pending/running for over 2 hours
     const staleThreshold = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     supabase.from("pipeline_jobs")
