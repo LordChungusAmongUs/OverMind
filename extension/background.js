@@ -2009,8 +2009,9 @@ async function runWardrobeSplitPipeline(job) {
     }
 
     const productName = item_name || item_type || "clothing item";
+    const categoryHint = item_type ? ` This is categorized as a "${item_type}".` : "";
     const focusNote = item_name
-      ? `The product being sold is: "${item_name}". Identify ONLY this specific product. If a model is wearing other clothing in the image, ignore everything except the "${item_name}".`
+      ? `The product being sold is: "${item_name}".${categoryHint} Identify ONLY this specific product. If a model is wearing other clothing in the image, ignore everything except the "${item_name}". Do NOT abbreviate the item_type — e.g. "short sleeve t-shirt" must stay "short sleeve t-shirt", never just "short".`
       : item_type
         ? `Focus ONLY on the ${item_type.toLowerCase()}. Ignore any other garments visible on a model.`
         : `Focus only on the main product being sold.`;
