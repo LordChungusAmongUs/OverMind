@@ -1966,17 +1966,9 @@ async function extractCatalogImage(tabId) {
       return "";
     }).catch(() => "");
   }
-  if (!imgSrc) return null;
-  return await injectAndRun(tabId, (src) => new Promise(async resolve => {
-    try {
-      const r = await fetch(src, { credentials: "include" });
-      if (!r.ok) { resolve(null); return; }
-      const blob = await r.blob();
-      const fr = new FileReader();
-      fr.onloadend = () => resolve(fr.result);
-      fr.readAsDataURL(blob);
-    } catch { resolve(null); }
-  }), [imgSrc]).catch(() => null);
+  // Return the URL directly — the service worker (not the content script) will
+  // download it, since the service worker has <all_urls> and bypasses CORS.
+  return imgSrc || null;
 }
 
 // Map a ChatGPT item_type string to a wardrobe category
@@ -2095,21 +2087,25 @@ async function runWardrobeSplitPipeline(job) {
       await sendGPTMessage(imgTabId, generationPrompt);
 
       await waitForImageGen(imgTabId);
-      const imgB64result = await extractCatalogImage(imgTabId);
+      const imgSrc = await extractCatalogImage(imgTabId);
       await new Promise(r => chrome.tabs.remove(imgTabId, () => r())).catch(() => {});
 
-      // Upload to storage
+      // Download the image URL from the service worker — it has <all_urls> and
+      // bypasses CORS, unlike a fetch from inside the ChatGPT content script.
       let imageUrl = null;
-      if (imgB64result && imgB64result.startsWith("data:image")) {
-        try {
-          const base64 = imgB64result.split(",")[1];
-          const byteChars = atob(base64);
-          const byteArr = new Uint8Array(byteChars.length);
-          for (let j = 0; j < byteChars.length; j++) byteArr[j] = byteChars.charCodeAt(j);
-          const blob = new Blob([byteArr], { type: "image/png" });
-          imageUrl = await uploadToStorage(`wardrobe-items/${Date.now()}-${i}.png`, blob, "image/png");
-        } catch {}
-        if (!imageUrl) imageUrl = imgB64result; // fall back to data URL
+      if (imgSrc) {
+        const imgB64 = await urlToBase64(imgSrc);
+        if (imgB64) {
+          try {
+            const base64 = imgB64.split(",")[1];
+            const byteChars = atob(base64);
+            const byteArr = new Uint8Array(byteChars.length);
+            for (let j = 0; j < byteChars.length; j++) byteArr[j] = byteChars.charCodeAt(j);
+            const blob = new Blob([byteArr], { type: "image/png" });
+            imageUrl = await uploadToStorage(`wardrobe-items/${Date.now()}-${i}.png`, blob, "image/png");
+          } catch {}
+        }
+        if (!imageUrl) imageUrl = imgSrc; // fall back to raw ChatGPT URL
       }
 
       const wardrobeType = mapWardrobeType(item.item_type);
