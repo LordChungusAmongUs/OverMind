@@ -1192,8 +1192,10 @@ async function extractGPTImage(tabId) {
         const src = img.currentSrc || img.src || "";
         if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
         if (userImgSrcs.has(src)) continue;
-        const r = img.getBoundingClientRect();
-        if (r.width > 150 && r.height > 150) return src;
+        if (src.includes("oaiusercontent.com")) return src;
+        const natural = img.complete && img.naturalWidth > 150 && img.naturalHeight > 150;
+        const rendered = img.getBoundingClientRect().width > 150;
+        if (natural || rendered) return src;
       }
       return "";
     }).catch(() => "");
@@ -1950,8 +1952,6 @@ async function extractCatalogImage(tabId) {
     }).catch(() => {});
     await sleep(3000);
     imgSrc = await injectAndRun(tabId, () => {
-      // Collect srcs of images inside user message bubbles (attached reference photos)
-      // so we can skip them. Fall back to searching all of main if needed.
       const userImgSrcs = new Set(
         Array.from(document.querySelectorAll('[data-message-author-role="user"] img'))
           .map(img => img.currentSrc || img.src || "").filter(Boolean)
@@ -1962,14 +1962,18 @@ async function extractCatalogImage(tabId) {
         const src = img.currentSrc || img.src || "";
         if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
         if (userImgSrcs.has(src)) continue;
-        const r = img.getBoundingClientRect();
-        if (r.width > 150 && r.height > 150) return src;
+        // oaiusercontent.com is always ChatGPT's generated image CDN — accept immediately
+        if (src.includes("oaiusercontent.com")) return src;
+        // For other hosts fall back to dimension checks.
+        // Use naturalWidth (intrinsic, not layout-dependent) so this works in
+        // background tabs where getBoundingClientRect returns 0×0.
+        const natural = img.complete && img.naturalWidth > 150 && img.naturalHeight > 150;
+        const rendered = img.getBoundingClientRect().width > 150;
+        if (natural || rendered) return src;
       }
       return "";
     }).catch(() => "");
   }
-  // Return the URL directly — the service worker (not the content script) will
-  // download it, since the service worker has <all_urls> and bypasses CORS.
   return imgSrc || null;
 }
 
