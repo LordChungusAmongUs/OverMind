@@ -302,10 +302,32 @@ async function runChatGPTImageEdit(baseImageUrl, trackTitle) {
   await sleep(4000);
 
   await attachFilesToTab(tabId, [imageB64]);
-  await sleep(2000);
+  // Wait longer after attaching — ChatGPT processes the upload before enabling the send button
+  await sleep(5000);
 
   const prompt = `This is an album cover. Edit it to add the track title "${trackTitle}" in a stylized way that fits the artwork. Keep the overall composition, colors, and aesthetic — just incorporate the track name as a visual element that looks native to this cover.`;
-  await sendGPTMessage(tabId, prompt);
+
+  // Type the prompt into the textarea
+  await injectAndRun(tabId, (p) => {
+    const input = document.querySelector("#prompt-textarea") || document.querySelector('[contenteditable="true"]');
+    if (!input) return;
+    input.focus();
+    document.execCommand("insertText", false, p);
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+  }, [prompt]);
+  await sleep(1500);
+
+  // Retry clicking send until it works (button may be disabled while image is still processing)
+  for (let i = 0; i < 10; i++) {
+    const sent = await injectAndRun(tabId, () => {
+      const btn = document.querySelector('[data-testid="send-button"]') ||
+                  document.querySelector('button[aria-label*="Send"]');
+      if (btn && !btn.disabled) { btn.click(); return true; }
+      return false;
+    }).catch(() => false);
+    if (sent) break;
+    await sleep(2000);
+  }
 
   for (let i = 0; i < 30; i++) {
     const appeared = await injectAndRun(tabId, () =>
