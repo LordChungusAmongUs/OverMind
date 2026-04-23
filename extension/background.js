@@ -1171,15 +1171,18 @@ async function extractGPTImage(tabId) {
     }).catch(() => {});
     await sleep(2000);
     imgSrc = await injectAndRun(tabId, () => {
-      // Only search the last assistant message — avoids grabbing reference
-      // photos the user attached in earlier turns of the conversation.
-      const assistantMsgs = document.querySelectorAll('[data-message-author-role="assistant"]');
-      const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
-      if (!lastAssistant) return "";
-      const imgs = Array.from(lastAssistant.querySelectorAll("img")).reverse();
+      // Collect srcs of images inside user message bubbles (attached reference photos)
+      // so we can skip them. Fall back to searching all of main if needed.
+      const userImgSrcs = new Set(
+        Array.from(document.querySelectorAll('[data-message-author-role="user"] img'))
+          .map(img => img.currentSrc || img.src || "").filter(Boolean)
+      );
+      const root = document.querySelector("main") || document.body;
+      const imgs = Array.from(root.querySelectorAll("img")).reverse();
       for (const img of imgs) {
         const src = img.currentSrc || img.src || "";
         if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
+        if (userImgSrcs.has(src)) continue;
         const r = img.getBoundingClientRect();
         if (r.width > 150 && r.height > 150) return src;
       }
@@ -1945,15 +1948,18 @@ async function extractCatalogImage(tabId) {
     }).catch(() => {});
     await sleep(3000);
     imgSrc = await injectAndRun(tabId, () => {
-      // Only search the last assistant message — avoids grabbing the attached
-      // reference image that appears in the user's message bubble above.
-      const assistantMsgs = document.querySelectorAll('[data-message-author-role="assistant"]');
-      const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
-      if (!lastAssistant) return "";
-      const imgs = Array.from(lastAssistant.querySelectorAll("img")).reverse();
+      // Collect srcs of images inside user message bubbles (attached reference photos)
+      // so we can skip them. Fall back to searching all of main if needed.
+      const userImgSrcs = new Set(
+        Array.from(document.querySelectorAll('[data-message-author-role="user"] img'))
+          .map(img => img.currentSrc || img.src || "").filter(Boolean)
+      );
+      const root = document.querySelector("main") || document.body;
+      const imgs = Array.from(root.querySelectorAll("img")).reverse();
       for (const img of imgs) {
         const src = img.currentSrc || img.src || "";
         if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
+        if (userImgSrcs.has(src)) continue;
         const r = img.getBoundingClientRect();
         if (r.width > 150 && r.height > 150) return src;
       }
