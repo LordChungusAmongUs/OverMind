@@ -13,3 +13,6 @@ CREATE TABLE IF NOT EXISTS stylist_jobs (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Required: disable RLS so the anon key can read/write
+ALTER TABLE stylist_jobs DISABLE ROW LEVEL SECURITY;

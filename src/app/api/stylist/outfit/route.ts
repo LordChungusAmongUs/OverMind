@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  return createClient(url, key);
+}
 
 interface CleanItem {
   id: string;
@@ -29,6 +30,7 @@ export async function POST(req: Request) {
   }
 
   const weatherSummary = weather ? `${weather.temp}°F, ${weather.condition}` : null;
+  const supabase = getSupabase();
 
   const { data, error } = await supabase.from("stylist_jobs").insert({
     activities,

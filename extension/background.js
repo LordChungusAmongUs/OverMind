@@ -1161,9 +1161,11 @@ async function waitForGPTDone(tabId, maxAttempts = 60) {
   await sleep(1500);
 }
 
-// Extract the generated image from the ChatGPT tab
+// Extract the generated image URL from the ChatGPT tab.
+// Returns the raw src string — caller must download via urlToBase64 in service worker
+// to avoid CORS failures (files.oaiusercontent.com blocks in-page fetch).
 async function extractGPTImage(tabId) {
-  await sleep(75000);
+  await sleep(5000);
   let imgSrc = "";
   for (let i = 0; i < 20 && !imgSrc; i++) {
     await injectAndRun(tabId, () => {
@@ -1171,8 +1173,6 @@ async function extractGPTImage(tabId) {
     }).catch(() => {});
     await sleep(2000);
     imgSrc = await injectAndRun(tabId, () => {
-      // Collect srcs of images inside user message bubbles (attached reference photos)
-      // so we can skip them. Fall back to searching all of main if needed.
       const userImgSrcs = new Set(
         Array.from(document.querySelectorAll('[data-message-author-role="user"] img'))
           .map(img => img.currentSrc || img.src || "").filter(Boolean)
@@ -1190,18 +1190,7 @@ async function extractGPTImage(tabId) {
     }).catch(() => "");
     if (!imgSrc) await sleep(3000);
   }
-  if (!imgSrc) return null;
-
-  return await injectAndRun(tabId, (src) => new Promise(async resolve => {
-    try {
-      const r = await fetch(src, { credentials: "include" });
-      if (!r.ok) { resolve(null); return; }
-      const blob = await r.blob();
-      const fr = new FileReader();
-      fr.onloadend = () => resolve(fr.result);
-      fr.readAsDataURL(blob);
-    } catch { resolve(null); }
-  }), [imgSrc]).catch(() => null);
+  return imgSrc || null;
 }
 
 // ── OUTFIT IMAGE: 3-TURN CHATGPT CONVERSATION ────────────────────
@@ -1268,9 +1257,9 @@ async function runOutfitImageMultiTurn(job, userPhotoBase64s, itemBase64Map) {
     await sleep(3000);
   }
 
-  const imageB64 = await extractGPTImage(tabId);
+  const imgSrc = await extractGPTImage(tabId);
   await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
-  return (typeof imageB64 === "string" && imageB64.startsWith("data:image")) ? imageB64 : null;
+  return (typeof imgSrc === "string" && imgSrc.length > 0) ? imgSrc : null;
 }
 
 // ── STYLIST PIPELINE ─────────────────────────────────────────────
@@ -1354,15 +1343,18 @@ Be concise and practical.`;
     const imageData = await runOutfitImageMultiTurn(enrichedJob, userPhotoBase64s, itemBase64Map);
 
     let imageUrl = null;
-    if (imageData && imageData.startsWith("data:image")) {
-      try {
-        const base64 = imageData.split(",")[1];
-        const byteChars = atob(base64);
-        const byteArr = new Uint8Array(byteChars.length);
-        for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
-        const blob = new Blob([byteArr], { type: "image/png" });
-        imageUrl = await uploadToStorage(`outfits/${Date.now()}.png`, blob, "image/png");
-      } catch {}
+    if (imageData) {
+      let b64 = imageData.startsWith("data:image") ? imageData : await urlToBase64(imageData);
+      if (b64) {
+        try {
+          const base64 = b64.split(",")[1];
+          const byteChars = atob(base64);
+          const byteArr = new Uint8Array(byteChars.length);
+          for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+          const blob = new Blob([byteArr], { type: "image/png" });
+          imageUrl = await uploadToStorage(`outfits/${Date.now()}.png`, blob, "image/png");
+        } catch {}
+      }
       if (!imageUrl) imageUrl = imageData;
     }
 
