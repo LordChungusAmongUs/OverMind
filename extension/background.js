@@ -2134,6 +2134,7 @@ async function runWardrobeSplitPipeline(job) {
         const imgB64 = await urlToBase64(imgSrc);
         dbg.b64 = imgB64 ? `OK len=${imgB64.length}` : "FAILED";
         if (imgB64) {
+          await chrome.storage.local.set({ __uploadErr: "" });
           try {
             const base64 = imgB64.split(",")[1];
             const byteChars = atob(base64);
@@ -2142,8 +2143,10 @@ async function runWardrobeSplitPipeline(job) {
             const blob = new Blob([byteArr], { type: "image/png" });
             imageUrl = await uploadToStorage(`wardrobe-items/${Date.now()}-${i}.png`, blob, "image/png");
           } catch (e) { dbg.uploadEx = e.message; }
+          const stored = await chrome.storage.local.get(["__uploadErr"]);
+          if (stored.__uploadErr) dbg.uploadErr = stored.__uploadErr;
         }
-        dbg.imageUrl = imageUrl ? imageUrl.slice(0, 80) : "FAILED — using raw src";
+        dbg.imageUrl = imageUrl ? imageUrl.slice(0, 80) : "FAILED";
         if (!imageUrl) imageUrl = imgSrc;
       }
       await updateSplitJob(id, { item_notes: JSON.stringify(dbg) });
