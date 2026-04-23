@@ -944,6 +944,9 @@ async function runPipeline(job) {
   let style_tags = job.style_tags;
   // titleFromLyrics is extracted in Step 1 and used in Step 2 for album art editing
   let titleFromLyrics = job.title || null;
+  // Resolve persona from DB field or from the art_prompt text
+  const resolvedPersonaEarly = persona_name ||
+    (art_prompt?.match(/^Create album cover art for ([^,]+),/)?.[1]?.trim()) || null;
   // Debug jobs skip all approval gates. Per-step auto_approve_steps controls individual steps.
   const isDebug         = (job.track_theme || "").startsWith("__debug:");
   const approvedSteps   = new Set(
@@ -960,7 +963,24 @@ async function runPipeline(job) {
     let lyrics = existingLyrics;
     if (!lyrics && lyrics_prompt) {
       if (await isCancelled(id)) return;
-      const lyricsResult = await runChatGPT(lyrics_prompt);
+
+      // Fetch existing track names so ChatGPT avoids duplicates
+      let promptToSend = lyrics_prompt;
+      if (resolvedPersonaEarly) {
+        try {
+          const existingRes = await fetch(
+            `${db("artist_track_names")}?persona_name=eq.${encodeURIComponent(resolvedPersonaEarly)}&select=track_name&limit=50`,
+            { headers }
+          );
+          const existingTracks = await existingRes.json();
+          if (Array.isArray(existingTracks) && existingTracks.length > 0) {
+            const nameList = existingTracks.map(t => `"${t.track_name}"`).join(", ");
+            promptToSend = lyrics_prompt + `\n\nIMPORTANT: These track titles already exist and must NOT be used or closely imitated: ${nameList}. Your TITLE must be completely different from all of these.`;
+          }
+        } catch {}
+      }
+
+      const lyricsResult = await runChatGPT(promptToSend);
       lyrics = lyricsResult;
       // Extract style tags from ChatGPT's STYLE: header line — use for Suno
       const styleFromLyrics = lyricsResult.match(/^STYLE:\s*(.+)/im)?.[1]?.trim();
@@ -985,9 +1005,7 @@ async function runPipeline(job) {
       await updateJob(id, { step: "art" });
 
       let usedAlbumArt = false;
-      // Fall back to parsing persona name from the art_prompt if the DB column is missing
-      const resolvedPersona = persona_name ||
-        (art_prompt?.match(/^Create album cover art for ([^,]+),/)?.[1]?.trim()) || null;
+      const resolvedPersona = resolvedPersonaEarly;
       const albumArtDebug = { persona_name, resolvedPersona, titleFromLyrics, albums: null, editResult: null, reason: null };
       if (resolvedPersona && titleFromLyrics) {
         try {

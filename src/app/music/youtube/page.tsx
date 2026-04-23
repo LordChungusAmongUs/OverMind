@@ -933,7 +933,8 @@ export default function YouTubePage() {
       }, { onConflict: "persona_name,track_name" });
       assignTrackToRandomAlbum(job.personaName, job.title, ytUrl);
 
-      if (autoNextRef.current && job.audioUrls.filter(u => u !== audioUrl && !job.approvedUrls.includes(u) && !job.skippedUrls.includes(u)).length === 0) {
+      // Fire auto-next on the first successful upload from this job
+      if (autoNextRef.current && job.uploadedUrls.length === 0) {
         setTimeout(() => {
           setPublishedUrl(null);
           setCurrentStep("lyrics");
