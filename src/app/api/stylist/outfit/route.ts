@@ -34,7 +34,6 @@ export async function POST(req: Request) {
     activities,
     weather_summary: weatherSummary,
     clean_items: cleanItems,
-    reference_photo_url: referencePhotoUrl ?? null,
   }).select().single();
 
   if (error) {
