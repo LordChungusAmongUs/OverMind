@@ -1005,12 +1005,21 @@ async function runPipeline(job) {
             if (editedArt) {
               artUrl = editedArt;
               usedAlbumArt = true;
-              // Update album art_url so every subsequent track edits the titled version
+              // Upload the edited art to storage so subsequent tracks can fetch it via HTTPS
+              // (data: URLs cannot be fetched from a service worker)
               try {
+                const base64Data = editedArt.split(",")[1];
+                const byteChars = atob(base64Data);
+                const byteArr = new Uint8Array(byteChars.length);
+                for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+                const blob = new Blob([byteArr], { type: "image/png" });
+                const storagePath = `albums/${album.id}-titled-${Date.now()}.png`;
+                const storageUrl = await uploadToStorage(storagePath, blob, "image/png");
+                const urlToSave = storageUrl || editedArt;
                 await fetch(`${db("albums")}?id=eq.${album.id}`, {
                   method: "PATCH",
                   headers: { ...headers, "Content-Type": "application/json" },
-                  body: JSON.stringify({ art_url: editedArt, has_titled_art: true }),
+                  body: JSON.stringify({ art_url: urlToSave, has_titled_art: true }),
                 });
               } catch {}
             }
