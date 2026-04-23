@@ -960,6 +960,7 @@ async function runPipeline(job) {
       await updateJob(id, { step: "art" });
 
       let usedAlbumArt = false;
+      const albumArtDebug = { persona_name, titleFromLyrics, albums: null, editResult: null, reason: null };
       if (persona_name && titleFromLyrics) {
         try {
           const albumRes = await fetch(
@@ -967,13 +968,23 @@ async function runPipeline(job) {
             { headers }
           );
           const openAlbums = await albumRes.json();
+          albumArtDebug.albums = Array.isArray(openAlbums) ? openAlbums.map(a => ({ id: a.id, art_url: (a.art_url || "").slice(0, 80) })) : openAlbums;
           if (Array.isArray(openAlbums) && openAlbums.length > 0) {
             const album = openAlbums[Math.floor(Math.random() * openAlbums.length)];
+            albumArtDebug.reason = `editing album ${album.id}`;
             const editedArt = await runChatGPTImageEdit(album.art_url, titleFromLyrics);
+            albumArtDebug.editResult = editedArt ? `ok len=${editedArt.length}` : "null";
             if (editedArt) { artUrl = editedArt; usedAlbumArt = true; }
+          } else {
+            albumArtDebug.reason = "no in-progress albums with art_url found";
           }
-        } catch {}
+        } catch (e) {
+          albumArtDebug.reason = `error: ${e.message}`;
+        }
+      } else {
+        albumArtDebug.reason = !persona_name ? "persona_name missing from job" : "titleFromLyrics missing";
       }
+      await chrome.storage.local.set({ __albumArtDebug: albumArtDebug });
 
       if (!usedAlbumArt) {
         artUrl = await runChatGPTImage(art_prompt);
