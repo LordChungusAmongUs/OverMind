@@ -1942,32 +1942,40 @@ async function waitForImageGen(tabId) {
   }
 }
 
-// Catalog images render faster — start polling at 30s instead of 75s
 async function extractCatalogImage(tabId) {
-  await sleep(30000);
+  await sleep(15000);
   let imgSrc = "";
-  for (let i = 0; i < 30 && !imgSrc; i++) {
+  for (let i = 0; i < 40 && !imgSrc; i++) {
     await injectAndRun(tabId, () => {
       (document.querySelector("main") || document.body).scrollTo(0, 999999);
     }).catch(() => {});
     await sleep(3000);
     imgSrc = await injectAndRun(tabId, () => {
+      // 1. Search the last assistant message first — that's always where the generated image lives.
+      const assistantMsgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+      const lastMsg = assistantMsgs[assistantMsgs.length - 1];
+      if (lastMsg) {
+        for (const img of Array.from(lastMsg.querySelectorAll('img'))) {
+          const src = img.currentSrc || img.src || "";
+          if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
+          if (src.includes("oaiusercontent.com")) return src;
+          const natural = img.complete && img.naturalWidth > 50;
+          const rendered = img.getBoundingClientRect().width > 80;
+          if (natural || rendered) return src;
+        }
+      }
+      // 2. Broad fallback — skip user-message images, accept any oaiusercontent URL.
       const userImgSrcs = new Set(
         Array.from(document.querySelectorAll('[data-message-author-role="user"] img'))
           .map(img => img.currentSrc || img.src || "").filter(Boolean)
       );
-      const root = document.querySelector("main") || document.body;
-      const imgs = Array.from(root.querySelectorAll("img")).reverse();
+      const imgs = Array.from((document.querySelector("main") || document.body).querySelectorAll("img")).reverse();
       for (const img of imgs) {
         const src = img.currentSrc || img.src || "";
         if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
         if (userImgSrcs.has(src)) continue;
-        // oaiusercontent.com is always ChatGPT's generated image CDN — accept immediately
         if (src.includes("oaiusercontent.com")) return src;
-        // For other hosts fall back to dimension checks.
-        // Use naturalWidth (intrinsic, not layout-dependent) so this works in
-        // background tabs where getBoundingClientRect returns 0×0.
-        const natural = img.complete && img.naturalWidth > 150 && img.naturalHeight > 150;
+        const natural = img.complete && img.naturalWidth > 150;
         const rendered = img.getBoundingClientRect().width > 150;
         if (natural || rendered) return src;
       }
@@ -2056,6 +2064,9 @@ async function runWardrobeSplitPipeline(job) {
     }
     // Never generate more unique images than the total item count
     if (parsedItems.length > totalCount) parsedItems = parsedItems.slice(0, totalCount);
+    // If totalCount=1 and analysis still returned multiple items (e.g. saw logo color as a
+    // second item), collapse to the first — it's one garment, not a multi-pack.
+    if (totalCount === 1 && parsedItems.length > 1) parsedItems = [parsedItems[0]];
     console.log("[split] Parsed", parsedItems.length, "unique items, total count:", totalCount);
 
     // ── Step 3: For each unique item, generate catalog image ──────────
