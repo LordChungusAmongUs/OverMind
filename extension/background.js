@@ -2108,11 +2108,13 @@ async function runWardrobeSplitPipeline(job) {
       const imgSrc = await extractCatalogImage(imgTabId);
       await new Promise(r => chrome.tabs.remove(imgTabId, () => r())).catch(() => {});
 
-      // Download the image URL from the service worker — it has <all_urls> and
-      // bypasses CORS, unlike a fetch from inside the ChatGPT content script.
+      // ── Debug: record what was found at each step ──────────────────
+      const dbg = { imgSrc: imgSrc ? imgSrc.slice(0, 120) : "NULL" };
+
       let imageUrl = null;
       if (imgSrc) {
         const imgB64 = await urlToBase64(imgSrc);
+        dbg.b64 = imgB64 ? `OK len=${imgB64.length}` : "FAILED";
         if (imgB64) {
           try {
             const base64 = imgB64.split(",")[1];
@@ -2121,10 +2123,12 @@ async function runWardrobeSplitPipeline(job) {
             for (let j = 0; j < byteChars.length; j++) byteArr[j] = byteChars.charCodeAt(j);
             const blob = new Blob([byteArr], { type: "image/png" });
             imageUrl = await uploadToStorage(`wardrobe-items/${Date.now()}-${i}.png`, blob, "image/png");
-          } catch {}
+          } catch (e) { dbg.uploadEx = e.message; }
         }
-        if (!imageUrl) imageUrl = imgSrc; // fall back to raw ChatGPT URL
+        dbg.imageUrl = imageUrl ? imageUrl.slice(0, 80) : "FAILED — using raw src";
+        if (!imageUrl) imageUrl = imgSrc;
       }
+      await updateSplitJob(id, { item_notes: JSON.stringify(dbg) });
 
       const wardrobeType = mapWardrobeType(item.item_type);
       const itemName = `${brandStr}${cap(item.item_type)} — ${cap(item.color)}`;
