@@ -960,11 +960,14 @@ async function runPipeline(job) {
       await updateJob(id, { step: "art" });
 
       let usedAlbumArt = false;
-      const albumArtDebug = { persona_name, titleFromLyrics, albums: null, editResult: null, reason: null };
-      if (persona_name && titleFromLyrics) {
+      // Fall back to parsing persona name from the art_prompt if the DB column is missing
+      const resolvedPersona = persona_name ||
+        (art_prompt?.match(/^Create album cover art for ([^,]+),/)?.[1]?.trim()) || null;
+      const albumArtDebug = { persona_name, resolvedPersona, titleFromLyrics, albums: null, editResult: null, reason: null };
+      if (resolvedPersona && titleFromLyrics) {
         try {
           const albumRes = await fetch(
-            `${db("albums")}?persona_name=eq.${encodeURIComponent(persona_name)}&status=eq.in_progress&art_url=not.is.null&select=id,art_url`,
+            `${db("albums")}?persona_name=eq.${encodeURIComponent(resolvedPersona)}&status=eq.in_progress&art_url=not.is.null&select=id,art_url`,
             { headers }
           );
           const openAlbums = await albumRes.json();
