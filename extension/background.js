@@ -293,7 +293,7 @@ async function runChatGPTImage(prompt) {
 // ── CHATGPT IMAGE EDIT (album art → track art) ───────────────────
 // Opens a ChatGPT tab, uploads the album cover, and asks it to add the track title.
 // Returns a base64 data URL of the edited image, or null on failure.
-async function runChatGPTImageEdit(baseImageUrl, trackTitle) {
+async function runChatGPTImageEdit(baseImageUrl, trackTitle, artistName) {
   const imageB64 = await urlToBase64(baseImageUrl);
   if (!imageB64) return null;
 
@@ -305,7 +305,8 @@ async function runChatGPTImageEdit(baseImageUrl, trackTitle) {
   // Wait longer after attaching — ChatGPT processes the upload before enabling the send button
   await sleep(5000);
 
-  const prompt = `This is an album cover. Edit it to add the track title "${trackTitle}" in a stylized way that fits the artwork. Keep the overall composition, colors, and aesthetic — just incorporate the track name as a visual element that looks native to this cover.`;
+  const label = artistName ? `${artistName} - ${trackTitle}` : trackTitle;
+  const prompt = `This is an album cover. Edit it to add the text "${label}" in a stylized font that matches the artwork's aesthetic. Place the text along either the top or the bottom of the image so it does not cover the main artwork. Keep the rest of the composition completely unchanged.`;
 
   // Type the prompt into the textarea
   await injectAndRun(tabId, (p) => {
@@ -997,7 +998,7 @@ async function runPipeline(job) {
           if (Array.isArray(openAlbums) && openAlbums.length > 0) {
             const album = openAlbums[Math.floor(Math.random() * openAlbums.length)];
             albumArtDebug.reason = `editing album ${album.id}`;
-            const editedArt = await runChatGPTImageEdit(album.art_url, titleFromLyrics);
+            const editedArt = await runChatGPTImageEdit(album.art_url, titleFromLyrics, resolvedPersona);
             albumArtDebug.editResult = editedArt ? `ok len=${editedArt.length}` : "null";
             if (editedArt) { artUrl = editedArt; usedAlbumArt = true; }
           } else {
