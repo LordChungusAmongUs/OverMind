@@ -568,7 +568,7 @@ export default function YouTubePage() {
         lyrics_prompt: lp,
         art_prompt: ap,
         metadata_prompt: mp,
-        persona_name: persona.name,
+        persona_name: selectedPersona.name,
       };
       let insertResult = await supabase.from("pipeline_jobs").insert({
         ...basePayload,
@@ -887,24 +887,26 @@ export default function YouTubePage() {
     if (trackStatuses[audioUrl] || job.skippedUrls.includes(audioUrl)) return;
     if (!audioUrl) { alert("No audio URL found. Cannot auto-publish."); return; }
 
-    // ── ADDITIONAL TRACKS: create a sub-job so the extension regenerates art + metadata ──
-    // The first approval uses the already-generated art/title/description directly.
-    // Every additional approval from the same Suno run gets fresh art + metadata via the pipeline.
-    if (job.approvedUrls.length > 0 && job.artPrompt && job.metadataPrompt) {
+    // ── ADDITIONAL TRACKS: build a fully fresh concept so every upload gets a unique title ──
+    // First approval uses the already-generated art/title/description.
+    // Every subsequent approval generates brand-new lyrics (→ new title), new art, new metadata
+    // but keeps the already-approved audio from Suno.
+    if (job.approvedUrls.length > 0) {
       setTrackStatuses(prev => ({ ...prev, [audioUrl]: "processing" }));
       setApprovalQueue(prev => prev.map(j =>
         j.jobId !== job.jobId ? j : { ...j, approvedUrls: [...j.approvedUrls, audioUrl] }
       ));
+      const persona = PERSONAS.find(p => p.name === job.personaName) ?? selectedPersona;
+      const fresh = buildConcept("", persona);
       await supabase.from("pipeline_jobs").insert({
         status: "pending",
         track_theme: `__subjob:${job.jobId}`,
-        lyrics: job.lyrics,
-        lyrics_prompt: null,
-        art_prompt: job.artPrompt,
-        metadata_prompt: job.metadataPrompt,
+        lyrics_prompt: fresh.lyricsPrompt,
+        art_prompt: fresh.artPrompt,
+        metadata_prompt: fresh.metadataPrompt,
         audio_url: JSON.stringify([audioUrl]),
-        style_tags: job.styleTags,
-        persona_name: job.personaName,
+        style_tags: fresh.tag,
+        persona_name: persona.name,
         auto_approve: true,
       });
       return;
