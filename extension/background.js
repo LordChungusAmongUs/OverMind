@@ -2,6 +2,8 @@
 const SUPABASE_URL = "https://yrvxxnhwkmukhtwpcusw.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5jLWH-dgpHDjr5rvmGmp_w_y3BhkinO";
 
+let stylistRunning = false; // in-memory lock — auto-resets if service worker is restarted
+
 const db = (table) => `${SUPABASE_URL}/rest/v1/${table}`;
 const headers = {
   "apikey": SUPABASE_KEY,
@@ -1293,11 +1295,18 @@ async function runOutfitImageMultiTurn(job, userPhotoBase64s, itemBase64Map) {
 
 // ── STYLIST PIPELINE ─────────────────────────────────────────────
 async function getStyleJob() {
-  const res = await fetch(`${db("stylist_jobs")}?status=eq.pending&limit=1`, { headers });
-  const rows = await res.json();
-  const job = rows?.[0];
+  // Try pending first, then pick up jobs stuck in "running" for > 5 minutes
+  let res = await fetch(`${db("stylist_jobs")}?status=eq.pending&order=created_at.asc&limit=1`, { headers });
+  let rows = await res.json();
+  let job = rows?.[0];
+  if (!job) {
+    const staleTs = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    res = await fetch(`${db("stylist_jobs")}?status=eq.running&updated_at=lt.${staleTs}&order=created_at.asc&limit=1`, { headers });
+    rows = await res.json();
+    job = rows?.[0];
+  }
   if (!job) return null;
-  const claimRes = await fetch(`${db("stylist_jobs")}?id=eq.${job.id}&status=eq.pending`, {
+  const claimRes = await fetch(`${db("stylist_jobs")}?id=eq.${job.id}`, {
     method: "PATCH",
     headers,
     body: JSON.stringify({ status: "running", updated_at: new Date().toISOString() }),
@@ -2236,14 +2245,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
   // ── Stylist pipeline (independent lock) ──────────────────────────
   if (alarm.name === "stylist-poll") {
-    const { stylistRunning } = await chrome.storage.local.get(["stylistRunning"]);
     if (stylistRunning) return;
-    await chrome.storage.local.set({ stylistRunning: true });
+    stylistRunning = true;
     try {
       const job = await getStyleJob();
       if (job) await runStylePipeline(job);
     } catch {}
-    await chrome.storage.local.set({ stylistRunning: false });
+    stylistRunning = false;
     return;
   }
 
