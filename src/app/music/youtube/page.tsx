@@ -682,7 +682,6 @@ export default function YouTubePage() {
       throw new Error(`Audio fetch failed — ${e instanceof Error ? e.message : e}. URL: ${audioUrl.slice(0, 80)}`);
     }
     if (audioBlob.size < 10000) throw new Error(`Audio file too small (${audioBlob.size} bytes) — URL may be expired`);
-    const audioFileObj = new File([audioBlob], "track.mp3", { type: "audio/mpeg" });
 
     setAutoPublishStep("Fetching art...");
     let artFileObj: File | null = null;
@@ -703,37 +702,56 @@ export default function YouTubePage() {
     }
     if (!artFileObj) throw new Error("No cover art available for this job.");
 
-    setAutoPublishStep("Loading FFmpeg WASM...");
-    const { FFmpeg } = await import("@ffmpeg/ffmpeg");
-    const { fetchFile, toBlobURL } = await import("@ffmpeg/util");
-    const ffmpeg = new FFmpeg();
-    ffmpeg.on("log", ({ message }: { message: string }) => {
-      const t = message.match(/time=(\d+:\d+:\d+)/);
-      if (t) setAutoPublishStep(`Encoding video... ${t[1]}`);
+    // Encode audio+art → video using MediaRecorder (non-blocking — main thread stays free).
+    // FFmpeg WASM blocks the JS thread; MediaRecorder runs async at real-time speed.
+    setAutoPublishStep("Encoding video...");
+    const vidBlob = await new Promise<Blob>((resolve, reject) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1280; canvas.height = 720;
+      const ctx = canvas.getContext("2d")!;
+      const img = new Image();
+      const imgUrl = URL.createObjectURL(artFileObj);
+      img.onload = async () => {
+        URL.revokeObjectURL(imgUrl);
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, 1280, 720);
+        const scale = Math.min(1280 / img.width, 720 / img.height);
+        ctx.drawImage(img, (1280 - img.width * scale) / 2, (720 - img.height * scale) / 2, img.width * scale, img.height * scale);
+        try {
+          const audioCtx = new AudioContext();
+          const audioBuffer = await audioCtx.decodeAudioData(await audioBlob.arrayBuffer());
+          const src = audioCtx.createBufferSource();
+          src.buffer = audioBuffer;
+          const dest = audioCtx.createMediaStreamDestination();
+          src.connect(dest); // silent — not connected to speakers
+          const stream = new MediaStream([
+            ...canvas.captureStream(1).getVideoTracks(),
+            ...dest.stream.getAudioTracks(),
+          ]);
+          const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+            ? "video/webm;codecs=vp9,opus" : "video/webm";
+          const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1_500_000, audioBitsPerSecond: 192_000 });
+          const chunks: Blob[] = [];
+          recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+          recorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); audioCtx.close(); resolve(new Blob(chunks, { type: "video/webm" })); };
+          recorder.onerror = reject;
+          const dur = audioBuffer.duration;
+          let elapsed = 0;
+          const timer = setInterval(() => {
+            elapsed++;
+            const rem = Math.max(0, dur - elapsed);
+            setAutoPublishStep(`Encoding video... ${Math.floor(rem / 60)}:${String(Math.round(rem % 60)).padStart(2, "0")} left`);
+            if (elapsed > dur + 3) clearInterval(timer);
+          }, 1000);
+          src.onended = () => { clearInterval(timer); recorder.stop(); };
+          recorder.start(1000);
+          src.start(0);
+        } catch (e) { reject(e); }
+      };
+      img.onerror = () => reject(new Error("Art image failed to load for encoding"));
+      img.src = imgUrl;
     });
-    const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
-    });
-    setAutoPublishStep("Writing files...");
-    await ffmpeg.writeFile("art.jpg", await fetchFile(artFileObj));
-    await ffmpeg.writeFile("audio.mp3", await fetchFile(audioFileObj));
-    setAutoPublishStep("Encoding video... 0:00:00");
-    await ffmpeg.exec([
-      "-loop", "1", "-i", "art.jpg",
-      "-i", "audio.mp3",
-      "-c:v", "libx264", "-preset", "veryfast",
-      "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
-      "-pix_fmt", "yuv420p",
-      "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-      "-movflags", "+faststart",
-      "-shortest", "output.mp4",
-    ]);
-    setAutoPublishStep("Finalizing video...");
-    const vidData = await ffmpeg.readFile("output.mp4");
-    const vidBlob = new Blob([vidData as unknown as BlobPart], { type: "video/mp4" });
-    if (vidBlob.size < 50000) throw new Error(`Encoded video is too small (${vidBlob.size} bytes) — FFmpeg may have failed`);
+    if (vidBlob.size < 10000) throw new Error(`Encoded video too small (${vidBlob.size} bytes)`);
 
     const safeJson = async (res: Response, label: string) => {
       const text = await res.text();
@@ -753,7 +771,7 @@ export default function YouTubePage() {
         headers: {
           Authorization: `Bearer ${tokenData.access_token}`,
           "Content-Type": "application/json",
-          "X-Upload-Content-Type": "video/mp4",
+          "X-Upload-Content-Type": "video/webm",
           "X-Upload-Content-Length": String(vidBlob.size),
         },
         body: JSON.stringify({
@@ -778,7 +796,7 @@ export default function YouTubePage() {
     const uploadRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: {
-        "Content-Type": "video/mp4",
+        "Content-Type": "video/webm",
         "Content-Range": `bytes 0-${vidBlob.size - 1}/${vidBlob.size}`,
       },
       body: vidBlob,
