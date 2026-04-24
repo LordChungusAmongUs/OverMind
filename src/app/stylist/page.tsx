@@ -57,6 +57,8 @@ interface OutfitRecord {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ITEM_TYPES = ["Top", "Bottom", "Shoes", "Outerwear", "Dress/Jumpsuit", "Accessory", "Hat", "Bag"];
+const NEVER_DIRTY_TYPES = new Set(["Shoes", "Accessory", "Hat", "Bag"]);
+const OUTERWEAR_WEAR_LIMIT = 3;
 const OCCASIONS = ["Casual", "Work", "Gym", "Going Out", "Date Night", "Errands", "Church", "Travel", "Formal"];
 const ACTIVITIES = ["Work", "Gym", "Going Out", "Date Night", "Errands", "Casual Day", "Church", "Travel"];
 
@@ -144,19 +146,27 @@ function ItemCard({ item, isDirty, onMarkWorn, onMarkClean, onDelete, onEdit }: 
         )}
 
         <div className="flex items-center justify-between pt-2 border-t border-green-500/10">
-          <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded-full border ${
-            isDirty
-              ? "border-red-500/30 text-red-400 bg-red-500/10"
-              : "border-green-500/30 text-green-400 bg-green-500/10"
-          }`}>
-            {isDirty ? "DIRTY" : "CLEAN"}
-          </span>
-          <button
-            onClick={() => isDirty ? onMarkClean(item.id) : onMarkWorn(item.id)}
-            className="text-xs font-mono font-semibold text-green-700 hover:text-green-400 transition-colors"
-          >
-            {isDirty ? "↺ mark clean" : "✓ mark worn"}
-          </button>
+          {NEVER_DIRTY_TYPES.has(item.type) ? (
+            <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full border border-green-500/30 text-green-400 bg-green-500/10">
+              CLEAN
+            </span>
+          ) : (
+            <>
+              <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded-full border ${
+                isDirty
+                  ? "border-red-500/30 text-red-400 bg-red-500/10"
+                  : "border-green-500/30 text-green-400 bg-green-500/10"
+              }`}>
+                {isDirty ? "DIRTY" : "CLEAN"}
+              </span>
+              <button
+                onClick={() => isDirty ? onMarkClean(item.id) : onMarkWorn(item.id)}
+                className="text-xs font-mono font-semibold text-green-700 hover:text-green-400 transition-colors"
+              >
+                {isDirty ? "↺ mark clean" : "✓ mark worn"}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -270,7 +280,16 @@ export default function StylistPage() {
 
   // ── Derived ─────────────────────────────────────────────────────────────────
 
-  const dirtyIds = new Set(wearLog.map(w => w.item_id));
+  const wearCounts: Record<string, number> = {};
+  wearLog.forEach(w => { wearCounts[w.item_id] = (wearCounts[w.item_id] ?? 0) + 1; });
+  const dirtyIds = new Set(
+    items.filter(item => {
+      if (NEVER_DIRTY_TYPES.has(item.type)) return false;
+      const count = wearCounts[item.id] ?? 0;
+      if (item.type === "Outerwear") return count >= OUTERWEAR_WEAR_LIMIT;
+      return count >= 1;
+    }).map(i => i.id)
+  );
   const cleanItems = items.filter(i => !dirtyIds.has(i.id));
   const totalClean = cleanItems.length;
   const lastLaundryLabel = lastLaundry
@@ -414,6 +433,8 @@ export default function StylistPage() {
   }
 
   async function markWorn(itemId: string) {
+    const item = items.find(i => i.id === itemId);
+    if (item && NEVER_DIRTY_TYPES.has(item.type)) return;
     const today = new Date().toISOString().split("T")[0];
     await supabase.from("wear_log").insert({ item_id: itemId, worn_date: today });
     setWearLog(prev => [...prev, { id: crypto.randomUUID(), item_id: itemId, worn_date: today }]);
@@ -547,9 +568,13 @@ export default function StylistPage() {
 
   async function approveOutfit(ids: string[]) {
     if (ids.length === 0) return;
+    const trackable = ids.filter(id => {
+      const item = items.find(i => i.id === id);
+      return item && !NEVER_DIRTY_TYPES.has(item.type);
+    });
     const today = new Date().toISOString().split("T")[0];
     const newEntries: WearLog[] = [];
-    for (const id of ids) {
+    for (const id of trackable) {
       const { error } = await supabase.from("wear_log").insert({ item_id: id, worn_date: today });
       if (!error) newEntries.push({ id: crypto.randomUUID(), item_id: id, worn_date: today });
     }
@@ -806,7 +831,7 @@ export default function StylistPage() {
                 )}
                 {outfitApproved ? (
                   <p className="text-xs text-green-500 font-mono font-bold">
-                    ✓ Approved · {outfitItemIds.length} item{outfitItemIds.length !== 1 ? "s" : ""} marked dirty
+                    ✓ Approved · wear logged
                   </p>
                 ) : outfitItemIds.length > 0 ? (
                   <div className="flex items-center gap-3">
@@ -818,7 +843,7 @@ export default function StylistPage() {
                       Approve &amp; Mark Worn
                     </button>
                     <span className="text-xs text-green-800 font-mono">
-                      {outfitItemIds.length} item{outfitItemIds.length !== 1 ? "s" : ""} will be marked dirty
+                      {outfitItemIds.filter(id => { const it = items.find(i => i.id === id); return it && !NEVER_DIRTY_TYPES.has(it.type); }).length} item(s) will log wear
                     </span>
                   </div>
                 ) : null}
