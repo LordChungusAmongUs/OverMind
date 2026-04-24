@@ -137,6 +137,8 @@ export default function YouTubePage() {
   const reportedErrors = useRef<Set<string>>(new Set());
   const [publishingJobId, setPublishingJobId] = useState<string | null>(null);
   const [autoPublishStep, setAutoPublishStep] = useState<string | null>(null);
+  // Manual upload queue — approvals drop in here, drain one at a time
+  const [manualUploadQueue, setManualUploadQueue] = useState<Array<{ job: ApprovalJob; audioUrl: string }>>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [debugRunning, setDebugRunning] = useState<string | null>(null);
   const [debugResult, setDebugResult] = useState<{ type: string; jobId: string; lyrics?: string; artUrl?: string; title?: string; description?: string } | null>(null);
@@ -255,9 +257,19 @@ export default function YouTubePage() {
     if (subJobQueue.length === 0 || publishingJobId !== null) return;
     const [next, ...rest] = subJobQueue;
     setSubJobQueue(rest);
-    setPublishingJobId(next.parentJobId); // acquire lock before async work
+    setPublishingJobId(next.parentJobId);
     autoUploadTrack(next);
   }, [subJobQueue, publishingJobId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── MANUAL UPLOAD QUEUE ───────────────────────────────────────
+  // Approvals enqueue here immediately so buttons stay unlocked.
+  // Drains one at a time using the same publishingJobId lock.
+  useEffect(() => {
+    if (manualUploadQueue.length === 0 || publishingJobId !== null) return;
+    const [next, ...rest] = manualUploadQueue;
+    setManualUploadQueue(rest);
+    executeUpload(next.job, next.audioUrl);
+  }, [manualUploadQueue, publishingJobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cancelAllPending = async () => {
     await supabase.from("pipeline_jobs")
@@ -912,7 +924,17 @@ export default function YouTubePage() {
       return;
     }
 
-    // ── FIRST TRACK: direct upload using existing art + metadata ──────────────
+    // ── FIRST TRACK: enqueue the upload so the UI stays unlocked ────────────
+    setTrackStatuses(prev => ({ ...prev, [audioUrl]: "queued" }));
+    setApprovalQueue(prev => prev.map(j =>
+      j.jobId !== job.jobId ? j : { ...j, approvedUrls: [...j.approvedUrls, audioUrl] }
+    ));
+    setManualUploadQueue(prev => [...prev, { job, audioUrl }]);
+  };
+
+  // Performs the actual YouTube upload for a manually-approved track.
+  // Called by the manualUploadQueue drain effect — publishingJobId lock is managed here.
+  const executeUpload = async (job: ApprovalJob, audioUrl: string) => {
     setPublishingJobId(job.jobId);
     setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploading" }));
     try {
@@ -945,9 +967,10 @@ export default function YouTubePage() {
       }
 
       setApprovalQueue(prev => {
+        // approvedUrls already set at enqueue time; here we only mark as uploaded
         const updated = prev.map(j => {
           if (j.jobId !== job.jobId) return j;
-          return { ...j, approvedUrls: [...j.approvedUrls, audioUrl], uploadedUrls: [...j.uploadedUrls, audioUrl] };
+          return { ...j, uploadedUrls: [...j.uploadedUrls, audioUrl] };
         });
         const parentJob = updated.find(j => j.jobId === job.jobId);
         const allDone = parentJob
@@ -956,7 +979,6 @@ export default function YouTubePage() {
         if (allDone) {
           supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", job.jobId);
         }
-        // Remove card only when every track is resolved (uploaded, skipped, or errored)
         return updated.filter(j => {
           if (j.jobId !== job.jobId) return true;
           return j.uploadedUrls.length + j.skippedUrls.length + Object.keys(j.errorUrls).length < j.audioUrls.length;
@@ -1577,7 +1599,7 @@ export default function YouTubePage() {
               {publishingJobId && <span className="text-green-700 font-normal"> — uploading…</span>}
             </p>
             {approvalQueue.map((job, jobIdx) => {
-              const isBlocked = publishingJobId !== null;
+              const isBlocked = false;
               return (
                 <div key={job.jobId} className="p-5 rounded-xl border border-green-400/30 bg-green-400/5 space-y-4">
                   {/* Header */}
@@ -1626,6 +1648,10 @@ export default function YouTubePage() {
                             {status === "processing" ? (
                               <span className="px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 text-xs font-mono font-semibold flex items-center gap-1 flex-shrink-0">
                                 <RefreshCw className="w-3 h-3 animate-spin" /> Generating…
+                              </span>
+                            ) : status === "queued" ? (
+                              <span className="px-3 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-mono font-semibold flex-shrink-0">
+                                Queued
                               </span>
                             ) : status === "uploading" ? (
                               <span className="px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-mono font-semibold flex items-center gap-1 flex-shrink-0">
