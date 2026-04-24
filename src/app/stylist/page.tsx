@@ -215,6 +215,7 @@ export default function StylistPage() {
   const [autoApproveOutfit, setAutoApproveOutfit] = useState(false);
   const [outfitItemIds, setOutfitItemIds] = useState<string[]>([]);
   const [outfitApproved, setOutfitApproved] = useState(false);
+  const [autoAdd, setAutoAdd] = useState(false);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -252,6 +253,7 @@ export default function StylistPage() {
   useEffect(() => { loadAll(); }, [loadAll]);
   useEffect(() => { setAutoAnalyze(localStorage.getItem("wardrobeAutoAnalyze") === "true"); }, []);
   useEffect(() => { setAutoApproveOutfit(localStorage.getItem("outfitAutoApprove") === "true"); }, []);
+  useEffect(() => { setAutoAdd(localStorage.getItem("wardrobeAutoAdd") === "true"); }, []);
 
   useEffect(() => {
     fetch("https://api.open-meteo.com/v1/forecast?latitude=35.9065&longitude=-80.0065&current_weather=true&temperature_unit=fahrenheit&timezone=America/New_York")
@@ -362,9 +364,14 @@ export default function StylistPage() {
         if (!job) return;
         if (job.status === "complete") {
           clearInterval(poll);
-          setSplitItems(job.result_items as SplitResultItem[]);
-          setSplitting(false);
-          setSplitJobId(null);
+          const resultItems = job.result_items as SplitResultItem[];
+          if (localStorage.getItem("wardrobeAutoAdd") === "true") {
+            await saveAllSplitItems(resultItems);
+          } else {
+            setSplitItems(resultItems);
+            setSplitting(false);
+            setSplitJobId(null);
+          }
         } else if (job.status === "error") {
           clearInterval(poll);
           setSplitError(job.error_message ?? "Extension pipeline failed.");
@@ -378,11 +385,12 @@ export default function StylistPage() {
     }
   }
 
-  async function saveAllSplitItems() {
-    if (!splitItems?.length) return;
+  async function saveAllSplitItems(toSave?: SplitResultItem[]) {
+    const items_ = toSave ?? splitItems;
+    if (!items_?.length) return;
     setSaving(true);
     const inserted: WardrobeItem[] = [];
-    for (const item of splitItems) {
+    for (const item of items_) {
       const { data } = await supabase.from("wardrobe_items").insert({
         name: item.name,
         type: item.type,
@@ -1059,20 +1067,36 @@ export default function StylistPage() {
               {/* ── ChatGPT import mode ── */}
               {addMode === "import" && (
                 <div>
-                  {/* Auto-analyze toggle — always visible in import mode */}
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-mono text-green-700 uppercase tracking-wider">Auto-analyze on image resolve</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = !autoAnalyze;
-                        setAutoAnalyze(next);
-                        localStorage.setItem("wardrobeAutoAnalyze", String(next));
-                      }}
-                      className={`relative w-10 h-5 rounded-full border transition-all flex-shrink-0 ${autoAnalyze ? "border-green-500/60 bg-green-500/20" : "border-green-500/20 bg-black/40"}`}
-                    >
-                      <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${autoAnalyze ? "left-5 bg-green-400" : "left-0.5 bg-green-600"}`} />
-                    </button>
+                  {/* Toggles */}
+                  <div className="flex items-center gap-6 mb-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !autoAnalyze;
+                          setAutoAnalyze(next);
+                          localStorage.setItem("wardrobeAutoAnalyze", String(next));
+                        }}
+                        className={`relative w-10 h-5 rounded-full border transition-all flex-shrink-0 ${autoAnalyze ? "border-green-500/60 bg-green-500/20" : "border-green-500/20 bg-black/40"}`}
+                      >
+                        <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${autoAnalyze ? "left-5 bg-green-400" : "left-0.5 bg-green-600"}`} />
+                      </button>
+                      <span className="text-xs font-mono text-green-700">Auto-analyze</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !autoAdd;
+                          setAutoAdd(next);
+                          localStorage.setItem("wardrobeAutoAdd", String(next));
+                        }}
+                        className={`relative w-10 h-5 rounded-full border transition-all flex-shrink-0 ${autoAdd ? "border-green-500/60 bg-green-500/20" : "border-green-500/20 bg-black/40"}`}
+                      >
+                        <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${autoAdd ? "left-5 bg-green-400" : "left-0.5 bg-green-600"}`} />
+                      </button>
+                      <span className="text-xs font-mono text-green-700">Auto-add</span>
+                    </div>
                   </div>
 
                   {/* Step 1: get image */}
