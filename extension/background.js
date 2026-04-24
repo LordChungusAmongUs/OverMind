@@ -1258,16 +1258,19 @@ async function runOutfitImageMultiTurn(job, userPhotoBase64s, itemBase64Map) {
   }
 
   // Turn 3 — Generate the outfit image
-  const clothingRef = itemsWithImages.length > 0
-    ? 'the exact clothing items shown in the previous photos'
-    : (outfit_description || 'the described outfit').slice(0, 300);
+  const subject = userPhotoBase64s.length > 0
+    ? 'me (the person shown in the first photos)'
+    : 'a stylish person';
+  const outfitRef = itemsWithImages.length > 0
+    ? `the exact clothing items shown in the previous photos as a complete outfit — ${(outfit_description || '').slice(0, 300)}`
+    : (outfit_description || 'the described outfit').slice(0, 400);
   const context = [
     activities?.length ? `Activities: ${activities.join(', ')}` : '',
     weather_summary ? `Weather: ${weather_summary}` : '',
   ].filter(Boolean).join('. ');
 
   await sendGPTMessage(tabId,
-    `Now generate a high-quality, realistic full-body fashion photo of me (the person from the first photos) wearing ${clothingRef}. ${context}. Natural studio lighting, fashion editorial style, sharp detail. Make it look like a real photo of me.`
+    `Generate a high-quality, realistic full-body fashion photo of ${subject} wearing the complete outfit: ${outfitRef}. ${context}. Show the full outfit head to toe. Natural studio lighting, fashion editorial style, sharp detail.`
   );
 
   // Wait for stop to appear (image gen takes longer)
@@ -1351,7 +1354,7 @@ async function runStylePipeline(job) {
       .map(i => `- [${i.type}] ${i.name}${i.color ? ` (${i.color})` : ""}${i.brand ? ` by ${i.brand}` : ""}`)
       .join("\n");
 
-    const outfitPrompt = `You are a personal AI stylist. Suggest a complete outfit from my available clean clothes.
+    const outfitPrompt = `You are a personal AI stylist. Pick a complete outfit from my available clean clothes.
 
 Available items:
 ${itemsList}
@@ -1359,13 +1362,10 @@ ${itemsList}
 Activities today: ${(activities || []).join(", ")}
 Weather: ${weather_summary || "unknown"}
 
-Pick specific items and format your response exactly like this:
-**[Item Name]** — why it works
-(one line per piece: top, bottom, shoes, outerwear if needed)
-
-**Style note:** One sentence on the overall vibe.
-
-Be concise and practical.`;
+Return ONLY a plain bulleted list of the items to wear — one per line, no explanations:
+• [exact item name]
+• [exact item name]
+(include every piece: top, bottom, shoes, outerwear if needed)`;
 
     console.log("[stylist] opening ChatGPT for outfit text...");
     const description = await runChatGPT(outfitPrompt);

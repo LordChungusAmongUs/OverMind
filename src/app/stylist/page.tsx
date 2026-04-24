@@ -719,7 +719,7 @@ export default function StylistPage() {
               </p>
             )}
 
-            {todayOutfit && (
+            {(outfitImage || todayOutfit) && (
               <div className="mt-5 pt-5 border-t border-green-500/20">
                 <p className="text-xs text-green-600 font-mono uppercase tracking-wider mb-3">
                   <span className="text-red-500">&gt;</span> Today&apos;s Outfit
@@ -732,7 +732,19 @@ export default function StylistPage() {
                     className="w-full max-w-sm rounded-xl border border-green-500/20 mb-4 object-cover"
                   />
                 )}
-                <div className="text-sm text-green-300 font-mono whitespace-pre-wrap leading-relaxed">{todayOutfit}</div>
+                {todayOutfit && (
+                  <ul className="space-y-1">
+                    {todayOutfit.split("\n").map((line, i) => {
+                      const text = line.replace(/^[\s•\-*]+/, "").trim();
+                      return text ? (
+                        <li key={i} className="text-sm text-green-300 font-mono flex items-start gap-2">
+                          <span className="text-red-500 flex-shrink-0">•</span>
+                          {text}
+                        </li>
+                      ) : null;
+                    })}
+                  </ul>
+                )}
               </div>
             )}
           </div>
