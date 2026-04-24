@@ -1207,7 +1207,7 @@ export default function StylistPage() {
                       </div>
                       <div className="flex gap-2">
                         <button
-                          onClick={saveAllSplitItems}
+                          onClick={() => saveAllSplitItems()}
                           disabled={saving}
                           className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40"
                         >
