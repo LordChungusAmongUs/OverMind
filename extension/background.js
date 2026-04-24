@@ -1326,18 +1326,26 @@ async function updateStyleJob(id, fields) {
 
 async function runStylePipeline(job) {
   const { id, activities, weather_summary } = job;
+  console.log("[stylist] starting pipeline for job", id);
+
   // clean_items is stored as an array of UUIDs; fetch full item data here
   let clean_items = [];
   try {
     const ids = (job.clean_items || []).filter(Boolean);
+    console.log("[stylist] fetching", ids.length, "wardrobe items");
     if (ids.length > 0) {
       const res = await fetch(`${db("wardrobe_items")}?id=in.(${ids.join(",")})&select=*`, { headers });
       const rows = await res.json();
       if (Array.isArray(rows)) clean_items = rows;
+      console.log("[stylist] got", clean_items.length, "items from DB");
     }
-  } catch {}
+  } catch (e) {
+    console.error("[stylist] wardrobe fetch error:", e);
+  }
+
   try {
     await updateStyleJob(id, { step: "outfit_description" });
+    console.log("[stylist] step: outfit_description");
 
     const itemsList = (clean_items || [])
       .map(i => `- [${i.type}] ${i.name}${i.color ? ` (${i.color})` : ""}${i.brand ? ` by ${i.brand}` : ""}`)
@@ -1359,8 +1367,11 @@ Pick specific items and format your response exactly like this:
 
 Be concise and practical.`;
 
+    console.log("[stylist] opening ChatGPT for outfit text...");
     const description = await runChatGPT(outfitPrompt);
     await updateStyleJob(id, { outfit_description: description, step: "outfit_image" });
+
+    console.log("[stylist] outfit text done, fetching reference photos...");
 
     // Fetch up to 3 user reference photos from user_photos table
     let userPhotoBase64s = [];
@@ -1377,6 +1388,8 @@ Be concise and practical.`;
       }
     } catch {}
 
+    console.log("[stylist]", userPhotoBase64s.length, "reference photos ready");
+
     // Download wardrobe item images as base64
     const itemBase64Map = {};
     for (const item of (clean_items || [])) {
@@ -1386,9 +1399,13 @@ Be concise and practical.`;
       }
     }
 
+    console.log("[stylist]", Object.keys(itemBase64Map).length, "item images ready, starting image generation...");
+
     // Run 3-turn ChatGPT image conversation
     const enrichedJob = { ...job, outfit_description: description, clean_items };
     const imageData = await runOutfitImageMultiTurn(enrichedJob, userPhotoBase64s, itemBase64Map);
+
+    console.log("[stylist] image generation done, imageData:", imageData ? imageData.slice(0, 60) : "null");
 
     let imageUrl = null;
     if (imageData) {
@@ -1406,8 +1423,10 @@ Be concise and practical.`;
       if (!imageUrl) imageUrl = imageData;
     }
 
+    console.log("[stylist] complete, imageUrl:", imageUrl ? imageUrl.slice(0, 80) : "none");
     await updateStyleJob(id, { outfit_image_url: imageUrl, status: "complete", step: "complete" });
   } catch (err) {
+    console.error("[stylist] pipeline error:", err.message);
     await updateStyleJob(id, { status: "error", error_message: err.message });
   }
 }
@@ -2249,8 +2268,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     stylistRunning = true;
     try {
       const job = await getStyleJob();
+      console.log("[stylist-poll] job=", job?.id ?? "none");
       if (job) await runStylePipeline(job);
-    } catch {}
+    } catch (err) {
+      console.error("[stylist-poll] error:", err);
+    }
     stylistRunning = false;
     return;
   }
