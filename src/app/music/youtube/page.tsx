@@ -931,7 +931,7 @@ export default function YouTubePage() {
       ));
       const persona = PERSONAS.find(p => p.name === job.personaName) ?? selectedPersona;
       const fresh = buildConcept("", persona);
-      await supabase.from("pipeline_jobs").insert({
+      const { data: newSubJob } = await supabase.from("pipeline_jobs").insert({
         status: "pending",
         track_theme: `__subjob:${job.jobId}`,
         lyrics_prompt: fresh.lyricsPrompt,
@@ -941,7 +941,9 @@ export default function YouTubePage() {
         style_tags: fresh.tag,
         persona_name: persona.name,
         auto_approve: true,
-      });
+      }).select("id").single();
+      // Track the sub-job ID so the polling loop can detect when it reaches "approval"
+      if (newSubJob?.id) setActiveJobIds(prev => [...prev, newSubJob.id]);
       return;
     }
 
