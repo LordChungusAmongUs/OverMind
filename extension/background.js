@@ -1358,6 +1358,20 @@ Be concise and practical.`;
       }
     } catch {}
 
+    // Fetch image URLs from wardrobe_items (not stored in job to avoid 413)
+    const itemIds = (clean_items || []).map(i => i.id).filter(Boolean);
+    if (itemIds.length > 0) {
+      try {
+        const imgRes = await fetch(`${db("wardrobe_items")}?id=in.(${itemIds.join(",")})&select=id,image_url`, { headers });
+        const imgRows = await imgRes.json();
+        if (Array.isArray(imgRows)) {
+          const imageUrlById = {};
+          imgRows.forEach(r => { if (r.image_url) imageUrlById[r.id] = r.image_url; });
+          (clean_items || []).forEach(item => { if (!item.image_url && imageUrlById[item.id]) item.image_url = imageUrlById[item.id]; });
+        }
+      } catch {}
+    }
+
     // Download wardrobe item images as base64
     const itemBase64Map = {};
     for (const item of (clean_items || [])) {

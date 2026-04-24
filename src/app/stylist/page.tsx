@@ -533,7 +533,7 @@ export default function StylistPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           activities,
-          cleanItems: cleanItems.map(i => ({ id: i.id, name: i.name, type: i.type, color: i.color, brand: i.brand, occasions: i.occasions, image_url: i.image_url })),
+          cleanItems: cleanItems.map(i => ({ id: i.id, name: i.name, type: i.type, color: i.color, brand: i.brand, occasions: i.occasions })),
           weather,
           referencePhotoUrl: userPhotos[0]?.url ?? null,
         }),
