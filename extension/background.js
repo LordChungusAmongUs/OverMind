@@ -1347,7 +1347,7 @@ async function runStylePipeline(job) {
   const { id, activities, weather_summary } = job;
   console.log("[stylist] starting pipeline for job", id);
 
-  // clean_items is stored as an array of UUIDs; fetch full item data here
+  // Fetch full item data from wardrobe_items (job only stores IDs)
   let clean_items = [];
   try {
     const ids = (job.clean_items || []).filter(Boolean);
@@ -1362,11 +1362,28 @@ async function runStylePipeline(job) {
     console.error("[stylist] wardrobe fetch error:", e);
   }
 
+  let tabId = null;
   try {
-    await updateStyleJob(id, { step: "outfit_description" });
-    console.log("[stylist] step: outfit_description");
+    await updateStyleJob(id, { step: "preparing" });
 
-    const itemsList = (clean_items || [])
+    // Fetch user reference photos
+    let userPhotoBase64s = [];
+    try {
+      const photoRes = await fetch(`${db("user_photos")}?order=created_at.asc&limit=3`, { headers });
+      const photoRows = await photoRes.json();
+      if (Array.isArray(photoRows)) {
+        for (const row of photoRows) {
+          if (row.url) {
+            const b64 = await urlToBase64(row.url);
+            if (b64) userPhotoBase64s.push(b64);
+          }
+        }
+      }
+    } catch {}
+    console.log("[stylist]", userPhotoBase64s.length, "reference photos,", clean_items.length, "items");
+
+    // Build item list for text prompt
+    const itemsList = clean_items
       .map(i => `- [${i.type}] ${i.name}${i.color ? ` (${i.color})` : ""}${i.brand ? ` by ${i.brand}` : ""}`)
       .join("\n");
 
@@ -1383,49 +1400,70 @@ Return ONLY a plain bulleted list of the items to wear — one per line, no expl
 • [exact item name]
 (include every piece: top, bottom, shoes, outerwear if needed)`;
 
-    console.log("[stylist] opening ChatGPT for outfit text...");
-    const description = await runChatGPT(outfitPrompt);
-    await updateStyleJob(id, { outfit_description: description, step: "outfit_image" });
+    // ── Single ChatGPT tab for the whole pipeline ──────────────────
+    console.log("[stylist] opening ChatGPT tab...");
+    tabId = await openTab("https://chatgpt.com/");
+    await waitForTab(tabId);
+    await sleep(4000);
 
-    console.log("[stylist] outfit text done, fetching reference photos...");
-
-    // Fetch up to 3 user reference photos from user_photos table
-    let userPhotoBase64s = [];
-    try {
-      const photoRes = await fetch(`${db("user_photos")}?order=created_at.asc&limit=3`, { headers });
-      const photoRows = await photoRes.json();
-      if (Array.isArray(photoRows)) {
-        for (const row of photoRows) {
-          if (row.url) {
-            const b64 = await urlToBase64(row.url);
-            if (b64) userPhotoBase64s.push(b64);
-          }
-        }
-      }
-    } catch {}
-
-    console.log("[stylist]", userPhotoBase64s.length, "reference photos ready");
-
-    // Download wardrobe item images as base64
-    const itemBase64Map = {};
-    for (const item of (clean_items || [])) {
-      if (item.image_url) {
-        const b64 = await urlToBase64(item.image_url);
-        if (b64) itemBase64Map[item.image_url] = b64;
-      }
+    // Turn 1 (optional): send user reference photos so ChatGPT can use them for image gen
+    if (userPhotoBase64s.length > 0) {
+      await attachFilesToTab(tabId, userPhotoBase64s);
+      await sleep(2000);
+      await sendGPTMessage(tabId, "These are reference photos of me — I'll use them in a moment for outfit image generation. Just acknowledge.");
+      await waitForGPTDone(tabId);
+      console.log("[stylist] reference photos acknowledged");
     }
 
-    console.log("[stylist]", Object.keys(itemBase64Map).length, "item images ready, starting image generation...");
+    // Turn 2: outfit selection (text only)
+    await updateStyleJob(id, { step: "outfit_description" });
+    await sendGPTMessage(tabId, outfitPrompt);
+    await waitForGPTDone(tabId);
 
-    // Run 3-turn ChatGPT image conversation
-    const enrichedJob = { ...job, outfit_description: description, clean_items };
-    const imageData = await runOutfitImageMultiTurn(enrichedJob, userPhotoBase64s, itemBase64Map);
+    const description = await injectAndRun(tabId, () => {
+      const msgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+      return msgs[msgs.length - 1]?.innerText ?? "";
+    }).catch(() => "");
+    console.log("[stylist] outfit text:", description.slice(0, 120));
+    await updateStyleJob(id, { outfit_description: description, step: "outfit_image" });
 
-    console.log("[stylist] image generation done, imageData:", imageData ? imageData.slice(0, 60) : "null");
+    // Snapshot existing images before image gen turn
+    const existingImgUrls = await injectAndRun(tabId, () =>
+      Array.from(document.querySelectorAll("img")).map(img => img.currentSrc || img.src || "").filter(Boolean)
+    ).catch(() => []);
+
+    // Turn 3: generate outfit image in the same session
+    const subject = userPhotoBase64s.length > 0
+      ? "me (the person shown in the photos above)"
+      : "a stylish person";
+    await sendGPTMessage(tabId,
+      `Now generate a high-quality, realistic full-body fashion photo of ${subject} wearing the complete outfit listed above. Natural studio lighting, fashion editorial style, sharp detail. Show the full outfit head to toe.`
+    );
+    console.log("[stylist] waiting for image generation...");
+
+    for (let i = 0; i < 30; i++) {
+      const appeared = await injectAndRun(tabId, () =>
+        !!document.querySelector('[data-testid="stop-button"]') || !!document.querySelector('button[aria-label*="Stop"]')
+      ).catch(() => false);
+      if (appeared) break;
+      await sleep(2000);
+    }
+    for (let i = 0; i < 90; i++) {
+      const done = await injectAndRun(tabId, () =>
+        !document.querySelector('[data-testid="stop-button"]') && !document.querySelector('button[aria-label*="Stop"]')
+      ).catch(() => true);
+      if (done) break;
+      await sleep(3000);
+    }
+
+    const imgSrc = await extractGPTImage(tabId, existingImgUrls);
+    await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
+    tabId = null;
+    console.log("[stylist] imgSrc:", imgSrc ? imgSrc.slice(0, 80) : "null");
 
     let imageUrl = null;
-    if (imageData) {
-      let b64 = imageData.startsWith("data:image") ? imageData : await urlToBase64(imageData);
+    if (imgSrc) {
+      const b64 = imgSrc.startsWith("data:image") ? imgSrc : await urlToBase64(imgSrc);
       if (b64) {
         try {
           const base64 = b64.split(",")[1];
@@ -1436,13 +1474,14 @@ Return ONLY a plain bulleted list of the items to wear — one per line, no expl
           imageUrl = await uploadToStorage(`outfits/${Date.now()}.png`, blob, "image/png");
         } catch {}
       }
-      if (!imageUrl) imageUrl = imageData;
+      if (!imageUrl) imageUrl = imgSrc;
     }
 
     console.log("[stylist] complete, imageUrl:", imageUrl ? imageUrl.slice(0, 80) : "none");
     await updateStyleJob(id, { outfit_image_url: imageUrl, status: "complete", step: "complete" });
   } catch (err) {
     console.error("[stylist] pipeline error:", err.message);
+    if (tabId) await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
     await updateStyleJob(id, { status: "error", error_message: err.message });
   }
 }
