@@ -849,12 +849,15 @@ export default function YouTubePage() {
           if (j.jobId !== parentJobId) return j;
           return { ...j, uploadedUrls: [...j.uploadedUrls, audioUrl] };
         });
-        // Mark parent job complete in DB if all tracks are done
+        // Mark parent job complete in DB if all tracks are done; fire auto-next
         const parentJob = updated.find(j => j.jobId === parentJobId);
         if (parentJob) {
           const done = parentJob.uploadedUrls.length + parentJob.skippedUrls.length + Object.keys(parentJob.errorUrls).length;
           if (done >= parentJob.audioUrls.length) {
             supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", parentJobId);
+            if (autoNextRef.current) {
+              setTimeout(() => { runAutomationRef.current?.(); }, 5000);
+            }
           }
         }
         // Remove card only when all tracks resolved
@@ -955,17 +958,6 @@ export default function YouTubePage() {
       }, { onConflict: "persona_name,track_name" });
       assignTrackToRandomAlbum(job.personaName, job.title, ytUrl);
 
-      // Fire auto-next on the first successful upload from this job
-      if (autoNextRef.current && job.uploadedUrls.length === 0) {
-        setTimeout(() => {
-          setPublishedUrl(null);
-          setCurrentStep("lyrics");
-          setStyleTag(""); setLyrics(""); setArtFile(null); setArtPreview(null);
-          setAudioFile(null); setVideoUrl(null); setTitle(""); setDescription("");
-          runAutomationRef.current?.();
-        }, 5000);
-      }
-
       setApprovalQueue(prev => {
         // approvedUrls already set at enqueue time; here we only mark as uploaded
         const updated = prev.map(j => {
@@ -978,6 +970,16 @@ export default function YouTubePage() {
           : true;
         if (allDone) {
           supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", job.jobId);
+          // Fire auto-next only when ALL tracks are handled so sub-job approvals don't race with Suno
+          if (autoNextRef.current) {
+            setTimeout(() => {
+              setPublishedUrl(null);
+              setCurrentStep("lyrics");
+              setStyleTag(""); setLyrics(""); setArtFile(null); setArtPreview(null);
+              setAudioFile(null); setVideoUrl(null); setTitle(""); setDescription("");
+              runAutomationRef.current?.();
+            }, 5000);
+          }
         }
         return updated.filter(j => {
           if (j.jobId !== job.jobId) return true;

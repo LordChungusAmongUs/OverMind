@@ -1066,9 +1066,11 @@ async function runPipeline(job) {
     }
 
     // Step 3: Generate audio in Suno → pause for review
+    // Sub-jobs always have audio pre-filled; never run Suno for them.
+    const isSubJob = (job.track_theme || "").startsWith("__subjob:");
     const prefilledAudio = job.audio_url;
     let audioUrl;
-    if (prefilledAudio) {
+    if (prefilledAudio || isSubJob) {
       audioUrl = prefilledAudio;
       await updateJob(id, { step: shouldSkip("audio") ? "metadata" : "audio_review" });
       if (!shouldSkip("audio")) {
