@@ -1193,7 +1193,7 @@ async function waitForGPTDone(tabId, maxAttempts = 60) {
 // Extract the generated image URL from the ChatGPT tab.
 // Returns the raw src string — caller must download via urlToBase64 in service worker
 // to avoid CORS failures (files.oaiusercontent.com blocks in-page fetch).
-async function extractGPTImage(tabId) {
+async function extractGPTImage(tabId, existingUrls = []) {
   await sleep(5000);
   let imgSrc = "";
   for (let i = 0; i < 20 && !imgSrc; i++) {
@@ -1201,24 +1201,34 @@ async function extractGPTImage(tabId) {
       (document.querySelector("main") || document.body).scrollTo(0, 999999);
     }).catch(() => {});
     await sleep(2000);
-    imgSrc = await injectAndRun(tabId, () => {
+    imgSrc = await injectAndRun(tabId, (existingArr) => {
+      const existingSet = new Set(existingArr);
       const userImgSrcs = new Set(
         Array.from(document.querySelectorAll('[data-message-author-role="user"] img'))
           .map(img => img.currentSrc || img.src || "").filter(Boolean)
       );
-      const root = document.querySelector("main") || document.body;
-      const imgs = Array.from(root.querySelectorAll("img")).reverse();
+      const skip = (src) => !src || src.startsWith("data:") || src.endsWith(".svg") || userImgSrcs.has(src) || existingSet.has(src);
+      // Check only the last assistant message first — that's where the Turn 3 image lives
+      const assistantMsgs = document.querySelectorAll('[data-message-author-role="assistant"]');
+      const lastMsg = assistantMsgs[assistantMsgs.length - 1];
+      if (lastMsg) {
+        for (const img of Array.from(lastMsg.querySelectorAll("img"))) {
+          const src = img.currentSrc || img.src || "";
+          if (skip(src)) continue;
+          if (img.complete && img.naturalWidth > 150 && img.naturalHeight > 150) return src;
+        }
+      }
+      // Fallback: scan full chat in reverse for any new large image
+      const imgs = Array.from((document.querySelector("main") || document.body).querySelectorAll("img")).reverse();
       for (const img of imgs) {
         const src = img.currentSrc || img.src || "";
-        if (!src || src.startsWith("data:") || src.endsWith(".svg")) continue;
-        if (userImgSrcs.has(src)) continue;
-        if (src.includes("oaiusercontent.com")) return src;
+        if (skip(src)) continue;
         const natural = img.complete && img.naturalWidth > 150 && img.naturalHeight > 150;
         const rendered = img.getBoundingClientRect().width > 150;
         if (natural || rendered) return src;
       }
       return "";
-    }).catch(() => "");
+    }, [existingUrls]).catch(() => "");
     if (!imgSrc) await sleep(3000);
   }
   return imgSrc || null;
@@ -1269,6 +1279,12 @@ async function runOutfitImageMultiTurn(job, userPhotoBase64s, itemBase64Map) {
     weather_summary ? `Weather: ${weather_summary}` : '',
   ].filter(Boolean).join('. ');
 
+  // Snapshot all image URLs currently in the chat before Turn 3 fires
+  const existingImgUrls = await injectAndRun(tabId, () =>
+    Array.from(document.querySelectorAll("img"))
+      .map(img => img.currentSrc || img.src || "").filter(Boolean)
+  ).catch(() => []);
+
   await sendGPTMessage(tabId,
     `Generate a high-quality, realistic full-body fashion photo of ${subject} wearing the complete outfit: ${outfitRef}. ${context}. Show the full outfit head to toe. Natural studio lighting, fashion editorial style, sharp detail.`
   );
@@ -1291,7 +1307,7 @@ async function runOutfitImageMultiTurn(job, userPhotoBase64s, itemBase64Map) {
     await sleep(3000);
   }
 
-  const imgSrc = await extractGPTImage(tabId);
+  const imgSrc = await extractGPTImage(tabId, existingImgUrls);
   await new Promise(r => chrome.tabs.remove(tabId, () => r())).catch(() => {});
   return (typeof imgSrc === "string" && imgSrc.length > 0) ? imgSrc : null;
 }
