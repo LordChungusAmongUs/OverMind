@@ -212,6 +212,10 @@ export default function StylistPage() {
   const [showPrompts, setShowPrompts] = useState(false);
   const [autoAnalyze, setAutoAnalyze] = useState(false);
 
+  const [autoApproveOutfit, setAutoApproveOutfit] = useState(false);
+  const [outfitItemIds, setOutfitItemIds] = useState<string[]>([]);
+  const [outfitApproved, setOutfitApproved] = useState(false);
+
   // ── Data loading ────────────────────────────────────────────────────────────
 
   const loadAll = useCallback(async () => {
@@ -247,6 +251,7 @@ export default function StylistPage() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
   useEffect(() => { setAutoAnalyze(localStorage.getItem("wardrobeAutoAnalyze") === "true"); }, []);
+  useEffect(() => { setAutoApproveOutfit(localStorage.getItem("outfitAutoApprove") === "true"); }, []);
 
   useEffect(() => {
     fetch("https://api.open-meteo.com/v1/forecast?latitude=35.9065&longitude=-80.0065&current_weather=true&temperature_unit=fahrenheit&timezone=America/New_York")
@@ -520,6 +525,30 @@ export default function StylistPage() {
     } : null);
   }
 
+  function parseOutfitItemIds(description: string, allItems: WardrobeItem[]): string[] {
+    const lines = description.split("\n")
+      .map(l => l.replace(/^[\s•\-*]+/, "").trim().toLowerCase())
+      .filter(Boolean);
+    return allItems.filter(item =>
+      lines.some(line => {
+        const name = item.name.toLowerCase();
+        return line === name || line.includes(name) || name.includes(line);
+      })
+    ).map(i => i.id);
+  }
+
+  async function approveOutfit(ids: string[]) {
+    if (ids.length === 0) return;
+    const today = new Date().toISOString().split("T")[0];
+    const newEntries: WearLog[] = [];
+    for (const id of ids) {
+      const { error } = await supabase.from("wear_log").insert({ item_id: id, worn_date: today });
+      if (!error) newEntries.push({ id: crypto.randomUUID(), item_id: id, worn_date: today });
+    }
+    if (newEntries.length) setWearLog(prev => [...prev, ...newEntries]);
+    setOutfitApproved(true);
+  }
+
   async function generateOutfit() {
     if (activities.length === 0) return;
     setGenerating(true);
@@ -527,6 +556,8 @@ export default function StylistPage() {
     setOutfitImage(null);
     setOutfitError(null);
     setOutfitJobId(null);
+    setOutfitApproved(false);
+    setOutfitItemIds([]);
     try {
       const res = await fetch("/api/stylist/outfit", {
         method: "POST",
@@ -545,7 +576,6 @@ export default function StylistPage() {
         return;
       }
       setOutfitJobId(data.jobId);
-      // Poll for job completion
       const poll = setInterval(async () => {
         const { data: job } = await supabase
           .from("stylist_jobs")
@@ -559,6 +589,11 @@ export default function StylistPage() {
           setOutfitImage(job.outfit_image_url);
           setOutfitJobId(null);
           setGenerating(false);
+          const matched = parseOutfitItemIds(job.outfit_description ?? "", items);
+          setOutfitItemIds(matched);
+          if (localStorage.getItem("outfitAutoApprove") === "true") {
+            await approveOutfit(matched);
+          }
           const { data: history } = await supabase.from("outfit_history").select("*").order("created_at", { ascending: false }).limit(6);
           setOutfitHistory(history ?? []);
         } else if (job.status === "error") {
@@ -698,14 +733,30 @@ export default function StylistPage() {
               </div>
             )}
 
-            <button
-              onClick={generateOutfit}
-              disabled={generating || activities.length === 0 || totalClean === 0}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-              {generating ? (outfitJobId ? "Extension working..." : "Starting...") : "Generate Outfit"}
-            </button>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={generateOutfit}
+                disabled={generating || activities.length === 0 || totalClean === 0}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                {generating ? (outfitJobId ? "Extension working..." : "Starting...") : "Generate Outfit"}
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !autoApproveOutfit;
+                    setAutoApproveOutfit(next);
+                    localStorage.setItem("outfitAutoApprove", String(next));
+                  }}
+                  className={`relative w-8 h-4 rounded-full border transition-all flex-shrink-0 ${autoApproveOutfit ? "border-green-500/60 bg-green-500/20" : "border-green-500/20 bg-black/40"}`}
+                >
+                  <span className={`absolute top-0.5 w-3 h-3 rounded-full transition-all ${autoApproveOutfit ? "left-4 bg-green-400" : "left-0.5 bg-green-600"}`} />
+                </button>
+                <span className="text-xs font-mono text-green-700">Auto-approve</span>
+              </div>
+            </div>
             {activities.length === 0 && !generating && (
               <p className="text-xs text-green-800 font-mono mt-2">Pick at least one activity to generate.</p>
             )}
@@ -733,7 +784,7 @@ export default function StylistPage() {
                   />
                 )}
                 {todayOutfit && (
-                  <ul className="space-y-1">
+                  <ul className="space-y-1 mb-4">
                     {todayOutfit.split("\n").map((line, i) => {
                       const text = line.replace(/^[\s•\-*]+/, "").trim();
                       return text ? (
@@ -745,6 +796,24 @@ export default function StylistPage() {
                     })}
                   </ul>
                 )}
+                {outfitApproved ? (
+                  <p className="text-xs text-green-500 font-mono font-bold">
+                    ✓ Approved · {outfitItemIds.length} item{outfitItemIds.length !== 1 ? "s" : ""} marked dirty
+                  </p>
+                ) : outfitItemIds.length > 0 ? (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => approveOutfit(outfitItemIds)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-green-500/40 bg-green-500/10 text-green-300 font-mono font-bold text-sm hover:bg-green-500/20 transition-all"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      Approve &amp; Mark Worn
+                    </button>
+                    <span className="text-xs text-green-800 font-mono">
+                      {outfitItemIds.length} item{outfitItemIds.length !== 1 ? "s" : ""} will be marked dirty
+                    </span>
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
