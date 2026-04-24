@@ -7,28 +7,18 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-interface CleanItem {
-  id: string;
-  name: string;
-  type: string;
-  color: string | null;
-  brand: string | null;
-  occasions: string[];
-  image_url: string | null;
-}
-
 export async function POST(req: Request) {
   try {
     const body = await req.json() as {
       activities: string[];
-      cleanItems: CleanItem[];
+      cleanItemIds: string[];
       weather: { temp: number; condition: string } | null;
       referencePhotoUrl: string | null;
     };
 
-    const { activities, cleanItems, weather } = body;
+    const { activities, cleanItemIds, weather } = body;
 
-    if (!cleanItems || cleanItems.length === 0) {
+    if (!cleanItemIds || cleanItemIds.length === 0) {
       return NextResponse.json({ error: "No clean items available." }, { status: 400 });
     }
 
@@ -38,7 +28,7 @@ export async function POST(req: Request) {
     const { data, error } = await supabase.from("stylist_jobs").insert({
       activities,
       weather_summary: weatherSummary,
-      clean_items: cleanItems,
+      clean_items: cleanItemIds,
     }).select().single();
 
     if (error) {

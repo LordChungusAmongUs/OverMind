@@ -1316,7 +1316,17 @@ async function updateStyleJob(id, fields) {
 }
 
 async function runStylePipeline(job) {
-  const { id, activities, weather_summary, clean_items } = job;
+  const { id, activities, weather_summary } = job;
+  // clean_items is stored as an array of UUIDs; fetch full item data here
+  let clean_items = [];
+  try {
+    const ids = (job.clean_items || []).filter(Boolean);
+    if (ids.length > 0) {
+      const res = await fetch(`${db("wardrobe_items")}?id=in.(${ids.join(",")})&select=*`, { headers });
+      const rows = await res.json();
+      if (Array.isArray(rows)) clean_items = rows;
+    }
+  } catch {}
   try {
     await updateStyleJob(id, { step: "outfit_description" });
 
@@ -1358,20 +1368,6 @@ Be concise and practical.`;
       }
     } catch {}
 
-    // Fetch image URLs from wardrobe_items (not stored in job to avoid 413)
-    const itemIds = (clean_items || []).map(i => i.id).filter(Boolean);
-    if (itemIds.length > 0) {
-      try {
-        const imgRes = await fetch(`${db("wardrobe_items")}?id=in.(${itemIds.join(",")})&select=id,image_url`, { headers });
-        const imgRows = await imgRes.json();
-        if (Array.isArray(imgRows)) {
-          const imageUrlById = {};
-          imgRows.forEach(r => { if (r.image_url) imageUrlById[r.id] = r.image_url; });
-          (clean_items || []).forEach(item => { if (!item.image_url && imageUrlById[item.id]) item.image_url = imageUrlById[item.id]; });
-        }
-      } catch {}
-    }
-
     // Download wardrobe item images as base64
     const itemBase64Map = {};
     for (const item of (clean_items || [])) {
@@ -1382,7 +1378,7 @@ Be concise and practical.`;
     }
 
     // Run 3-turn ChatGPT image conversation
-    const enrichedJob = { ...job, outfit_description: description };
+    const enrichedJob = { ...job, outfit_description: description, clean_items };
     const imageData = await runOutfitImageMultiTurn(enrichedJob, userPhotoBase64s, itemBase64Map);
 
     let imageUrl = null;
