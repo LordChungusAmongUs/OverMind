@@ -191,7 +191,7 @@ export default function StylistPage() {
   const [newItem, setNewItem] = useState({ ...BLANK_ITEM });
   const [saving, setSaving] = useState(false);
 
-  const [activities, setActivities] = useState<string[]>([]);
+  const [activities, setActivities] = useState<string[]>(["Casual Day"]);
   const [generating, setGenerating] = useState(false);
   const [todayOutfit, setTodayOutfit] = useState<string | null>(null);
   const [weather, setWeather] = useState<{ temp: number; condition: string } | null>(null);
