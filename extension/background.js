@@ -1430,7 +1430,7 @@ async function runStylePipeline(job) {
     console.log("[stylist] outfit text:", description.slice(0, 120));
     await updateStyleJob(id, { outfit_description: description, step: "outfit_image" });
 
-    // Find which shoes/hat were selected so we can give ChatGPT explicit visual detail
+    // Find which items were selected from the bullet list
     const descLower = description.toLowerCase();
     function buildItemDetail(item) {
       let d = item.name;
@@ -1439,8 +1439,30 @@ async function runStylePipeline(job) {
       if (item.notes) d += ` (${item.notes})`;
       return d;
     }
-    const selectedShoes = clean_items.find(i => i.type === "Shoes" && descLower.includes(i.name.toLowerCase()));
-    const selectedHat = clean_items.find(i => i.type === "Hat" && descLower.includes(i.name.toLowerCase()));
+    const selectedItems = clean_items.filter(i => descLower.includes(i.name.toLowerCase()));
+
+    // Turn 3: send catalog images of selected items for reference
+    const itemsWithImages = selectedItems.filter(i => i.image_url);
+    if (itemsWithImages.length > 0) {
+      const itemBase64s = [];
+      for (const item of itemsWithImages) {
+        const b64 = await urlToBase64(item.image_url);
+        if (b64) itemBase64s.push(b64);
+      }
+      if (itemBase64s.length > 0) {
+        await attachFilesToTab(tabId, itemBase64s);
+        await sleep(2000);
+        await sendGPTMessage(tabId,
+          `Here are the catalog images of the ${itemBase64s.length} item${itemBase64s.length !== 1 ? "s" : ""} I selected. Study the exact colors, silhouettes, and details of each piece carefully before generating the outfit photo.`
+        );
+        await waitForGPTDone(tabId);
+        console.log("[stylist] item images sent:", itemBase64s.length);
+      }
+    }
+
+    // Build accessory detail hints for shoes/hat
+    const selectedShoes = selectedItems.find(i => i.type === "Shoes");
+    const selectedHat = selectedItems.find(i => i.type === "Hat");
     let accessoryDetail = "";
     if (selectedShoes) accessoryDetail += `\nSHOES: ${buildItemDetail(selectedShoes)} — render the exact silhouette, sole shape, color blocking, and any distinctive design details with photographic clarity.`;
     if (selectedHat) accessoryDetail += `\nHEADWEAR: ${buildItemDetail(selectedHat)} — render the exact shape, brim style, crown height, color, and any logos or texture with photographic clarity.`;
@@ -1451,7 +1473,7 @@ async function runStylePipeline(job) {
       Array.from(document.querySelectorAll("img")).map(img => img.currentSrc || img.src || "").filter(Boolean)
     ).catch(() => []);
 
-    // Turn 3: generate outfit image in the same session
+    // Turn 4: generate outfit image
     const subject = userPhotoBase64s.length > 0
       ? "me (the person shown in the photos above)"
       : "a stylish person";
@@ -2024,7 +2046,7 @@ Return ONLY a plain bulleted list of the items to wear — one per line, no expl
 • [exact item name]
 (include every piece: top, bottom, shoes, outerwear if needed, AND always include underwear — never omit it)`,
 
-  outfit_image: `Now generate a high-quality, realistic full-body fashion photo of {{subject}} wearing the complete outfit listed above. Natural studio lighting, fashion editorial style. Show the full outfit head to toe.{{accessoryDetail}}`,
+  outfit_image: `Now generate a high-quality, realistic full-body fashion photo of {{subject}} wearing the exact outfit items shown in the images above. Faithfully reproduce the color, cut, and style of each piece exactly as pictured. Natural studio lighting, fashion editorial style. Show the full outfit head to toe.{{accessoryDetail}}`,
 };
 
 async function fetchPrompts() {

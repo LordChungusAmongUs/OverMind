@@ -71,6 +71,6 @@ Return ONLY a plain bulleted list of the items to wear — one per line, no expl
 • [exact item name]
 (include every piece: top, bottom, shoes, outerwear if needed, AND always include underwear — never omit it)'),
 
-('outfit_image', 'Outfit Image Generation', 'Now generate a high-quality, realistic full-body fashion photo of {{subject}} wearing the complete outfit listed above. Natural studio lighting, fashion editorial style. Show the full outfit head to toe.{{accessoryDetail}}')
+('outfit_image', 'Outfit Image Generation', 'Now generate a high-quality, realistic full-body fashion photo of {{subject}} wearing the exact outfit items shown in the images above. Faithfully reproduce the color, cut, and style of each piece exactly as pictured. Natural studio lighting, fashion editorial style. Show the full outfit head to toe.{{accessoryDetail}}')
 
 ON CONFLICT (key) DO UPDATE SET body = EXCLUDED.body, updated_at = NOW();
