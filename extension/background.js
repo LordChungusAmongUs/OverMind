@@ -1439,7 +1439,7 @@ Return ONLY a plain bulleted list of the items to wear — one per line, no expl
       ? "me (the person shown in the photos above)"
       : "a stylish person";
     await sendGPTMessage(tabId,
-      `Now generate a high-quality, realistic full-body fashion photo of ${subject} wearing the complete outfit listed above. Natural studio lighting, fashion editorial style, sharp detail. Show the full outfit head to toe.`
+      `Now generate a high-quality, realistic full-body fashion photo of ${subject} wearing the complete outfit listed above. Natural studio lighting, fashion editorial style. Show the full outfit head to toe. Pay special attention to shoes and any headwear — render their exact style, silhouette, color, and design with sharp, close-up-level clarity. Do not blur or generalize footwear or hats.`
     );
     console.log("[stylist] waiting for image generation...");
 
