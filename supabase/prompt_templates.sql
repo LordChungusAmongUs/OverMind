@@ -27,8 +27,8 @@ Product type: {{productName}}
   "count": <total individual pieces in this purchase e.g. 1 for single, 7 for a 7-pack>,
   "items": [
     {
-      "item_type": "<exact item type e.g. boxer brief, t-shirt, crew sock>",
-      "color": "<color and any pattern/print AS SEEN IN THE IMAGE — e.g. navy blue, red, white with geometric print>",
+      "item_type": "<FULL garment name — never abbreviate. short sleeve t-shirt stays short sleeve t-shirt, never short. Examples: t-shirt, polo shirt, crew neck sweatshirt, athletic shorts, boxer brief, crew sock>",
+      "color": "<PRIMARY BODY COLOR of the garment AS SEEN IN THE IMAGE — dominant fabric color only. Ignore logos, text, branding, or accent colors. e.g. black, navy blue, red with white stripe>",
       "brand": "<brand or null>",
       "occasions": [<from: Casual, Work, Gym, Going Out, Date Night, Errands, Church, Travel, Formal>],
       "style_notes": "<one sentence about cut, fit, material, and any visible pattern or print>"
@@ -49,12 +49,28 @@ Rules:
 Item: {{brand}}{{color}} {{item_type}}{{styleNotes}}
 
 Requirements:
-- Generate ONLY a {{item_type}} — do not generate any other garment or accessory
-- Color/pattern: {{color}} — reproduce this exactly; if a pattern or print is mentioned (e.g. geometric, stripe, logo), include it faithfully
+- The item type is "{{item_type}}" — read it in FULL. Do NOT abbreviate or infer a different garment. "Short sleeve t-shirt" is a T-SHIRT (upper body), not shorts. "Athletic shorts" are shorts (lower body), not a shirt. Generate exactly what is named.
+- PRIMARY GARMENT COLOR is {{color}} — this is the main fabric color of the body of the garment. Ignore any logo, text, or accent colors. The whole garment should be this color.
+- If style notes mention a logo or print, add it as a subtle accent — it must NOT change the primary body color
 - Plain white or very light neutral background
 - NO model, NO mannequin, NO person — garment only
 - Flat lay, hanging, or ghost-mannequin style — whichever looks most professional for this item type
 - Full item visible, sharp focus, clean retail lighting
-- Quality matching a premium brand''s official product page')
+- Quality matching a premium brand''s official product page'),
+
+('outfit_selection', 'Outfit Selection', 'You are a personal AI stylist. Pick a complete outfit from my available clean clothes.
+
+Available items:
+{{itemsList}}
+
+Activities today: {{activities}}
+Weather: {{weather}}
+
+Return ONLY a plain bulleted list of the items to wear — one per line, no explanations:
+• [exact item name]
+• [exact item name]
+(include every piece: top, bottom, shoes, outerwear if needed, AND always include underwear — never omit it)'),
+
+('outfit_image', 'Outfit Image Generation', 'Now generate a high-quality, realistic full-body fashion photo of {{subject}} wearing the complete outfit listed above. Natural studio lighting, fashion editorial style. Show the full outfit head to toe.{{accessoryDetail}}')
 
 ON CONFLICT (key) DO UPDATE SET body = EXCLUDED.body, updated_at = NOW();

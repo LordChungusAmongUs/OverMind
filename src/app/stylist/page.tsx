@@ -1341,6 +1341,8 @@ export default function StylistPage() {
                 const vars: Record<string, string> = {
                   "wardrobe_analysis": "{{imageNote}}  {{productName}}  {{brandLine}}  {{focusNote}}",
                   "wardrobe_generation": "{{brand}}  {{color}}  {{item_type}}  {{styleNotes}}  {{referenceNote}}",
+                  "outfit_selection": "{{itemsList}}  {{activities}}  {{weather}}",
+                  "outfit_image": "{{subject}}  {{accessoryDetail}}",
                 };
                 return (
                   <div key={prompt.key}>

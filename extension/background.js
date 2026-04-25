@@ -1349,6 +1349,8 @@ async function runStylePipeline(job) {
   const { id, activities, weather_summary } = job;
   console.log("[stylist] starting pipeline for job", id);
 
+  const promptTemplates = await fetchPrompts();
+
   // Fetch full item data from wardrobe_items (job only stores IDs)
   let clean_items = [];
   try {
@@ -1395,18 +1397,11 @@ async function runStylePipeline(job) {
       })
       .join("\n");
 
-    const outfitPrompt = `You are a personal AI stylist. Pick a complete outfit from my available clean clothes.
-
-Available items:
-${itemsList}
-
-Activities today: ${(activities || []).join(", ")}
-Weather: ${weather_summary || "unknown"}
-
-Return ONLY a plain bulleted list of the items to wear — one per line, no explanations:
-• [exact item name]
-• [exact item name]
-(include every piece: top, bottom, shoes, outerwear if needed, AND always include underwear — never omit it)`;
+    const outfitPrompt = fillTemplate(promptTemplates.outfit_selection, {
+      itemsList,
+      activities: (activities || []).join(", "),
+      weather: weather_summary || "unknown",
+    });
 
     // ── Single ChatGPT tab for the whole pipeline ──────────────────
     console.log("[stylist] opening ChatGPT tab...");
@@ -1460,9 +1455,7 @@ Return ONLY a plain bulleted list of the items to wear — one per line, no expl
     const subject = userPhotoBase64s.length > 0
       ? "me (the person shown in the photos above)"
       : "a stylish person";
-    await sendGPTMessage(tabId,
-      `Now generate a high-quality, realistic full-body fashion photo of ${subject} wearing the complete outfit listed above. Natural studio lighting, fashion editorial style. Show the full outfit head to toe.${accessoryDetail}`
-    );
+    await sendGPTMessage(tabId, fillTemplate(promptTemplates.outfit_image, { subject, accessoryDetail }));
     console.log("[stylist] waiting for image generation...");
 
     for (let i = 0; i < 30; i++) {
@@ -2017,6 +2010,21 @@ Requirements:
 - Flat lay, hanging, or ghost-mannequin style — whichever looks most professional for this item type
 - Full item visible, sharp focus, clean retail lighting
 - Quality matching a premium brand's official product page`,
+
+  outfit_selection: `You are a personal AI stylist. Pick a complete outfit from my available clean clothes.
+
+Available items:
+{{itemsList}}
+
+Activities today: {{activities}}
+Weather: {{weather}}
+
+Return ONLY a plain bulleted list of the items to wear — one per line, no explanations:
+• [exact item name]
+• [exact item name]
+(include every piece: top, bottom, shoes, outerwear if needed, AND always include underwear — never omit it)`,
+
+  outfit_image: `Now generate a high-quality, realistic full-body fashion photo of {{subject}} wearing the complete outfit listed above. Natural studio lighting, fashion editorial style. Show the full outfit head to toe.{{accessoryDetail}}`,
 };
 
 async function fetchPrompts() {
