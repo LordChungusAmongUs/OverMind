@@ -1400,7 +1400,7 @@ Weather: ${weather_summary || "unknown"}
 Return ONLY a plain bulleted list of the items to wear — one per line, no explanations:
 • [exact item name]
 • [exact item name]
-(include every piece: top, bottom, shoes, outerwear if needed)`;
+(include every piece: top, bottom, shoes, outerwear if needed, AND always include underwear — never omit it)`;
 
     // ── Single ChatGPT tab for the whole pipeline ──────────────────
     console.log("[stylist] opening ChatGPT tab...");
