@@ -1386,7 +1386,13 @@ async function runStylePipeline(job) {
 
     // Build item list for text prompt
     const itemsList = clean_items
-      .map(i => `- [${i.type}] ${i.name}${i.color ? ` (${i.color})` : ""}${i.brand ? ` by ${i.brand}` : ""}`)
+      .map(i => {
+        let line = `- [${i.type}] ${i.name}`;
+        if (i.color) line += ` (${i.color})`;
+        if (i.brand) line += ` by ${i.brand}`;
+        if (i.notes) line += ` — ${i.notes}`;
+        return line;
+      })
       .join("\n");
 
     const outfitPrompt = `You are a personal AI stylist. Pick a complete outfit from my available clean clothes.
@@ -1429,6 +1435,22 @@ Return ONLY a plain bulleted list of the items to wear — one per line, no expl
     console.log("[stylist] outfit text:", description.slice(0, 120));
     await updateStyleJob(id, { outfit_description: description, step: "outfit_image" });
 
+    // Find which shoes/hat were selected so we can give ChatGPT explicit visual detail
+    const descLower = description.toLowerCase();
+    function buildItemDetail(item) {
+      let d = item.name;
+      if (item.color) d += ` in ${item.color}`;
+      if (item.brand) d += ` by ${item.brand}`;
+      if (item.notes) d += ` (${item.notes})`;
+      return d;
+    }
+    const selectedShoes = clean_items.find(i => i.type === "Shoes" && descLower.includes(i.name.toLowerCase()));
+    const selectedHat = clean_items.find(i => i.type === "Hat" && descLower.includes(i.name.toLowerCase()));
+    let accessoryDetail = "";
+    if (selectedShoes) accessoryDetail += `\nSHOES: ${buildItemDetail(selectedShoes)} — render the exact silhouette, sole shape, color blocking, and any distinctive design details with photographic clarity.`;
+    if (selectedHat) accessoryDetail += `\nHEADWEAR: ${buildItemDetail(selectedHat)} — render the exact shape, brim style, crown height, color, and any logos or texture with photographic clarity.`;
+    if (accessoryDetail) accessoryDetail += "\nDo not substitute, blur, or generalize the footwear or headwear — these specific items must be clearly recognizable.";
+
     // Snapshot existing images before image gen turn
     const existingImgUrls = await injectAndRun(tabId, () =>
       Array.from(document.querySelectorAll("img")).map(img => img.currentSrc || img.src || "").filter(Boolean)
@@ -1439,7 +1461,7 @@ Return ONLY a plain bulleted list of the items to wear — one per line, no expl
       ? "me (the person shown in the photos above)"
       : "a stylish person";
     await sendGPTMessage(tabId,
-      `Now generate a high-quality, realistic full-body fashion photo of ${subject} wearing the complete outfit listed above. Natural studio lighting, fashion editorial style. Show the full outfit head to toe. Pay special attention to shoes and any headwear — render their exact style, silhouette, color, and design with sharp, close-up-level clarity. Do not blur or generalize footwear or hats.`
+      `Now generate a high-quality, realistic full-body fashion photo of ${subject} wearing the complete outfit listed above. Natural studio lighting, fashion editorial style. Show the full outfit head to toe.${accessoryDetail}`
     );
     console.log("[stylist] waiting for image generation...");
 
