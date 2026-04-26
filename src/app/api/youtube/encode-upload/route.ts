@@ -1,26 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile } from "@ffmpeg/util";
-import path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { writeFile, readFile, unlink } from "fs/promises";
+import { randomUUID } from "crypto";
 
-export const maxDuration = 300;
+const execFileAsync = promisify(execFile);
 
-let ffmpegInstance: FFmpeg | null = null;
-
-async function getFFmpeg(): Promise<FFmpeg> {
-  if (ffmpegInstance?.loaded) return ffmpegInstance;
-  const ffmpeg = new FFmpeg();
-  const base = path.join(process.cwd(), "node_modules/@ffmpeg/core/dist/esm");
-  const toFileUrl = (p: string) => `file://${p.replace(/\\/g, "/")}`;
-  await ffmpeg.load({
-    coreURL: toFileUrl(path.join(base, "ffmpeg-core.js")),
-    wasmURL: toFileUrl(path.join(base, "ffmpeg-core.wasm")),
-  });
-  ffmpegInstance = ffmpeg;
-  return ffmpeg;
-}
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
+  const id = randomUUID();
+  const audioPath = `/tmp/audio-${id}`;
+  const imagePath = `/tmp/image-${id}.jpg`;
+  const videoPath = `/tmp/video-${id}.mp4`;
+
   try {
     const { audioUrl, imageUrl, title, description, tags, accessToken } = await req.json() as {
       audioUrl: string;
@@ -34,50 +27,54 @@ export async function POST(req: NextRequest) {
     if (!audioUrl) return NextResponse.json({ error: "audioUrl required" }, { status: 400 });
     if (!accessToken) return NextResponse.json({ error: "accessToken required" }, { status: 400 });
 
-    const ffmpeg = await getFFmpeg();
+    // ffmpeg-static provides a path to a pre-compiled static binary (works on Vercel Lambda)
+    const ffmpegStatic = await import("ffmpeg-static");
+    const ffmpegPath = (ffmpegStatic.default ?? ffmpegStatic) as string;
 
-    // Write audio to FFmpeg virtual FS
-    await ffmpeg.writeFile("audio", await fetchFile(audioUrl));
+    // Download audio and image to /tmp
+    const audioRes = await fetch(audioUrl);
+    if (!audioRes.ok) throw new Error(`Audio fetch failed: HTTP ${audioRes.status}`);
+    await writeFile(audioPath, Buffer.from(await audioRes.arrayBuffer()));
 
-    let videoArgs: string[];
+    let hasImage = false;
     if (imageUrl) {
-      await ffmpeg.writeFile("image.jpg", await fetchFile(imageUrl));
-      videoArgs = [
-        "-loop", "1", "-i", "image.jpg",
-        "-i", "audio",
-        "-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage",
-        "-c:a", "aac", "-b:a", "192k",
-        "-pix_fmt", "yuv420p",
-        "-r", "1",
-        "-shortest",
-        "-movflags", "+faststart",
-        "output.mp4",
-      ];
-    } else {
-      // No art: black frame video
-      videoArgs = [
-        "-f", "lavfi", "-i", "color=c=black:s=1280x720:r=1",
-        "-i", "audio",
-        "-c:v", "libx264", "-preset", "ultrafast",
-        "-c:a", "aac", "-b:a", "192k",
-        "-pix_fmt", "yuv420p",
-        "-shortest",
-        "-movflags", "+faststart",
-        "output.mp4",
-      ];
+      const imgRes = await fetch(imageUrl).catch(() => null);
+      if (imgRes?.ok) {
+        await writeFile(imagePath, Buffer.from(await imgRes.arrayBuffer()));
+        hasImage = true;
+      }
     }
 
-    await ffmpeg.exec(videoArgs);
-    const videoRaw = await ffmpeg.readFile("output.mp4") as Uint8Array;
-    const videoData = Buffer.from(videoRaw); // Buffer satisfies BodyInit for fetch
+    // Encode: static image looped over audio → H.264/AAC MP4
+    const ffmpegArgs = hasImage
+      ? [
+          "-loop", "1", "-i", imagePath,
+          "-i", audioPath,
+          "-c:v", "libx264", "-preset", "ultrafast", "-tune", "stillimage",
+          "-c:a", "aac", "-b:a", "192k",
+          "-pix_fmt", "yuv420p",
+          "-r", "1",
+          "-shortest",
+          "-movflags", "+faststart",
+          "-y", videoPath,
+        ]
+      : [
+          "-f", "lavfi", "-i", "color=c=black:s=1280x720:r=1",
+          "-i", audioPath,
+          "-c:v", "libx264", "-preset", "ultrafast",
+          "-c:a", "aac", "-b:a", "192k",
+          "-pix_fmt", "yuv420p",
+          "-shortest",
+          "-movflags", "+faststart",
+          "-y", videoPath,
+        ];
 
-    // Clean up virtual FS
-    await ffmpeg.deleteFile("audio").catch(() => {});
-    await ffmpeg.deleteFile("image.jpg").catch(() => {});
-    await ffmpeg.deleteFile("output.mp4").catch(() => {});
+    await execFileAsync(ffmpegPath, ffmpegArgs, { maxBuffer: 10 * 1024 * 1024 });
+
+    const videoData = await readFile(videoPath);
+    const videoSize = videoData.byteLength;
 
     // Init YouTube resumable upload
-    const videoSize = videoData.byteLength;
     const initRes = await fetch(
       "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
       {
@@ -101,12 +98,12 @@ export async function POST(req: NextRequest) {
     );
     if (!initRes.ok) {
       const text = await initRes.text();
-      return NextResponse.json({ error: `YouTube init: ${initRes.status} ${text.slice(0, 200)}` }, { status: 500 });
+      throw new Error(`YouTube init: ${initRes.status} ${text.slice(0, 200)}`);
     }
     const uploadUrl = initRes.headers.get("Location");
-    if (!uploadUrl) return NextResponse.json({ error: "No upload URL from YouTube" }, { status: 500 });
+    if (!uploadUrl) throw new Error("No upload URL from YouTube");
 
-    // Upload video
+    // Upload video data
     const uploadRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: {
@@ -117,15 +114,18 @@ export async function POST(req: NextRequest) {
     });
     if (!uploadRes.ok && uploadRes.status !== 201) {
       const text = await uploadRes.text();
-      return NextResponse.json({ error: `YouTube upload: ${uploadRes.status} ${text.slice(0, 200)}` }, { status: 500 });
+      throw new Error(`YouTube upload: ${uploadRes.status} ${text.slice(0, 200)}`);
     }
+
     const uploadData = await uploadRes.json() as { id?: string };
     const videoId = uploadData.id;
-    if (!videoId) return NextResponse.json({ error: `No video ID: ${JSON.stringify(uploadData).slice(0, 120)}` }, { status: 500 });
+    if (!videoId) throw new Error(`No video ID in response: ${JSON.stringify(uploadData).slice(0, 120)}`);
 
     return NextResponse.json({ videoUrl: `https://www.youtube.com/watch?v=${videoId}` });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: `encode-upload: ${msg}` }, { status: 500 });
+  } finally {
+    await Promise.all([audioPath, imagePath, videoPath].map(p => unlink(p).catch(() => {})));
   }
 }

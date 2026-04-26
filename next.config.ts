@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   images: {
     domains: ["img.youtube.com", "i.ytimg.com"],
   },
-  serverExternalPackages: ["@ffmpeg/ffmpeg", "@ffmpeg/core", "@ffmpeg/util"],
+  serverExternalPackages: ["@ffmpeg/ffmpeg", "@ffmpeg/core", "@ffmpeg/util", "ffmpeg-static"],
 };
 
 export default nextConfig;
