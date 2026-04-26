@@ -727,9 +727,12 @@ export default function YouTubePage() {
         img.src = imgUrl;
       });
 
-      // Start audio FIRST — captureStream() only returns live audio tracks after play()
+      // Start audio FIRST — captureStream() only returns live audio tracks after play().
+      // Use volume=0 (not muted=true): Chrome fires 'ended' prematurely on muted elements
+      // when captureStream is attached. The page already has user activation from the
+      // Approve click, so unmuted autoplay is allowed.
       const audioEl = document.createElement("audio");
-      audioEl.muted = true; // allows autoplay without user gesture
+      audioEl.volume = 0;
       const audioObjUrl = URL.createObjectURL(audioBlob);
       audioEl.src = audioObjUrl;
       await audioEl.play();
