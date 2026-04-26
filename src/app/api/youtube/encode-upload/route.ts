@@ -1,30 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { writeFile, readFile, unlink, copyFile, chmod } from "fs/promises";
+import { writeFile, readFile, unlink, chmod, access } from "fs/promises";
 import { randomUUID } from "crypto";
 
 const execFileAsync = promisify(execFile);
-export const maxDuration = 60;
+export const maxDuration = 300;
 
-const FFMPEG_TMP_PATH = "/tmp/ffmpeg-bin";
+// Static linux-x64 ffmpeg binary — downloaded once per Lambda warm instance,
+// cached in /tmp. No npm package needed; GitHub releases provides direct binaries.
+const FFMPEG_PATH = "/tmp/ffmpeg";
+const FFMPEG_URL =
+  "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/linux-x64";
+
 let ffmpegReady: Promise<string> | null = null;
 
 function ensureFfmpeg(): Promise<string> {
-  if (!ffmpegReady) {
-    // Dynamic import so any throw (missing binary, bad path) is caught by
-    // the request handler's try-catch and returned as JSON, not a Lambda crash.
-    ffmpegReady = (async () => {
-      const mod = await import("@ffmpeg-installer/ffmpeg");
-      const installer = (mod.default ?? mod) as { path: string };
-      await copyFile(installer.path, FFMPEG_TMP_PATH);
-      await chmod(FFMPEG_TMP_PATH, 0o755);
-      return FFMPEG_TMP_PATH;
-    })().catch((err) => {
-      ffmpegReady = null;
-      throw err;
+  if (ffmpegReady) return ffmpegReady;
+  // Local Windows dev: expect ffmpeg in PATH
+  if (process.platform !== "linux") return Promise.resolve("ffmpeg");
+
+  ffmpegReady = (async () => {
+    try {
+      await access(FFMPEG_PATH);
+      return FFMPEG_PATH; // warm instance — already downloaded
+    } catch {
+      // cold start — download the binary
+    }
+    const res = await fetch(FFMPEG_URL, {
+      redirect: "follow",
+      headers: { "User-Agent": "overmind/1.0" },
     });
-  }
+    if (!res.ok) throw new Error(`ffmpeg download: HTTP ${res.status}`);
+    await writeFile(FFMPEG_PATH, Buffer.from(await res.arrayBuffer()));
+    await chmod(FFMPEG_PATH, 0o755);
+    return FFMPEG_PATH;
+  })().catch((err) => {
+    ffmpegReady = null;
+    throw err;
+  });
+
   return ffmpegReady;
 }
 
@@ -91,6 +106,7 @@ export async function POST(req: NextRequest) {
 
     const videoData = await readFile(videoPath);
     const videoSize = videoData.byteLength;
+    if (videoSize === 0) throw new Error("ffmpeg produced empty video file");
 
     // Init YouTube resumable upload
     const initRes = await fetch(
