@@ -1386,6 +1386,16 @@ async function runStylePipeline(job) {
     } catch {}
     console.log("[stylist]", userPhotoBase64s.length, "reference photos,", clean_items.length, "items");
 
+    // Pre-fetch base64 for items that have catalog images (cap at 15 to avoid overloading)
+    const itemsWithImages = clean_items.filter(i => i.image_url).slice(0, 15);
+    const itemBase64Map = {};
+    for (const item of itemsWithImages) {
+      const b64 = await urlToBase64(item.image_url);
+      if (b64) itemBase64Map[item.id] = b64;
+    }
+    const itemBase64s = itemsWithImages.map(i => itemBase64Map[i.id]).filter(Boolean);
+    console.log("[stylist] pre-fetched", itemBase64s.length, "item images");
+
     // Build item list for text prompt
     const itemsList = clean_items
       .map(i => {
@@ -1418,8 +1428,12 @@ async function runStylePipeline(job) {
       console.log("[stylist] reference photos acknowledged");
     }
 
-    // Turn 2: outfit selection (text only)
+    // Turn 2: attach item catalog images + outfit selection prompt together
     await updateStyleJob(id, { step: "outfit_description" });
+    if (itemBase64s.length > 0) {
+      await attachFilesToTab(tabId, itemBase64s);
+      await sleep(2000);
+    }
     await sendGPTMessage(tabId, outfitPrompt);
     await waitForGPTDone(tabId);
 
@@ -1430,7 +1444,7 @@ async function runStylePipeline(job) {
     console.log("[stylist] outfit text:", description.slice(0, 120));
     await updateStyleJob(id, { outfit_description: description, step: "outfit_image" });
 
-    // Find which items were selected from the bullet list
+    // Build accessory detail hints for shoes/hat using fuzzy name match
     const descLower = description.toLowerCase();
     function buildItemDetail(item) {
       let d = item.name;
@@ -1439,30 +1453,8 @@ async function runStylePipeline(job) {
       if (item.notes) d += ` (${item.notes})`;
       return d;
     }
-    const selectedItems = clean_items.filter(i => descLower.includes(i.name.toLowerCase()));
-
-    // Turn 3: send catalog images of selected items for reference
-    const itemsWithImages = selectedItems.filter(i => i.image_url);
-    if (itemsWithImages.length > 0) {
-      const itemBase64s = [];
-      for (const item of itemsWithImages) {
-        const b64 = await urlToBase64(item.image_url);
-        if (b64) itemBase64s.push(b64);
-      }
-      if (itemBase64s.length > 0) {
-        await attachFilesToTab(tabId, itemBase64s);
-        await sleep(2000);
-        await sendGPTMessage(tabId,
-          `Here are the catalog images of the ${itemBase64s.length} item${itemBase64s.length !== 1 ? "s" : ""} I selected. Study the exact colors, silhouettes, and details of each piece carefully before generating the outfit photo.`
-        );
-        await waitForGPTDone(tabId);
-        console.log("[stylist] item images sent:", itemBase64s.length);
-      }
-    }
-
-    // Build accessory detail hints for shoes/hat
-    const selectedShoes = selectedItems.find(i => i.type === "Shoes");
-    const selectedHat = selectedItems.find(i => i.type === "Hat");
+    const selectedShoes = clean_items.find(i => i.type === "Shoes" && descLower.includes(i.name.toLowerCase()));
+    const selectedHat = clean_items.find(i => i.type === "Hat" && descLower.includes(i.name.toLowerCase()));
     let accessoryDetail = "";
     if (selectedShoes) accessoryDetail += `\nSHOES: ${buildItemDetail(selectedShoes)} — render the exact silhouette, sole shape, color blocking, and any distinctive design details with photographic clarity.`;
     if (selectedHat) accessoryDetail += `\nHEADWEAR: ${buildItemDetail(selectedHat)} — render the exact shape, brim style, crown height, color, and any logos or texture with photographic clarity.`;
