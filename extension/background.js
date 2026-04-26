@@ -1162,6 +1162,22 @@ async function attachFilesToTab(tabId, base64Array) {
   }, [base64Array]);
 }
 
+// Wait until ChatGPT shows N attachment thumbnails (uploads finished)
+async function waitForAttachments(tabId, count, timeoutMs = 45000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const n = await injectAndRun(tabId, () => {
+      const chips = document.querySelectorAll('[data-testid="file-thumbnail"], [class*="FileAttachment"], [class*="file-attachment"]');
+      if (chips.length > 0) return chips.length;
+      const form = document.querySelector('form');
+      return form ? form.querySelectorAll('img[alt], img[src*="blob"]').length : 0;
+    }).catch(() => 0);
+    if (n >= count) return;
+    await sleep(1500);
+  }
+  // timeout — proceed anyway, best effort
+}
+
 // Type and send a message in the open ChatGPT tab
 async function sendGPTMessage(tabId, text) {
   await injectAndRun(tabId, (t) => {
@@ -1386,16 +1402,6 @@ async function runStylePipeline(job) {
     } catch {}
     console.log("[stylist]", userPhotoBase64s.length, "reference photos,", clean_items.length, "items");
 
-    // Pre-fetch base64 for items that have catalog images (cap at 15 to avoid overloading)
-    const itemsWithImages = clean_items.filter(i => i.image_url).slice(0, 15);
-    const itemBase64Map = {};
-    for (const item of itemsWithImages) {
-      const b64 = await urlToBase64(item.image_url);
-      if (b64) itemBase64Map[item.id] = b64;
-    }
-    const itemBase64s = itemsWithImages.map(i => itemBase64Map[i.id]).filter(Boolean);
-    console.log("[stylist] pre-fetched", itemBase64s.length, "item images");
-
     // Build item list for text prompt
     const itemsList = clean_items
       .map(i => {
@@ -1422,18 +1428,14 @@ async function runStylePipeline(job) {
     // Turn 1 (optional): send user reference photos so ChatGPT can use them for image gen
     if (userPhotoBase64s.length > 0) {
       await attachFilesToTab(tabId, userPhotoBase64s);
-      await sleep(2000);
+      await waitForAttachments(tabId, userPhotoBase64s.length);
       await sendGPTMessage(tabId, "These are reference photos of me — I'll use them in a moment for outfit image generation. Just acknowledge.");
       await waitForGPTDone(tabId);
       console.log("[stylist] reference photos acknowledged");
     }
 
-    // Turn 2: attach item catalog images + outfit selection prompt together
+    // Turn 2: text-only outfit selection (no images — fast, reliable)
     await updateStyleJob(id, { step: "outfit_description" });
-    if (itemBase64s.length > 0) {
-      await attachFilesToTab(tabId, itemBase64s);
-      await sleep(2000);
-    }
     await sendGPTMessage(tabId, outfitPrompt);
     await waitForGPTDone(tabId);
 
@@ -1444,8 +1446,15 @@ async function runStylePipeline(job) {
     console.log("[stylist] outfit text:", description.slice(0, 120));
     await updateStyleJob(id, { outfit_description: description, step: "outfit_image" });
 
-    // Build accessory detail hints for shoes/hat using fuzzy name match
+    // Match selected items using fuzzy name matching
     const descLower = description.toLowerCase();
+    function fuzzyMatch(item, desc) {
+      const name = item.name.toLowerCase();
+      if (desc.includes(name)) return true;
+      const words = name.split(/\s+/).filter(w => w.length > 3);
+      if (!words.length) return false;
+      return words.filter(w => desc.includes(w)).length / words.length >= 0.6;
+    }
     function buildItemDetail(item) {
       let d = item.name;
       if (item.color) d += ` in ${item.color}`;
@@ -1453,8 +1462,27 @@ async function runStylePipeline(job) {
       if (item.notes) d += ` (${item.notes})`;
       return d;
     }
-    const selectedShoes = clean_items.find(i => i.type === "Shoes" && descLower.includes(i.name.toLowerCase()));
-    const selectedHat = clean_items.find(i => i.type === "Hat" && descLower.includes(i.name.toLowerCase()));
+    const selectedItems = clean_items.filter(i => fuzzyMatch(i, descLower));
+    console.log("[stylist] matched", selectedItems.length, "selected items");
+
+    // Turn 3: attach only the selected item images then generate
+    const selectedWithImages = selectedItems.filter(i => i.image_url);
+    const selectedBase64s = [];
+    for (const item of selectedWithImages) {
+      const b64 = await urlToBase64(item.image_url);
+      if (b64) selectedBase64s.push(b64);
+    }
+    console.log("[stylist] fetched", selectedBase64s.length, "item images for selected items");
+
+    if (selectedBase64s.length > 0) {
+      await attachFilesToTab(tabId, selectedBase64s);
+      await waitForAttachments(tabId, selectedBase64s.length);
+      console.log("[stylist] item images attached and ready");
+    }
+
+    // Build accessory detail hints for shoes/hat
+    const selectedShoes = selectedItems.find(i => i.type === "Shoes");
+    const selectedHat = selectedItems.find(i => i.type === "Hat");
     let accessoryDetail = "";
     if (selectedShoes) accessoryDetail += `\nSHOES: ${buildItemDetail(selectedShoes)} — render the exact silhouette, sole shape, color blocking, and any distinctive design details with photographic clarity.`;
     if (selectedHat) accessoryDetail += `\nHEADWEAR: ${buildItemDetail(selectedHat)} — render the exact shape, brim style, crown height, color, and any logos or texture with photographic clarity.`;
@@ -2032,6 +2060,8 @@ Available items:
 
 Activities today: {{activities}}
 Weather: {{weather}}
+
+If multiple items of the same type would work equally well, choose randomly between them — vary the outfit each time.
 
 Return ONLY a plain bulleted list of the items to wear — one per line, no explanations:
 • [exact item name]

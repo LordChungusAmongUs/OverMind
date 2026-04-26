@@ -66,6 +66,8 @@ Available items:
 Activities today: {{activities}}
 Weather: {{weather}}
 
+If multiple items of the same type would work equally well, choose randomly between them — vary the outfit each time.
+
 Return ONLY a plain bulleted list of the items to wear — one per line, no explanations:
 • [exact item name]
 • [exact item name]
