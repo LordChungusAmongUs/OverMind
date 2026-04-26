@@ -702,10 +702,10 @@ export default function YouTubePage() {
     }
     if (!artFileObj) throw new Error("No cover art available for this job.");
 
-    // Encode audio+art → video via MediaRecorder + HTMLAudioElement.captureStream().
-    // Rules: (1) play() MUST be called before captureStream() — calling it before
-    // returns empty audio tracks; (2) AudioContext won't work here because it starts
-    // suspended when created outside a user gesture (deep in async chains).
+    // Encode audio+art → video using AudioContext + MediaRecorder.
+    // AudioContext.resume() works here because the page has sticky user activation
+    // from the Approve click — Chrome allows resume() on any page that has ever
+    // had user interaction, even from deep async code.
     setAutoPublishStep("Encoding video...");
     const vidBlob = await (async () => {
       // Draw album art to offscreen canvas
@@ -727,23 +727,20 @@ export default function YouTubePage() {
         img.src = imgUrl;
       });
 
-      // Start audio FIRST — captureStream() only returns live audio tracks after play().
-      // Use volume=0 (not muted=true): Chrome fires 'ended' prematurely on muted elements
-      // when captureStream is attached. The page already has user activation from the
-      // Approve click, so unmuted autoplay is allowed.
-      const audioEl = document.createElement("audio");
-      audioEl.volume = 0;
-      const audioObjUrl = URL.createObjectURL(audioBlob);
-      audioEl.src = audioObjUrl;
-      await audioEl.play();
+      const audioCtx = new AudioContext();
+      if (audioCtx.state !== "running") await audioCtx.resume();
+      if (audioCtx.state !== "running")
+        throw new Error(`AudioContext is '${audioCtx.state}' — click anywhere on the page first, then retry`);
 
-      type AudioElWithCapture = HTMLAudioElement & { captureStream(): MediaStream };
-      const audioStream = (audioEl as AudioElWithCapture).captureStream();
-      const duration = isFinite(audioEl.duration) ? audioEl.duration : 300;
+      const audioBuffer = await audioCtx.decodeAudioData(await audioBlob.arrayBuffer());
+      const src = audioCtx.createBufferSource();
+      src.buffer = audioBuffer;
+      const dest = audioCtx.createMediaStreamDestination();
+      src.connect(dest);
 
       const stream = new MediaStream([
         ...canvas.captureStream(1).getVideoTracks(),
-        ...audioStream.getAudioTracks(),
+        ...dest.stream.getAudioTracks(),
       ]);
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
         ? "video/webm;codecs=vp9,opus" : "video/webm";
@@ -751,10 +748,11 @@ export default function YouTubePage() {
       const chunks: Blob[] = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
+      const dur = audioBuffer.duration;
       return new Promise<Blob>((resolve, reject) => {
         recorder.onstop = () => {
           stream.getTracks().forEach(t => t.stop());
-          URL.revokeObjectURL(audioObjUrl);
+          audioCtx.close();
           resolve(new Blob(chunks, { type: "video/webm" }));
         };
         recorder.onerror = reject;
@@ -762,7 +760,7 @@ export default function YouTubePage() {
         let elapsed = 0;
         const encTimer = setInterval(() => {
           elapsed++;
-          const rem = Math.max(0, duration - elapsed);
+          const rem = Math.max(0, dur - elapsed);
           setAutoPublishStep(`Encoding video... ${Math.floor(rem / 60)}:${String(Math.round(rem % 60)).padStart(2, "0")} left`);
         }, 1000);
 
@@ -770,10 +768,11 @@ export default function YouTubePage() {
           clearInterval(encTimer);
           if (recorder.state !== "inactive") recorder.stop();
         };
-        audioEl.onended = stop;
-        setTimeout(stop, (duration + 5) * 1000); // failsafe if onended never fires
+        src.onended = stop;
+        setTimeout(stop, (dur + 5) * 1000); // failsafe if onended never fires
 
         recorder.start(1000);
+        src.start(0);
       });
     })();
     if (vidBlob.size < 10000) throw new Error(`Encoded video too small (${vidBlob.size} bytes)`);
