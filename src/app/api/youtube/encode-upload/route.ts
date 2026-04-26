@@ -68,7 +68,8 @@ export async function POST(req: NextRequest) {
     }
 
     await ffmpeg.exec(videoArgs);
-    const videoData = await ffmpeg.readFile("output.mp4") as Uint8Array;
+    const videoRaw = await ffmpeg.readFile("output.mp4") as Uint8Array;
+    const videoData = Buffer.from(videoRaw); // Buffer satisfies BodyInit for fetch
 
     // Clean up virtual FS
     await ffmpeg.deleteFile("audio").catch(() => {});
