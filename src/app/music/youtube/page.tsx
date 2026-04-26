@@ -718,34 +718,49 @@ export default function YouTubePage() {
         const scale = Math.min(1280 / img.width, 720 / img.height);
         ctx.drawImage(img, (1280 - img.width * scale) / 2, (720 - img.height * scale) / 2, img.width * scale, img.height * scale);
         try {
-          const audioCtx = new AudioContext();
-          const audioBuffer = await audioCtx.decodeAudioData(await audioBlob.arrayBuffer());
-          const src = audioCtx.createBufferSource();
-          src.buffer = audioBuffer;
-          const dest = audioCtx.createMediaStreamDestination();
-          src.connect(dest); // silent — not connected to speakers
+          // Use HTMLAudioElement.captureStream() instead of AudioContext.
+          // AudioContext created in async code (after React state cycles + network calls)
+          // starts suspended — src.onended fires immediately → 0 bytes.
+          // Muted audio elements autoplay without a user gesture, avoiding that problem.
+          const audioEl = document.createElement("audio");
+          audioEl.muted = true;
+          const audioObjUrl = URL.createObjectURL(audioBlob);
+          audioEl.src = audioObjUrl;
+          type AudioElWithCapture = HTMLAudioElement & { captureStream(): MediaStream };
+          const audioStream = (audioEl as AudioElWithCapture).captureStream();
           const stream = new MediaStream([
             ...canvas.captureStream(1).getVideoTracks(),
-            ...dest.stream.getAudioTracks(),
+            ...audioStream.getAudioTracks(),
           ]);
           const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
             ? "video/webm;codecs=vp9,opus" : "video/webm";
           const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1_500_000, audioBitsPerSecond: 192_000 });
           const chunks: Blob[] = [];
           recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-          recorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); audioCtx.close(); resolve(new Blob(chunks, { type: "video/webm" })); };
+          recorder.onstop = () => {
+            stream.getTracks().forEach(t => t.stop());
+            URL.revokeObjectURL(audioObjUrl);
+            resolve(new Blob(chunks, { type: "video/webm" }));
+          };
           recorder.onerror = reject;
-          const dur = audioBuffer.duration;
           let elapsed = 0;
-          const timer = setInterval(() => {
-            elapsed++;
-            const rem = Math.max(0, dur - elapsed);
-            setAutoPublishStep(`Encoding video... ${Math.floor(rem / 60)}:${String(Math.round(rem % 60)).padStart(2, "0")} left`);
-            if (elapsed > dur + 3) clearInterval(timer);
-          }, 1000);
-          src.onended = () => { clearInterval(timer); recorder.stop(); };
+          let dur = 0;
+          let encTimer: ReturnType<typeof setInterval> | null = null;
+          audioEl.onloadedmetadata = () => {
+            dur = audioEl.duration;
+            encTimer = setInterval(() => {
+              elapsed++;
+              const rem = Math.max(0, dur - elapsed);
+              setAutoPublishStep(`Encoding video... ${Math.floor(rem / 60)}:${String(Math.round(rem % 60)).padStart(2, "0")} left`);
+              if (elapsed > dur + 3) clearInterval(encTimer!);
+            }, 1000);
+          };
+          audioEl.onended = () => {
+            if (encTimer) clearInterval(encTimer);
+            if (recorder.state !== "inactive") recorder.stop();
+          };
           recorder.start(1000);
-          src.start(0);
+          await audioEl.play();
         } catch (e) { reject(e); }
       };
       img.onerror = () => reject(new Error("Art image failed to load for encoding"));
