@@ -666,173 +666,33 @@ export default function YouTubePage() {
   };
 
   // ── SHARED UPLOAD HELPER ────────────────────────────────────────
-  // Fetches audio + art, encodes video with FFmpeg, uploads to YouTube.
-  // Returns the YouTube video URL on success; throws on failure.
+  // Delegates encoding + YouTube upload to the server-side API route.
+  // Browser-side MediaRecorder/AudioContext encoding is unreliable (user gesture
+  // restrictions on AudioContext, captureStream quirks). FFmpeg runs fine in Node.js.
   const uploadToYouTube = async (audioUrl: string, artUrl: string | null, title: string, description: string): Promise<string> => {
-    setAutoPublishStep("Fetching audio...");
-    let audioBlob: Blob;
-    try {
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 30000);
-      const audioRes = await fetch(audioUrl, { signal: ac.signal });
-      clearTimeout(timer);
-      if (!audioRes.ok) throw new Error(`HTTP ${audioRes.status}`);
-      audioBlob = await audioRes.blob();
-    } catch (e) {
-      throw new Error(`Audio fetch failed — ${e instanceof Error ? e.message : e}. URL: ${audioUrl.slice(0, 80)}`);
-    }
-    if (audioBlob.size < 10000) throw new Error(`Audio file too small (${audioBlob.size} bytes) — URL may be expired`);
-
-    setAutoPublishStep("Fetching art...");
-    let artFileObj: File | null = null;
-    if (artUrl) {
-      let artBlob: Blob;
-      if (artUrl.startsWith("data:")) {
-        const base64 = artUrl.split(",")[1];
-        const binary = atob(base64);
-        const arr = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
-        artBlob = new Blob([arr], { type: "image/jpeg" });
-      } else {
-        let artRes: Response;
-        try { artRes = await fetch(artUrl); } catch (e) { throw new Error(`Art fetch failed: ${e}`); }
-        artBlob = await artRes.blob();
-      }
-      artFileObj = new File([artBlob], "art.jpg", { type: "image/jpeg" });
-    }
-    if (!artFileObj) throw new Error("No cover art available for this job.");
-
-    // Encode audio+art → video using AudioContext + MediaRecorder.
-    // AudioContext.resume() works here because the page has sticky user activation
-    // from the Approve click — Chrome allows resume() on any page that has ever
-    // had user interaction, even from deep async code.
-    setAutoPublishStep("Encoding video...");
-    const vidBlob = await (async () => {
-      // Draw album art to offscreen canvas
-      const canvas = document.createElement("canvas");
-      canvas.width = 1280; canvas.height = 720;
-      const ctx2d = canvas.getContext("2d")!;
-      await new Promise<void>((res, rej) => {
-        const img = new Image();
-        const imgUrl = URL.createObjectURL(artFileObj);
-        img.onload = () => {
-          URL.revokeObjectURL(imgUrl);
-          ctx2d.fillStyle = "#000";
-          ctx2d.fillRect(0, 0, 1280, 720);
-          const scale = Math.min(1280 / img.width, 720 / img.height);
-          ctx2d.drawImage(img, (1280 - img.width * scale) / 2, (720 - img.height * scale) / 2, img.width * scale, img.height * scale);
-          res();
-        };
-        img.onerror = () => rej(new Error("Art image failed to load for encoding"));
-        img.src = imgUrl;
-      });
-
-      const audioCtx = new AudioContext();
-      if (audioCtx.state !== "running") await audioCtx.resume();
-      if (audioCtx.state !== "running")
-        throw new Error(`AudioContext is '${audioCtx.state}' — click anywhere on the page first, then retry`);
-
-      const audioBuffer = await audioCtx.decodeAudioData(await audioBlob.arrayBuffer());
-      const src = audioCtx.createBufferSource();
-      src.buffer = audioBuffer;
-      const dest = audioCtx.createMediaStreamDestination();
-      src.connect(dest);
-
-      const stream = new MediaStream([
-        ...canvas.captureStream(1).getVideoTracks(),
-        ...dest.stream.getAudioTracks(),
-      ]);
-      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
-        ? "video/webm;codecs=vp9,opus" : "video/webm";
-      const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 1_500_000, audioBitsPerSecond: 192_000 });
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-
-      const dur = audioBuffer.duration;
-      return new Promise<Blob>((resolve, reject) => {
-        recorder.onstop = () => {
-          stream.getTracks().forEach(t => t.stop());
-          audioCtx.close();
-          resolve(new Blob(chunks, { type: "video/webm" }));
-        };
-        recorder.onerror = reject;
-
-        let elapsed = 0;
-        const encTimer = setInterval(() => {
-          elapsed++;
-          const rem = Math.max(0, dur - elapsed);
-          setAutoPublishStep(`Encoding video... ${Math.floor(rem / 60)}:${String(Math.round(rem % 60)).padStart(2, "0")} left`);
-        }, 1000);
-
-        const stop = () => {
-          clearInterval(encTimer);
-          if (recorder.state !== "inactive") recorder.stop();
-        };
-        src.onended = stop;
-        setTimeout(stop, (dur + 5) * 1000); // failsafe if onended never fires
-
-        recorder.start(1000);
-        src.start(0);
-      });
-    })();
-    if (vidBlob.size < 10000) throw new Error(`Encoded video too small (${vidBlob.size} bytes)`);
-
-    const safeJson = async (res: Response, label: string) => {
-      const text = await res.text();
-      try { return JSON.parse(text); }
-      catch { throw new Error(`${label} — HTTP ${res.status}: ${text.slice(0, 120)}`); }
-    };
     setAutoPublishStep("Connecting to YouTube...");
     const tokenRes = await fetch("/api/youtube/token");
-    const tokenData = await safeJson(tokenRes, "Token fetch");
+    const tokenText = await tokenRes.text();
+    let tokenData: { access_token?: string; error?: string };
+    try { tokenData = JSON.parse(tokenText); } catch { throw new Error(`Token fetch failed: ${tokenText.slice(0, 120)}`); }
     if (!tokenData.access_token) throw new Error(tokenData.error || "No YouTube token");
 
-    setAutoPublishStep("Starting YouTube upload...");
-    const initRes = await fetch(
-      "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${tokenData.access_token}`,
-          "Content-Type": "application/json",
-          "X-Upload-Content-Type": "video/webm",
-          "X-Upload-Content-Length": String(vidBlob.size),
-        },
-        body: JSON.stringify({
-          snippet: {
-            title: title || "New Track",
-            description: description || "",
-            tags: ["drum and bass", "dnb", "djthirstyboy", "music"],
-            categoryId: "10",
-          },
-          status: { privacyStatus: "public", madeForKids: false },
-        }),
-      }
-    );
-    if (!initRes.ok) {
-      const errText = await initRes.text();
-      throw new Error(`YouTube session init failed — HTTP ${initRes.status}: ${errText.slice(0, 120)}`);
-    }
-    const uploadUrl = initRes.headers.get("Location");
-    if (!uploadUrl) throw new Error("No upload URL from YouTube (Location header missing)");
-
-    setAutoPublishStep(`Uploading to YouTube (${(vidBlob.size / 1024 / 1024).toFixed(0)} MB)...`);
-    const uploadRes = await fetch(uploadUrl, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "video/webm",
-        "Content-Range": `bytes 0-${vidBlob.size - 1}/${vidBlob.size}`,
-      },
-      body: vidBlob,
+    setAutoPublishStep("Encoding & uploading to YouTube (takes 1–3 min)...");
+    const res = await fetch("/api/youtube/encode-upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        audioUrl,
+        imageUrl: artUrl,
+        title,
+        description,
+        tags: ["drum and bass", "dnb", "djthirstyboy", "music"],
+        accessToken: tokenData.access_token,
+      }),
     });
-    if (!uploadRes.ok) {
-      const errText = await uploadRes.text();
-      throw new Error(`YouTube upload failed — HTTP ${uploadRes.status}: ${errText.slice(0, 200)}`);
-    }
-    const uploadData = await safeJson(uploadRes, "Upload response");
-    const videoId = uploadData.id;
-    if (!videoId) throw new Error(`No video ID in response: ${JSON.stringify(uploadData).slice(0, 120)}`);
-    return `https://www.youtube.com/watch?v=${videoId}`;
+    const data = await res.json() as { videoUrl?: string; error?: string };
+    if (!data.videoUrl) throw new Error(data.error || "encode-upload returned no videoUrl");
+    return data.videoUrl;
   };
 
   // Picks a random in-progress album for the persona and records the track in album_tracks.
