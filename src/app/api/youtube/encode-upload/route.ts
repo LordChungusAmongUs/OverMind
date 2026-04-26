@@ -3,20 +3,21 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { writeFile, readFile, unlink, copyFile, chmod } from "fs/promises";
 import { randomUUID } from "crypto";
-import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 
 const execFileAsync = promisify(execFile);
 export const maxDuration = 60;
 
-// @ffmpeg-installer/ffmpeg ships platform-specific binaries. On Vercel Lambda the
-// binary may lose its executable bit during packaging, so copy to /tmp once per instance.
 const FFMPEG_TMP_PATH = "/tmp/ffmpeg-bin";
 let ffmpegReady: Promise<string> | null = null;
 
 function ensureFfmpeg(): Promise<string> {
   if (!ffmpegReady) {
+    // Dynamic import so any throw (missing binary, bad path) is caught by
+    // the request handler's try-catch and returned as JSON, not a Lambda crash.
     ffmpegReady = (async () => {
-      await copyFile(ffmpegInstaller.path, FFMPEG_TMP_PATH);
+      const mod = await import("@ffmpeg-installer/ffmpeg");
+      const installer = (mod.default ?? mod) as { path: string };
+      await copyFile(installer.path, FFMPEG_TMP_PATH);
       await chmod(FFMPEG_TMP_PATH, 0o755);
       return FFMPEG_TMP_PATH;
     })().catch((err) => {
