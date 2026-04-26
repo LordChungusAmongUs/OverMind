@@ -4,7 +4,12 @@ const nextConfig: NextConfig = {
   images: {
     domains: ["img.youtube.com", "i.ytimg.com"],
   },
-  serverExternalPackages: ["@ffmpeg/ffmpeg", "@ffmpeg/core", "@ffmpeg/util", "ffmpeg-static"],
+  serverExternalPackages: ["@ffmpeg-installer/ffmpeg"],
+  experimental: {
+    outputFileTracingIncludes: {
+      "/api/youtube/encode-upload": ["./node_modules/@ffmpeg-installer/**/*"],
+    },
+  },
 };
 
 export default nextConfig;

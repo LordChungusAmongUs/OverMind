@@ -3,25 +3,24 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { writeFile, readFile, unlink, copyFile, chmod } from "fs/promises";
 import { randomUUID } from "crypto";
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 
 const execFileAsync = promisify(execFile);
 export const maxDuration = 60;
 
-// On Vercel Lambda, binaries in node_modules may lose their executable bit during
-// deployment packaging. Copy to /tmp (always writable) and chmod 755 once per instance.
+// @ffmpeg-installer/ffmpeg ships platform-specific binaries. On Vercel Lambda the
+// binary may lose its executable bit during packaging, so copy to /tmp once per instance.
 const FFMPEG_TMP_PATH = "/tmp/ffmpeg-bin";
 let ffmpegReady: Promise<string> | null = null;
 
 function ensureFfmpeg(): Promise<string> {
   if (!ffmpegReady) {
     ffmpegReady = (async () => {
-      const mod = await import("ffmpeg-static");
-      const src = ((mod as { default?: string }).default ?? mod) as string;
-      await copyFile(src, FFMPEG_TMP_PATH);
+      await copyFile(ffmpegInstaller.path, FFMPEG_TMP_PATH);
       await chmod(FFMPEG_TMP_PATH, 0o755);
       return FFMPEG_TMP_PATH;
     })().catch((err) => {
-      ffmpegReady = null; // allow retry on next request if copy failed
+      ffmpegReady = null;
       throw err;
     });
   }
