@@ -68,6 +68,9 @@ interface ApprovalJob {
   lyrics: string;
   styleTags: string;
   isInstrumental: boolean;
+  artPrompt: string;
+  metadataPrompt: string;
+  personaName: string | null;
   approvedUrls: string[];   // sub-job created / single-audio upload started
   skippedUrls: string[];
   uploadedUrls: string[];   // successfully uploaded to YouTube
@@ -344,6 +347,9 @@ export default function YouTubePage() {
               lyrics: j.lyrics ?? "",
               styleTags: j.style_tags ?? "",
               isInstrumental: !(j.lyrics || "").replace(/^TITLE:\s*.+\r?\n?/im, "").replace(/^STYLE:\s*.+\r?\n?/im, "").trim(),
+              artPrompt: j.art_prompt ?? "",
+              metadataPrompt: j.metadata_prompt ?? "",
+              personaName: j.persona_name ?? null,
               approvedUrls: [],
               skippedUrls: [],
               uploadedUrls: [],
@@ -730,59 +736,86 @@ export default function YouTubePage() {
   };
 
   const handleApprove = async (job: ApprovalJob, audioUrl: string) => {
-    // Prevent re-approving an already-actioned track
     if (trackStatuses[audioUrl] || job.skippedUrls.includes(audioUrl)) return;
     if (!audioUrl) { alert("No audio URL found. Cannot auto-publish."); return; }
 
-    // ── DIRECT UPLOAD (all paths) ─────────────────────────────────
-    // Upload the approved track immediately using existing art + metadata.
-    // No sub-jobs — one approval click = one YouTube upload.
-    setPublishingJobId(job.jobId);
-    setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploading" }));
-    try {
-      const ytUrl = await uploadToYouTube(audioUrl, job.artUrl, job.title, job.description);
-      setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploaded" }));
-      setPublishedUrl(ytUrl);
-      setCurrentStep("publish");
+    const trackIndex = job.audioUrls.indexOf(audioUrl);
+    const isFirstTrack = trackIndex <= 0;
 
-      if (autoNextRef.current && job.audioUrls.filter(u => u !== audioUrl && !job.approvedUrls.includes(u) && !job.skippedUrls.includes(u)).length === 0) {
-        setTimeout(() => {
-          setPublishedUrl(null);
-          setCurrentStep("lyrics");
-          setStyleTag(""); setLyrics(""); setArtFile(null); setArtPreview(null);
-          setAudioFile(null); setVideoUrl(null); setTitle(""); setDescription("");
-          runAutomationRef.current?.();
-        }, 5000);
-      }
+    if (isFirstTrack) {
+      // ── Track 1: direct upload with pipeline-generated art + metadata ──
+      setPublishingJobId(job.jobId);
+      setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploading" }));
+      try {
+        const ytUrl = await uploadToYouTube(audioUrl, job.artUrl, job.title, job.description);
+        setTrackStatuses(prev => ({ ...prev, [audioUrl]: "uploaded" }));
+        setPublishedUrl(ytUrl);
+        setCurrentStep("publish");
 
-      setApprovalQueue(prev => {
-        const updated = prev.map(j => {
-          if (j.jobId !== job.jobId) return j;
-          return { ...j, approvedUrls: [...j.approvedUrls, audioUrl], uploadedUrls: [...j.uploadedUrls, audioUrl] };
-        });
-        const parentJob = updated.find(j => j.jobId === job.jobId);
-        const allDone = parentJob
-          ? parentJob.uploadedUrls.length + parentJob.skippedUrls.length + Object.keys(parentJob.errorUrls).length >= parentJob.audioUrls.length
-          : true;
-        if (allDone) {
-          supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", job.jobId);
+        if (autoNextRef.current && job.audioUrls.filter(u => u !== audioUrl && !job.approvedUrls.includes(u) && !job.skippedUrls.includes(u)).length === 0) {
+          setTimeout(() => {
+            setPublishedUrl(null);
+            setCurrentStep("lyrics");
+            setStyleTag(""); setLyrics(""); setArtFile(null); setArtPreview(null);
+            setAudioFile(null); setVideoUrl(null); setTitle(""); setDescription("");
+            runAutomationRef.current?.();
+          }, 5000);
         }
-        // Remove card only when every track is resolved (uploaded, skipped, or errored)
-        return updated.filter(j => {
-          if (j.jobId !== job.jobId) return true;
-          return j.uploadedUrls.length + j.skippedUrls.length + Object.keys(j.errorUrls).length < j.audioUrls.length;
+
+        setApprovalQueue(prev => {
+          const updated = prev.map(j => {
+            if (j.jobId !== job.jobId) return j;
+            return { ...j, approvedUrls: [...j.approvedUrls, audioUrl], uploadedUrls: [...j.uploadedUrls, audioUrl] };
+          });
+          const parentJob = updated.find(j => j.jobId === job.jobId);
+          const allDone = parentJob
+            ? parentJob.uploadedUrls.length + parentJob.skippedUrls.length + Object.keys(parentJob.errorUrls).length >= parentJob.audioUrls.length
+            : true;
+          if (allDone) supabase.from("pipeline_jobs").update({ status: "complete", step: "complete" }).eq("id", job.jobId);
+          return updated.filter(j => {
+            if (j.jobId !== job.jobId) return true;
+            return j.uploadedUrls.length + j.skippedUrls.length + Object.keys(j.errorUrls).length < j.audioUrls.length;
+          });
         });
-      });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      setTrackStatuses(prev => ({ ...prev, [audioUrl]: msg }));
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Unknown error";
+        setTrackStatuses(prev => ({ ...prev, [audioUrl]: msg }));
+        setApprovalQueue(prev => prev.map(j =>
+          j.jobId !== job.jobId ? j : { ...j, errorUrls: { ...j.errorUrls, [audioUrl]: msg } }
+        ));
+        alert("Upload failed: " + msg);
+      }
+      setPublishingJobId(null);
+      setAutoPublishStep(null);
+
+    } else {
+      // ── Track 2+: spin up a sub-job — generate fresh art + metadata, skip Suno ──
+      setTrackStatuses(prev => ({ ...prev, [audioUrl]: "processing" }));
       setApprovalQueue(prev => prev.map(j =>
-        j.jobId !== job.jobId ? j : { ...j, errorUrls: { ...j.errorUrls, [audioUrl]: msg } }
+        j.jobId !== job.jobId ? j : { ...j, approvedUrls: [...j.approvedUrls, audioUrl] }
       ));
-      alert("Upload failed: " + msg);
+      const { data: subJob, error } = await supabase.from("pipeline_jobs").insert({
+        status: "pending",
+        track_theme: `__subjob:${job.jobId}`,
+        audio_url: JSON.stringify([audioUrl]),
+        art_prompt: job.artPrompt || null,
+        metadata_prompt: job.metadataPrompt || null,
+        style_tags: job.styleTags || null,
+        persona_name: job.personaName || null,
+        lyrics: job.lyrics || null,
+        auto_approve_steps: "lyrics,audio",
+      }).select().single();
+      if (error || !subJob) {
+        const msg = error?.message ?? "Failed to create sub-job";
+        setTrackStatuses(prev => ({ ...prev, [audioUrl]: msg }));
+        setApprovalQueue(prev => prev.map(j =>
+          j.jobId !== job.jobId ? j : { ...j, errorUrls: { ...j.errorUrls, [audioUrl]: msg } }
+        ));
+        alert("Failed to queue track: " + msg);
+      } else {
+        setActiveJobIds(prev => [...prev, subJob.id]);
+      }
     }
-    setPublishingJobId(null);
-    setAutoPublishStep(null);
   };
 
   const generateConcept = () => {
