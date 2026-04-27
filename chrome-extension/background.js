@@ -65,9 +65,8 @@ async function _runPayrollJob(dashboardTabId) {
     },
   });
 
-  // Wait for the login page to fully load
-  await waitForTabLoad(tabId);
-  await sleep(1000);
+  // Log In opens a modal on the same page — no navigation, just wait for it to render
+  await sleep(2000);
 
   // Log exact URL and search all frames for the email field
   const [{ result: currentUrl }] = await chrome.scripting.executeScript({
