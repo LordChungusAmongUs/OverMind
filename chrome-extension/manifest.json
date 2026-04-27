@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Overmind Bridge",
+  "version": "1.0",
+  "description": "Bridges the Overmind dashboard with browser automation",
+  "permissions": ["tabs", "scripting"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://localhost:3001/*",
+    "https://overmind-dashboard.vercel.app/*",
+    "https://www.figurepos.com/*",
+    "https://figurepos.com/*",
+    "https://app.figurepos.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:3000/*",
+        "http://localhost:3001/*",
+        "https://overmind-dashboard.vercel.app/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
