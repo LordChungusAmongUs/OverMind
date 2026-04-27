@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Sidebar from "@/components/layout/Sidebar";
-import { DollarSign, Play, CheckCircle, AlertCircle, Loader2, Terminal, Puzzle } from "lucide-react";
+import { DollarSign, Play, CheckCircle, AlertCircle, Loader2, Terminal, Puzzle, Wifi, WifiOff } from "lucide-react";
 
 type Status = "idle" | "running" | "done" | "error";
 
@@ -24,24 +24,38 @@ export default function PayrollPage() {
   const [status, setStatus] = useState<Status>("idle");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [currentStep, setCurrentStep] = useState(-1);
-  const [extMissing, setExtMissing] = useState(false);
+  const [extReady, setExtReady] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
-  const addLog = (text: string, s: Status = "running") => {
-    setLogs((prev) => {
-      const next = [...prev, { text, status: s }];
-      setTimeout(() => {
-        if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-      }, 50);
-      return next;
-    });
-  };
+  // Detect whether the extension content script is active on this page
+  useEffect(() => {
+    const onReady = () => setExtReady(true);
+    window.addEventListener("overmind:ext:ready", onReady);
 
+    // Give it 1 second to announce itself after page load
+    const t = setTimeout(() => {
+      window.removeEventListener("overmind:ext:ready", onReady);
+    }, 1000);
+
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("overmind:ext:ready", onReady);
+    };
+  }, []);
+
+  // Listen for log messages from the extension
   useEffect(() => {
     const handler = (e: Event) => {
       const { log, status: s } = (e as CustomEvent).detail as { log: string; status: string };
       const mapped: Status = s === "done" ? "done" : s === "error" ? "error" : "running";
-      addLog(log, mapped);
+
+      setLogs((prev) => {
+        const next = [...prev, { text: log, status: mapped }];
+        setTimeout(() => {
+          if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+        }, 50);
+        return next;
+      });
 
       if (log.includes("Opening FigurePOS")) setCurrentStep(0);
       if (log.includes("Waiting for auto-login")) setCurrentStep(1);
@@ -55,38 +69,17 @@ export default function PayrollPage() {
   }, []);
 
   const runJob = () => {
+    if (!extReady) return;
     setStatus("running");
     setLogs([]);
     setCurrentStep(0);
-    setExtMissing(false);
-
-    // Dispatch to content.js → background.js
     window.dispatchEvent(new CustomEvent("overmind:payroll:run"));
-
-    // If no response in 3 seconds, extension is not installed
-    const timeout = setTimeout(() => {
-      setStatus((prev) => {
-        if (prev === "running") {
-          setExtMissing(true);
-          return "error";
-        }
-        return prev;
-      });
-    }, 3000);
-
-    // Cancel the timeout as soon as the first log comes in
-    const firstLog = (e: Event) => {
-      clearTimeout(timeout);
-      window.removeEventListener("overmind:payroll:log", firstLog);
-    };
-    window.addEventListener("overmind:payroll:log", firstLog);
   };
 
   const reset = () => {
     setStatus("idle");
     setLogs([]);
     setCurrentStep(-1);
-    setExtMissing(false);
   };
 
   return (
@@ -107,22 +100,40 @@ export default function PayrollPage() {
 
         <div className="grid grid-cols-3 gap-6">
 
-          {/* Left col: Run button + steps */}
+          {/* Left col */}
           <div className="col-span-1 space-y-4">
 
+            {/* Run button card */}
             <div className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-6 text-center">
               <div className="w-16 h-16 rounded-full bg-green-500/10 border border-green-500/30 flex items-center justify-center mx-auto mb-4">
                 <DollarSign className="w-8 h-8 text-green-400" />
               </div>
               <h2 className="text-lg font-black font-mono text-green-300 mb-1">Run Payroll Job</h2>
-              <p className="text-xs text-green-700 font-mono mb-5">
+              <p className="text-xs text-green-700 font-mono mb-4">
                 Pulls timesheets from FigurePOS and calculates pay for all employees.
               </p>
+
+              {/* Extension status badge */}
+              <div className={`flex items-center justify-center gap-1.5 text-xs font-mono mb-5 px-3 py-1.5 rounded-full border w-fit mx-auto ${
+                extReady
+                  ? "border-green-500/30 bg-green-500/10 text-green-400"
+                  : "border-red-500/30 bg-red-500/10 text-red-400"
+              }`}>
+                {extReady
+                  ? <><Wifi className="w-3 h-3" /> Extension connected</>
+                  : <><WifiOff className="w-3 h-3" /> Extension not detected</>
+                }
+              </div>
 
               {status === "idle" && (
                 <button
                   onClick={runJob}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-300 font-mono font-bold hover:bg-green-500/20 hover:border-green-400/50 transition-all"
+                  disabled={!extReady}
+                  className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-mono font-bold transition-all ${
+                    extReady
+                      ? "bg-green-500/10 border border-green-500/30 text-green-300 hover:bg-green-500/20 hover:border-green-400/50"
+                      : "bg-black/20 border border-green-500/10 text-green-900 cursor-not-allowed"
+                  }`}
                 >
                   <Play className="w-4 h-4" />
                   START JOB
@@ -161,21 +172,22 @@ export default function PayrollPage() {
               )}
             </div>
 
-            {/* Extension missing warning */}
-            {extMissing && (
+            {/* Extension install instructions (shown when not connected) */}
+            {!extReady && (
               <div className="holo-card rounded-xl border border-yellow-500/20 bg-black/40 p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <Puzzle className="w-4 h-4 text-yellow-500" />
-                  <span className="text-xs font-mono font-bold text-yellow-400 uppercase tracking-wider">Extension Required</span>
+                  <span className="text-xs font-mono font-bold text-yellow-400 uppercase tracking-wider">Install Extension</span>
                 </div>
                 <p className="text-xs text-green-700 font-mono mb-3">
-                  The Overmind Chrome extension is not installed. It&apos;s needed to control your existing Chrome window.
+                  One-time setup — lets Overmind control your existing Chrome window.
                 </p>
-                <ol className="space-y-1 text-xs text-green-700 font-mono">
-                  <li><span className="text-red-500">1.</span> Open Chrome → Extensions → Developer mode</li>
-                  <li><span className="text-red-500">2.</span> Click &quot;Load unpacked&quot;</li>
-                  <li><span className="text-red-500">3.</span> Select the <span className="text-green-400">chrome-extension/</span> folder from the Overmind project</li>
-                  <li><span className="text-red-500">4.</span> Refresh this page and try again</li>
+                <ol className="space-y-1.5 text-xs text-green-700 font-mono">
+                  <li><span className="text-red-500">1.</span> Go to <span className="text-green-400">chrome://extensions</span></li>
+                  <li><span className="text-red-500">2.</span> Enable <span className="text-green-400">Developer mode</span> (top right)</li>
+                  <li><span className="text-red-500">3.</span> Click <span className="text-green-400">Load unpacked</span></li>
+                  <li><span className="text-red-500">4.</span> Select the <span className="text-green-400">chrome-extension/</span> folder in the Overmind project</li>
+                  <li><span className="text-red-500">5.</span> Refresh this page</li>
                 </ol>
               </div>
             )}
@@ -235,7 +247,11 @@ export default function PayrollPage() {
               </div>
               <div ref={logRef} className="flex-1 overflow-y-auto p-4 space-y-1 font-mono text-xs">
                 {logs.length === 0 && (
-                  <p className="text-green-800">Press START JOB to begin the payroll automation...</p>
+                  <p className="text-green-800">
+                    {extReady
+                      ? "Extension connected. Press START JOB to begin."
+                      : "Waiting for extension... Install it using the guide on the left, then refresh this page."}
+                  </p>
                 )}
                 {logs.map((entry, i) => (
                   <div key={i} className="flex items-start gap-2">
