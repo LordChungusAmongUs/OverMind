@@ -37,13 +37,13 @@ async function _runPayrollJob(dashboardTabId) {
 
   // Wait for the login page to load
   await sleep(3000);
-  await sendLog(dashboardTabId, "Focusing email field...");
+  await sendLog(dashboardTabId, "Finding email field...");
 
-  // Click the email field so it's focused
-  await chrome.scripting.executeScript({
+  // Get the center coordinates of the email input
+  const [{ result: emailRect }] = await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
-      const emailInput =
+      const el =
         document.querySelector('input[type="email"]') ||
         document.querySelector('input[name="email"]') ||
         document.querySelector('input[name="username"]') ||
@@ -51,27 +51,46 @@ async function _runPayrollJob(dashboardTabId) {
         document.querySelector('input[autocomplete="username"]') ||
         document.querySelector('input[placeholder*="email" i]') ||
         document.querySelector('input[placeholder*="user" i]');
-      if (emailInput) { emailInput.focus(); emailInput.click(); }
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
     },
   });
 
-  await sleep(800);
-  await sendLog(dashboardTabId, "Typing email via debugger...");
+  if (!emailRect) {
+    await sendLog(dashboardTabId, "ERROR: Could not find email field on the login page.", "error");
+    return;
+  }
 
-  // Use Chrome Debugger API to type the email — Chrome recognises this as real
-  // user input and will auto-fill the password field when we Tab away
+  await sendLog(dashboardTabId, "Clicking email field and typing credentials...");
   await chrome.debugger.attach({ tabId }, "1.3");
   try {
-    await chrome.debugger.sendCommand({ tabId }, "Input.insertText", {
-      text: "Kingsbbq2015@gmail.com",
+    // Real mouse click on the email field
+    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+      type: "mousePressed", button: "left", clickCount: 1,
+      x: emailRect.x, y: emailRect.y,
     });
+    await sleep(100);
+    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+      type: "mouseReleased", button: "left", clickCount: 1,
+      x: emailRect.x, y: emailRect.y,
+    });
+
+    await sleep(600);
+
+    // Type email — Chrome treats this as real user input and will offer
+    // to auto-fill the password when focus moves to the password field
+    await chrome.debugger.sendCommand({ tabId }, "Input.insertText", {
+      text: "kingsbbq2025@gmail.com",
+    });
+
     await sleep(800);
 
-    // Tab to the password field — triggers Chrome's password auto-fill
+    // Tab to password field to trigger Chrome's password auto-fill
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
       type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9,
     });
-    await sleep(200);
+    await sleep(150);
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
       type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9,
     });
@@ -80,7 +99,7 @@ async function _runPayrollJob(dashboardTabId) {
   }
 
   // Give Chrome time to auto-fill the password
-  await sleep(2000);
+  await sleep(2500);
   await sendLog(dashboardTabId, "Submitting login form...");
 
   await chrome.scripting.executeScript({
