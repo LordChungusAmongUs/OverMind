@@ -7,6 +7,14 @@ async function sendLog(dashboardTabId, log, status = "running") {
 }
 
 async function runPayrollJob(dashboardTabId) {
+  try {
+    await _runPayrollJob(dashboardTabId);
+  } catch (err) {
+    await sendLog(dashboardTabId, `Fatal error: ${err.message}`, "error");
+  }
+}
+
+async function _runPayrollJob(dashboardTabId) {
   await sendLog(dashboardTabId, "Opening FigurePOS in a new tab...");
 
   const tab = await chrome.tabs.create({ url: "https://www.figurepos.com" });
@@ -161,7 +169,7 @@ async function runPayrollJob(dashboardTabId) {
   } catch (err) {
     await sendLog(dashboardTabId, `ERROR: ${err.message}`, "error");
   }
-}
+}  // end _runPayrollJob
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "payroll:run") {

@@ -66,6 +66,21 @@ export default function PayrollPage() {
     setLogs([]);
     setCurrentStep(0);
     window.dispatchEvent(new CustomEvent("overmind:payroll:run"));
+
+    // If no log comes back within 5 seconds, background.js is not responding
+    const noActivityTimer = setTimeout(() => {
+      setStatus((prev) => {
+        if (prev !== "running") return prev;
+        setLogs([{ text: "No response from extension background — go to chrome://extensions, click the refresh icon on Overmind Bridge, then refresh this page and try again.", status: "error" }]);
+        return "error";
+      });
+    }, 5000);
+
+    const cancelTimer = (e: Event) => {
+      clearTimeout(noActivityTimer);
+      window.removeEventListener("overmind:payroll:log", cancelTimer);
+    };
+    window.addEventListener("overmind:payroll:log", cancelTimer);
   };
 
   const reset = () => {
