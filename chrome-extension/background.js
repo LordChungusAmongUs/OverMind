@@ -12,9 +12,22 @@ async function runPayrollJob(dashboardTabId) {
   const tab = await chrome.tabs.create({ url: "https://www.figurepos.com" });
   const tabId = tab.id;
 
-  // Give the page a moment to start loading
+  // Wait for the homepage to load, then click the Log In button (top right)
   await sleep(3000);
-  await sendLog(dashboardTabId, "Waiting for auto-login (up to 90 seconds)...");
+  await sendLog(dashboardTabId, "Clicking Log In button...");
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const all = Array.from(document.querySelectorAll("a, button"));
+      const loginBtn = all.find((el) => el.textContent?.trim().toLowerCase() === "log in" ||
+                                        el.textContent?.trim().toLowerCase() === "login" ||
+                                        el.textContent?.trim().toLowerCase() === "sign in");
+      if (loginBtn) loginBtn.click();
+    },
+  });
+
+  await sleep(2000);
+  await sendLog(dashboardTabId, "Waiting for credentials to fill and login to complete...");
 
   // Poll until the Management sidebar appears (sign we're logged in)
   let loggedIn = false;
