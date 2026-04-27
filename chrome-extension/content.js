@@ -3,21 +3,26 @@ window.addEventListener("overmind:ext:ping", () => {
   window.dispatchEvent(new CustomEvent("overmind:ext:ready"));
 });
 
-// Relay: page → background (payroll job)
+// Payroll job — use a persistent port so the service worker stays alive
 window.addEventListener("overmind:payroll:run", () => {
-  chrome.runtime.sendMessage({ action: "payroll:run" });
+  const port = chrome.runtime.connect({ name: "payroll" });
+
+  port.onMessage.addListener((msg) => {
+    if (msg.action === "payroll:log") {
+      window.dispatchEvent(new CustomEvent("overmind:payroll:log", { detail: msg }));
+    }
+  });
+
+  port.postMessage({ action: "start" });
 });
 
-// Relay: page → background (save credentials)
+// Save credentials (one-off message is fine here)
 window.addEventListener("overmind:ext:saveCredentials", (e) => {
-  chrome.runtime.sendMessage({ action: "saveCredentials", data: e.detail });
+  chrome.runtime.sendMessage({ action: "saveCredentials", data: e.detail }, () => {});
 });
 
-// Relay: background → page (log messages + credential ack)
+// Relay credential-saved ack back to page
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.action === "payroll:log") {
-    window.dispatchEvent(new CustomEvent("overmind:payroll:log", { detail: msg }));
-  }
   if (msg.action === "credentialsSaved") {
     window.dispatchEvent(new CustomEvent("overmind:ext:credentialsSaved"));
   }
