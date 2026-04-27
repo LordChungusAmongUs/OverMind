@@ -1,46 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { writeFile, readFile, unlink, chmod, access } from "fs/promises";
+import { writeFile, readFile, unlink } from "fs/promises";
 import { randomUUID } from "crypto";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const ffmpegStatic: string = require("ffmpeg-static");
 
 const execFileAsync = promisify(execFile);
 export const maxDuration = 300;
 
-// Static linux-x64 ffmpeg binary — downloaded once per Lambda warm instance,
-// cached in /tmp. No npm package needed; GitHub releases provides direct binaries.
-const FFMPEG_PATH = "/tmp/ffmpeg";
-const FFMPEG_URL =
-  "https://github.com/eugeneware/ffmpeg-static/releases/latest/download/linux-x64";
-
-let ffmpegReady: Promise<string> | null = null;
-
 function ensureFfmpeg(): Promise<string> {
-  if (ffmpegReady) return ffmpegReady;
-  // Local Windows dev: expect ffmpeg in PATH
-  if (process.platform !== "linux") return Promise.resolve("ffmpeg");
-
-  ffmpegReady = (async () => {
-    try {
-      await access(FFMPEG_PATH);
-      return FFMPEG_PATH; // warm instance — already downloaded
-    } catch {
-      // cold start — download the binary
-    }
-    const res = await fetch(FFMPEG_URL, {
-      redirect: "follow",
-      headers: { "User-Agent": "overmind/1.0" },
-    });
-    if (!res.ok) throw new Error(`ffmpeg download: HTTP ${res.status}`);
-    await writeFile(FFMPEG_PATH, Buffer.from(await res.arrayBuffer()));
-    await chmod(FFMPEG_PATH, 0o755);
-    return FFMPEG_PATH;
-  })().catch((err) => {
-    ffmpegReady = null;
-    throw err;
-  });
-
-  return ffmpegReady;
+  return Promise.resolve(ffmpegStatic ?? "ffmpeg");
 }
 
 export async function POST(req: NextRequest) {
