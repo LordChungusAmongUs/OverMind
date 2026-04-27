@@ -6,6 +6,35 @@ async function sendLog(dashboardTabId, log, status = "running") {
   } catch (_) {}
 }
 
+// Wait for a tab to finish loading (status === 'complete')
+function waitForTabLoad(tabId, timeout = 20000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      reject(new Error("Tab load timed out"));
+    }, timeout);
+
+    function listener(id, info) {
+      if (id === tabId && info.status === "complete") {
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    }
+
+    chrome.tabs.onUpdated.addListener(listener);
+
+    // Already loaded?
+    chrome.tabs.get(tabId, (tab) => {
+      if (tab?.status === "complete") {
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    });
+  });
+}
+
 async function runPayrollJob(dashboardTabId) {
   try {
     await _runPayrollJob(dashboardTabId);
@@ -20,9 +49,10 @@ async function _runPayrollJob(dashboardTabId) {
   const tab = await chrome.tabs.create({ url: "https://www.figurepos.com" });
   const tabId = tab.id;
 
-  // Wait for the homepage to load, then click the Log In button (top right)
-  await sleep(3000);
-  await sendLog(dashboardTabId, "Clicking Log In button...");
+  await waitForTabLoad(tabId);
+  await sleep(1000);
+  await sendLog(dashboardTabId, "Homepage loaded — clicking Log In...");
+
   await chrome.scripting.executeScript({
     target: { tabId },
     func: () => {
@@ -35,20 +65,20 @@ async function _runPayrollJob(dashboardTabId) {
     },
   });
 
-  // Wait for the login page to load
-  await sleep(3000);
+  // Wait for the login page to fully load
+  await waitForTabLoad(tabId);
+  await sleep(1000);
 
-  // Log the current URL so we know exactly what page we're on
+  // Log exact URL and search all frames for the email field
   const [{ result: currentUrl }] = await chrome.scripting.executeScript({
     target: { tabId },
     func: () => window.location.href,
   });
-  await sendLog(dashboardTabId, `Login page loaded: ${currentUrl}`);
-  await sendLog(dashboardTabId, "Finding email field...");
+  await sendLog(dashboardTabId, `Login page: ${currentUrl}`);
 
-  // Get the center coordinates of the email input
-  const [{ result: emailRect }] = await chrome.scripting.executeScript({
-    target: { tabId },
+  await sendLog(dashboardTabId, "Searching all frames for email field...");
+  const frameResults = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
     func: () => {
       const el =
         document.querySelector('input[type="email"]') ||
@@ -57,43 +87,51 @@ async function _runPayrollJob(dashboardTabId) {
         document.querySelector('input[autocomplete="email"]') ||
         document.querySelector('input[autocomplete="username"]') ||
         document.querySelector('input[placeholder*="email" i]') ||
-        document.querySelector('input[placeholder*="user" i]');
+        document.querySelector('input[placeholder*="user" i]') ||
+        document.querySelector('input[type="text"]');
       if (!el) return null;
       const r = el.getBoundingClientRect();
-      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      return {
+        x: Math.round(r.left + r.width / 2),
+        y: Math.round(r.top + r.height / 2),
+        frameUrl: window.location.href,
+      };
     },
   });
 
+  const emailResult = frameResults.find((r) => r.result !== null);
+  const emailRect = emailResult?.result;
+
   if (!emailRect) {
-    await sendLog(dashboardTabId, "ERROR: Could not find email field — check the URL above and tell me what you see.", "error");
+    await sendLog(dashboardTabId, "ERROR: No email field found in any frame. Copy the URL above and send it.", "error");
     return;
   }
 
-  await sendLog(dashboardTabId, `Email field found at (${emailRect.x}, ${emailRect.y}) — clicking and typing...`);
+  await sendLog(dashboardTabId, `Email field found (frame: ${emailRect.frameUrl}) — clicking...`);
+
   await chrome.debugger.attach({ tabId }, "1.3");
   try {
-    // Real mouse click on the email field
+    // Click the email field
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
       type: "mousePressed", button: "left", clickCount: 1,
       x: emailRect.x, y: emailRect.y,
     });
-    await sleep(100);
+    await sleep(80);
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
       type: "mouseReleased", button: "left", clickCount: 1,
       x: emailRect.x, y: emailRect.y,
     });
 
-    await sleep(600);
+    await sleep(500);
+    await sendLog(dashboardTabId, "Typing email...");
 
-    // Type email — Chrome treats this as real user input and will offer
-    // to auto-fill the password when focus moves to the password field
     await chrome.debugger.sendCommand({ tabId }, "Input.insertText", {
       text: "kingsbbq2025@gmail.com",
     });
 
     await sleep(800);
 
-    // Tab to password field to trigger Chrome's password auto-fill
+    // Tab to password field — Chrome auto-fills the saved password
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
       type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9,
     });
@@ -101,30 +139,28 @@ async function _runPayrollJob(dashboardTabId) {
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
       type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9,
     });
+
+    await sleep(2000);
+    await sendLog(dashboardTabId, "Submitting...");
+
+    // Press Enter to submit
+    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+      type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
+    });
+    await sleep(100);
+    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+      type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
+    });
   } finally {
     await chrome.debugger.detach({ tabId });
   }
 
-  // Give Chrome time to auto-fill the password
-  await sleep(2500);
-  await sendLog(dashboardTabId, "Submitting login form...");
+  // Wait for post-login page to load
+  await waitForTabLoad(tabId);
+  await sleep(1000);
+  await sendLog(dashboardTabId, "Waiting for dashboard to appear...");
 
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => {
-      const submit =
-        document.querySelector('button[type="submit"]') ||
-        Array.from(document.querySelectorAll("button")).find((b) => {
-          const t = b.textContent?.trim().toLowerCase();
-          return t === "log in" || t === "login" || t === "sign in" || t === "continue";
-        });
-      if (submit) submit.click();
-    },
-  });
-
-  await sendLog(dashboardTabId, "Waiting for login to complete...");
-
-  // Poll until the Management sidebar appears (sign we're logged in)
+  // Poll for the Management sidebar
   let loggedIn = false;
   for (let i = 0; i < 45; i++) {
     await sleep(2000);
@@ -133,34 +169,29 @@ async function _runPayrollJob(dashboardTabId) {
         target: { tabId },
         func: () => {
           const text = document.body?.innerText ?? "";
-          const hasPassword = !!document.querySelector('input[type="password"]');
-          const hasManagement =
-            text.toLowerCase().includes("management") || text.toLowerCase().includes("timesheets");
-          return { hasPassword, hasManagement };
+          return {
+            hasPassword: !!document.querySelector('input[type="password"]'),
+            hasManagement:
+              text.toLowerCase().includes("management") ||
+              text.toLowerCase().includes("timesheets"),
+          };
         },
       });
       if (!result.hasPassword && result.hasManagement) {
         loggedIn = true;
         break;
       }
-    } catch (_) {
-      // Tab still loading — keep polling
-    }
+    } catch (_) {}
   }
 
   if (!loggedIn) {
-    await sendLog(
-      dashboardTabId,
-      "ERROR: Login timed out. Make sure your FigurePOS credentials are saved in Chrome.",
-      "error"
-    );
+    await sendLog(dashboardTabId, "ERROR: Login timed out — check if the password field got filled.", "error");
     return;
   }
 
-  await sendLog(dashboardTabId, "Logged in! Looking for Management > Timesheets in the sidebar...");
+  await sendLog(dashboardTabId, "Logged in! Clicking Management > Timesheets...");
 
   try {
-    // Click "Management" first in case it's a collapsible section
     await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
@@ -172,7 +203,6 @@ async function _runPayrollJob(dashboardTabId) {
 
     await sleep(800);
 
-    // Now click Timesheets
     const [{ result: clicked }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
@@ -182,10 +212,7 @@ async function _runPayrollJob(dashboardTabId) {
             el.textContent?.trim().toLowerCase() === "timesheets" ||
             el.textContent?.trim().toLowerCase() === "timesheet"
         );
-        if (ts) {
-          ts.click();
-          return true;
-        }
+        if (ts) { ts.click(); return true; }
         return false;
       },
     });
@@ -193,16 +220,12 @@ async function _runPayrollJob(dashboardTabId) {
     if (clicked) {
       await sendLog(dashboardTabId, "Navigated to Timesheets! Ready for next step.", "done");
     } else {
-      await sendLog(
-        dashboardTabId,
-        "Logged in but could not find Timesheets link — may need to adjust the selector.",
-        "error"
-      );
+      await sendLog(dashboardTabId, "Logged in but Timesheets link not found — let me know what the sidebar looks like.", "error");
     }
   } catch (err) {
     await sendLog(dashboardTabId, `ERROR: ${err.message}`, "error");
   }
-}  // end _runPayrollJob
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "payroll:run") {
