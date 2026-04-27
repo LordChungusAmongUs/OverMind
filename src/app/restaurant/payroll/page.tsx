@@ -27,20 +27,12 @@ export default function PayrollPage() {
   const [extReady, setExtReady] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Detect whether the extension content script is active on this page
+  // Ping the extension; it pongs back with overmind:ext:ready
   useEffect(() => {
     const onReady = () => setExtReady(true);
     window.addEventListener("overmind:ext:ready", onReady);
-
-    // Give it 1 second to announce itself after page load
-    const t = setTimeout(() => {
-      window.removeEventListener("overmind:ext:ready", onReady);
-    }, 1000);
-
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener("overmind:ext:ready", onReady);
-    };
+    window.dispatchEvent(new CustomEvent("overmind:ext:ping"));
+    return () => window.removeEventListener("overmind:ext:ready", onReady);
   }, []);
 
   // Listen for log messages from the extension

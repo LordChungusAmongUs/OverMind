@@ -1,5 +1,7 @@
-// Announce to the page that the extension is active
-window.dispatchEvent(new CustomEvent("overmind:ext:ready"));
+// Respond to ping from the page (called after React mounts)
+window.addEventListener("overmind:ext:ping", () => {
+  window.dispatchEvent(new CustomEvent("overmind:ext:ready"));
+});
 
 // Relay from dashboard page → background
 window.addEventListener("overmind:payroll:run", () => {
