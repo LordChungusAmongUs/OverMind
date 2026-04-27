@@ -37,6 +37,13 @@ async function _runPayrollJob(dashboardTabId) {
 
   // Wait for the login page to load
   await sleep(3000);
+
+  // Log the current URL so we know exactly what page we're on
+  const [{ result: currentUrl }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => window.location.href,
+  });
+  await sendLog(dashboardTabId, `Login page loaded: ${currentUrl}`);
   await sendLog(dashboardTabId, "Finding email field...");
 
   // Get the center coordinates of the email input
@@ -58,11 +65,11 @@ async function _runPayrollJob(dashboardTabId) {
   });
 
   if (!emailRect) {
-    await sendLog(dashboardTabId, "ERROR: Could not find email field on the login page.", "error");
+    await sendLog(dashboardTabId, "ERROR: Could not find email field — check the URL above and tell me what you see.", "error");
     return;
   }
 
-  await sendLog(dashboardTabId, "Clicking email field and typing credentials...");
+  await sendLog(dashboardTabId, `Email field found at (${emailRect.x}, ${emailRect.y}) — clicking and typing...`);
   await chrome.debugger.attach({ tabId }, "1.3");
   try {
     // Real mouse click on the email field
