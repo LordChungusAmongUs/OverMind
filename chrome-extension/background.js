@@ -90,11 +90,11 @@ async function _runPayrollJob(dashboardTabId) {
     return;
   }
 
-  await sendLog(dashboardTabId, `Email field found (frame: ${emailRect.frameUrl}) — clicking...`);
+  await sendLog(dashboardTabId, `Email field found — clicking to open autofill...`);
 
   await chrome.debugger.attach({ tabId }, "1.3");
   try {
-    // Click the email field
+    // Click the email field — triggers Chrome's saved-credential dropdown
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
       type: "mousePressed", button: "left", clickCount: 1,
       x: emailRect.x, y: emailRect.y,
@@ -105,28 +105,33 @@ async function _runPayrollJob(dashboardTabId) {
       x: emailRect.x, y: emailRect.y,
     });
 
-    await sleep(500);
-    await sendLog(dashboardTabId, "Typing email...");
+    // Wait for the autofill dropdown to appear
+    await sleep(1500);
+    await sendLog(dashboardTabId, "Selecting saved credential from dropdown...");
 
-    await chrome.debugger.sendCommand({ tabId }, "Input.insertText", {
-      text: "kingsbbq2025@gmail.com",
-    });
-
-    await sleep(800);
-
-    // Tab to password field — Chrome auto-fills the saved password
+    // ArrowDown selects the first entry (kingsbbq2025@gmail.com)
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
-      type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9,
+      type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40,
     });
-    await sleep(150);
+    await sleep(200);
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
-      type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9,
+      type: "keyUp", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40,
+    });
+    await sleep(400);
+
+    // Enter confirms the selection — fills both email and password
+    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+      type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
+    });
+    await sleep(100);
+    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+      type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
     });
 
-    await sleep(2000);
-    await sendLog(dashboardTabId, "Submitting...");
+    await sleep(1500);
+    await sendLog(dashboardTabId, "Submitting login form...");
 
-    // Press Enter to submit
+    // Submit the form
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
       type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
     });
