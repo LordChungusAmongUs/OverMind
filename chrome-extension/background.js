@@ -92,9 +92,25 @@ async function _runPayrollJob(dashboardTabId) {
 
   await sendLog(dashboardTabId, `Email field found — clicking to open autofill...`);
 
+  // Get the bottom edge of the email field so we can click the first dropdown item
+  const [{ result: fieldBottom }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      const el =
+        document.querySelector('input[type="email"]') ||
+        document.querySelector('input[name="email"]') ||
+        document.querySelector('input[name="username"]') ||
+        document.querySelector('input[autocomplete="email"]') ||
+        document.querySelector('input[type="text"]');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), bottom: Math.round(r.bottom) };
+    },
+  });
+
   await chrome.debugger.attach({ tabId }, "1.3");
   try {
-    // Click the email field — triggers Chrome's saved-credential dropdown
+    // Click the email field to open Chrome's autofill dropdown
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
       type: "mousePressed", button: "left", clickCount: 1,
       x: emailRect.x, y: emailRect.y,
@@ -105,33 +121,48 @@ async function _runPayrollJob(dashboardTabId) {
       x: emailRect.x, y: emailRect.y,
     });
 
-    // Wait for the autofill dropdown to appear
+    // Wait for the autofill dropdown to render
     await sleep(1500);
-    await sendLog(dashboardTabId, "Selecting saved credential from dropdown...");
+    await sendLog(dashboardTabId, "Pressing ArrowDown then Enter to select saved credential...");
 
-    // ArrowDown selects the first entry (kingsbbq2025@gmail.com)
+    // ArrowDown once
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
       type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40,
     });
-    await sleep(200);
+    await sleep(150);
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
       type: "keyUp", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40,
     });
-    await sleep(400);
+    await sleep(500);
 
-    // Enter confirms the selection — fills both email and password
+    // Enter to confirm — fills both email and password
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
       type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
     });
-    await sleep(100);
+    await sleep(150);
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
       type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
     });
 
+    // Also try clicking just below the field where the first dropdown item appears,
+    // in case CDP key events don't reach Chrome's native autofill UI
+    if (fieldBottom) {
+      await sleep(300);
+      const dropdownItemY = fieldBottom + 30;
+      await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+        type: "mousePressed", button: "left", clickCount: 1,
+        x: fieldBottom.x ?? emailRect.x, y: dropdownItemY,
+      });
+      await sleep(80);
+      await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+        type: "mouseReleased", button: "left", clickCount: 1,
+        x: fieldBottom.x ?? emailRect.x, y: dropdownItemY,
+      });
+    }
+
     await sleep(1500);
     await sendLog(dashboardTabId, "Submitting login form...");
 
-    // Submit the form
     await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
       type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
     });
