@@ -46,27 +46,11 @@ async function runPayrollJob(dashboardTabId) {
 async function _runPayrollJob(dashboardTabId) {
   await sendLog(dashboardTabId, "Opening FigurePOS in a new tab...");
 
-  const tab = await chrome.tabs.create({ url: "https://www.figurepos.com" });
+  const tab = await chrome.tabs.create({ url: "https://app.figurepos.com/login" });
   const tabId = tab.id;
 
   await waitForTabLoad(tabId);
   await sleep(1000);
-  await sendLog(dashboardTabId, "Homepage loaded — clicking Log In...");
-
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => {
-      const all = Array.from(document.querySelectorAll("a, button"));
-      const loginBtn = all.find((el) => {
-        const t = el.textContent?.trim().toLowerCase();
-        return t === "log in" || t === "login" || t === "sign in";
-      });
-      if (loginBtn) loginBtn.click();
-    },
-  });
-
-  // Log In opens a modal on the same page — no navigation, just wait for it to render
-  await sleep(2000);
 
   // Log exact URL and search all frames for the email field
   const [{ result: currentUrl }] = await chrome.scripting.executeScript({
