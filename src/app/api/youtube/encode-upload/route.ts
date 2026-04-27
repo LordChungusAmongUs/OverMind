@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execFile } from "child_process";
-import { gunzip } from "zlib";
+import { gunzipSync } from "zlib";
 import { promisify } from "util";
-import { writeFile, readFile, unlink, copyFile, chmod, access } from "fs/promises";
+import { writeFile, readFile, unlink, chmod, access } from "fs/promises";
 import { randomUUID } from "crypto";
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const ffmpegStatic: string | null = require("ffmpeg-static");
 
 const execFileAsync = promisify(execFile);
-const gunzipAsync = promisify(gunzip);
 export const maxDuration = 300;
 
-// Correct download URL — install.js downloads ffmpeg-linux-x64.gz (gzip-compressed)
+// URL from ffmpeg-static's install.js: releases/download/{tag}/{name}-{platform}-{arch}.gz
 const FFMPEG_URL =
   "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64.gz";
 const FFMPEG_PATH = "/tmp/ffmpeg-bin";
@@ -19,29 +16,21 @@ let ffmpegReady: Promise<string> | null = null;
 
 function ensureFfmpeg(): Promise<string> {
   if (ffmpegReady) return ffmpegReady;
-  if (process.platform !== "linux") return Promise.resolve(ffmpegStatic ?? "ffmpeg");
+  // Local dev (non-Linux): expect ffmpeg in PATH
+  if (process.platform !== "linux") return Promise.resolve("ffmpeg");
 
   ffmpegReady = (async () => {
-    // Fast path: binary already in /tmp from a previous warm request
-    try { await access(FFMPEG_PATH); return FFMPEG_PATH; } catch { /* continue */ }
+    // Warm instance: already downloaded in this Lambda's /tmp
+    try { await access(FFMPEG_PATH); return FFMPEG_PATH; } catch { /* cold start */ }
 
-    // Try the bundled ffmpeg-static path (works when outputFileTracingIncludes bundles it)
-    if (ffmpegStatic) {
-      try {
-        await copyFile(ffmpegStatic, FFMPEG_PATH);
-        await chmod(FFMPEG_PATH, 0o755);
-        return FFMPEG_PATH;
-      } catch { /* not bundled, fall through to download */ }
-    }
-
-    // Fallback: download the gzip-compressed binary from GitHub releases
+    // Cold start: download gzip binary and decompress with built-in zlib
     const res = await fetch(FFMPEG_URL, {
       redirect: "follow",
       headers: { "User-Agent": "overmind/1.0" },
     });
     if (!res.ok) throw new Error(`ffmpeg download: HTTP ${res.status}`);
-    const decompressed = await gunzipAsync(Buffer.from(await res.arrayBuffer()));
-    await writeFile(FFMPEG_PATH, decompressed);
+    const binary = gunzipSync(Buffer.from(await res.arrayBuffer()));
+    await writeFile(FFMPEG_PATH, binary);
     await chmod(FFMPEG_PATH, 0o755);
     return FFMPEG_PATH;
   })().catch((err) => { ffmpegReady = null; throw err; });
