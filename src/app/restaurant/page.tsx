@@ -12,11 +12,11 @@ const hours = [
 
 const modules = [
   { icon: Package,      title: "Inventory",         description: "Stock levels, counts, auto-generate orders",   href: "/restaurant/inventory", active: true  },
+  { icon: DollarSign,   title: "Payroll",            description: "Pull timesheets from FigurePOS and run payroll", href: "/restaurant/payroll", active: true  },
   { icon: ShoppingCart, title: "Ordering",           description: "Purchase orders and vendor price comparisons", href: null,                    active: false },
   { icon: Users,        title: "Scheduling",         description: "Staff schedules and labor cost tracking",      href: null,                    active: false },
   { icon: ClipboardList,title: "Prep Lists",         description: "Daily prep tasks based on sales projections",  href: null,                    active: false },
-  { icon: DollarSign,   title: "P&L Reports",        description: "Daily, weekly, and monthly profit & loss",     href: null,                    active: false },
-  { icon: BarChart2,    title: "Price Comparison",   description: "Compare ingredient costs across vendors",      href: null,                    active: false },
+  { icon: BarChart2,    title: "P&L Reports",        description: "Daily, weekly, and monthly profit & loss",     href: null,                    active: false },
 ];
 
 const staffRoles = ["2 Waitresses", "2 Grill Cooks", "2 Line Cooks", "1 Biscuit Maker", "1 Drive-Thru"];

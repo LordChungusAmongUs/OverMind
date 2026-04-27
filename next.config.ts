@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   images: {
     domains: ["img.youtube.com", "i.ytimg.com"],
   },
-
+  serverExternalPackages: ["puppeteer-core"],
 };
 
 export default nextConfig;
