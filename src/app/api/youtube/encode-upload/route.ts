@@ -1,16 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execFile } from "child_process";
+import { gunzip } from "zlib";
 import { promisify } from "util";
-import { writeFile, readFile, unlink } from "fs/promises";
+import { writeFile, readFile, unlink, copyFile, chmod, access } from "fs/promises";
 import { randomUUID } from "crypto";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const ffmpegStatic: string = require("ffmpeg-static");
+const ffmpegStatic: string | null = require("ffmpeg-static");
 
 const execFileAsync = promisify(execFile);
+const gunzipAsync = promisify(gunzip);
 export const maxDuration = 300;
 
+// Correct download URL — install.js downloads ffmpeg-linux-x64.gz (gzip-compressed)
+const FFMPEG_URL =
+  "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64.gz";
+const FFMPEG_PATH = "/tmp/ffmpeg-bin";
+let ffmpegReady: Promise<string> | null = null;
+
 function ensureFfmpeg(): Promise<string> {
-  return Promise.resolve(ffmpegStatic ?? "ffmpeg");
+  if (ffmpegReady) return ffmpegReady;
+  if (process.platform !== "linux") return Promise.resolve(ffmpegStatic ?? "ffmpeg");
+
+  ffmpegReady = (async () => {
+    // Fast path: binary already in /tmp from a previous warm request
+    try { await access(FFMPEG_PATH); return FFMPEG_PATH; } catch { /* continue */ }
+
+    // Try the bundled ffmpeg-static path (works when outputFileTracingIncludes bundles it)
+    if (ffmpegStatic) {
+      try {
+        await copyFile(ffmpegStatic, FFMPEG_PATH);
+        await chmod(FFMPEG_PATH, 0o755);
+        return FFMPEG_PATH;
+      } catch { /* not bundled, fall through to download */ }
+    }
+
+    // Fallback: download the gzip-compressed binary from GitHub releases
+    const res = await fetch(FFMPEG_URL, {
+      redirect: "follow",
+      headers: { "User-Agent": "overmind/1.0" },
+    });
+    if (!res.ok) throw new Error(`ffmpeg download: HTTP ${res.status}`);
+    const decompressed = await gunzipAsync(Buffer.from(await res.arrayBuffer()));
+    await writeFile(FFMPEG_PATH, decompressed);
+    await chmod(FFMPEG_PATH, 0o755);
+    return FFMPEG_PATH;
+  })().catch((err) => { ffmpegReady = null; throw err; });
+
+  return ffmpegReady;
 }
 
 export async function POST(req: NextRequest) {
