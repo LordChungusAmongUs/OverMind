@@ -3,7 +3,7 @@
   "name": "Overmind Bridge",
   "version": "1.2",
   "description": "Bridges the Overmind dashboard with browser automation",
-  "permissions": ["tabs", "scripting", "debugger"],
+  "permissions": ["tabs", "scripting", "debugger", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"

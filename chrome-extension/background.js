@@ -86,74 +86,61 @@ async function _runPayrollJob(dashboardTabId) {
   const emailRect = emailResult?.result;
 
   if (!emailRect) {
-    await sendLog(dashboardTabId, "ERROR: No email field found in any frame. Copy the URL above and send it.", "error");
+    await sendLog(dashboardTabId, "ERROR: No email field found on login page.", "error");
     return;
   }
 
-  await sendLog(dashboardTabId, "Clicking email field twice, then ArrowDown + Enter...");
-
-  await chrome.debugger.attach({ tabId }, "1.3");
-  try {
-    // First click
-    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
-      type: "mousePressed", button: "left", clickCount: 1,
-      x: emailRect.x, y: emailRect.y,
-    });
-    await sleep(80);
-    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
-      type: "mouseReleased", button: "left", clickCount: 1,
-      x: emailRect.x, y: emailRect.y,
-    });
-
-    // 1 second between clicks
-    await sleep(1000);
-
-    // Second click
-    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
-      type: "mousePressed", button: "left", clickCount: 1,
-      x: emailRect.x, y: emailRect.y,
-    });
-    await sleep(80);
-    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
-      type: "mouseReleased", button: "left", clickCount: 1,
-      x: emailRect.x, y: emailRect.y,
-    });
-
-    // Wait for autofill dropdown to appear
-    await sleep(1000);
-
-    // ArrowDown once
-    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
-      type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40,
-    });
-    await sleep(150);
-    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
-      type: "keyUp", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40,
-    });
-    await sleep(500);
-
-    // Enter to select credential
-    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
-      type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
-    });
-    await sleep(150);
-    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
-      type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
-    });
-
-    await sleep(1500);
-    await sendLog(dashboardTabId, "Submitting login form...");
-
-    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
-      type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
-    });
-    await sleep(100);
-    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
-      type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13,
-    });
-  } finally {
-    await chrome.debugger.detach({ tabId });
+  // Retrieve stored credentials
+  const stored = await chrome.storage.local.get("figurepos");
+  if (!stored.figurepos?.password) {
+    await sendLog(dashboardTabId, "ERROR: No FigurePOS password saved. Enter it in the Credentials card on the payroll page first.", "error");
+    return;
   }
+
+  const { email, password } = stored.figurepos;
+  await sendLog(dashboardTabId, "Filling login form directly...");
+
+  // Fill email + password directly — no autofill dropdown needed
+  await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    args: [email, password],
+    func: (em, pw) => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+
+      const emailInput =
+        document.querySelector('input[type="email"]') ||
+        document.querySelector('input[name="email"]') ||
+        document.querySelector('input[name="username"]') ||
+        document.querySelector('input[autocomplete="email"]') ||
+        document.querySelector('input[autocomplete="username"]') ||
+        document.querySelector('input[placeholder*="email" i]') ||
+        document.querySelector('input[type="text"]');
+
+      const pwInput = document.querySelector('input[type="password"]');
+
+      if (emailInput) {
+        setter.call(emailInput, em);
+        emailInput.dispatchEvent(new Event("input", { bubbles: true }));
+        emailInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      if (pwInput) {
+        setter.call(pwInput, pw);
+        pwInput.dispatchEvent(new Event("input", { bubbles: true }));
+        pwInput.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+
+      // Click the submit button
+      const submit =
+        document.querySelector('button[type="submit"]') ||
+        Array.from(document.querySelectorAll("button")).find((b) => {
+          const t = b.textContent?.trim().toLowerCase();
+          return t === "log in" || t === "login" || t === "sign in" || t === "continue";
+        });
+      if (submit) (submit as HTMLElement).click();
+    },
+  });
+
+  await sendLog(dashboardTabId, "Credentials submitted — waiting for dashboard...");
 
   // Wait for post-login page to load
   await waitForTabLoad(tabId);
@@ -232,5 +219,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const dashboardTabId = sender.tab?.id;
     if (dashboardTabId) runPayrollJob(dashboardTabId);
     sendResponse({ started: true });
+  }
+
+  if (message.action === "saveCredentials") {
+    chrome.storage.local.set({ figurepos: message.data }, () => {
+      if (sender.tab?.id) {
+        chrome.tabs.sendMessage(sender.tab.id, { action: "credentialsSaved" });
+      }
+    });
+    sendResponse({ ok: true });
   }
 });
