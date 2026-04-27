@@ -37,13 +37,12 @@ async function _runPayrollJob(dashboardTabId) {
 
   // Wait for the login page to load
   await sleep(3000);
-  await sendLog(dashboardTabId, "Filling in email and password...");
+  await sendLog(dashboardTabId, "Focusing email field...");
 
+  // Click the email field so it's focused
   await chrome.scripting.executeScript({
     target: { tabId },
-    args: ["Kingsbbq2015@gmail.com"],
-    func: (email) => {
-      // Find the email / username field
+    func: () => {
       const emailInput =
         document.querySelector('input[type="email"]') ||
         document.querySelector('input[name="email"]') ||
@@ -52,27 +51,35 @@ async function _runPayrollJob(dashboardTabId) {
         document.querySelector('input[autocomplete="username"]') ||
         document.querySelector('input[placeholder*="email" i]') ||
         document.querySelector('input[placeholder*="user" i]');
-
-      if (!emailInput) return;
-
-      // Set value via native setter so React/Vue controlled inputs register the change
-      const nativeSetter = Object.getOwnPropertyDescriptor(
-        window.HTMLInputElement.prototype, "value"
-      ).set;
-      nativeSetter.call(emailInput, email);
-      emailInput.dispatchEvent(new Event("input", { bubbles: true }));
-      emailInput.dispatchEvent(new Event("change", { bubbles: true }));
-
-      // Focus the password field — Chrome should auto-fill it once it sees the email
-      const pwInput = document.querySelector('input[type="password"]');
-      if (pwInput) {
-        pwInput.click();
-        pwInput.focus();
-      }
+      if (emailInput) { emailInput.focus(); emailInput.click(); }
     },
   });
 
-  // Give Chrome a moment to auto-fill the password
+  await sleep(800);
+  await sendLog(dashboardTabId, "Typing email via debugger...");
+
+  // Use Chrome Debugger API to type the email — Chrome recognises this as real
+  // user input and will auto-fill the password field when we Tab away
+  await chrome.debugger.attach({ tabId }, "1.3");
+  try {
+    await chrome.debugger.sendCommand({ tabId }, "Input.insertText", {
+      text: "Kingsbbq2015@gmail.com",
+    });
+    await sleep(800);
+
+    // Tab to the password field — triggers Chrome's password auto-fill
+    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+      type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9,
+    });
+    await sleep(200);
+    await chrome.debugger.sendCommand({ tabId }, "Input.dispatchKeyEvent", {
+      type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9,
+    });
+  } finally {
+    await chrome.debugger.detach({ tabId });
+  }
+
+  // Give Chrome time to auto-fill the password
   await sleep(2000);
   await sendLog(dashboardTabId, "Submitting login form...");
 
