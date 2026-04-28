@@ -197,11 +197,108 @@ async function _runPayrollJob(sendLog) {
     });
     sendLog(`Landed on: ${finalUrl}`);
 
-    if (finalUrl.includes("timesheet")) {
-      sendLog("Timesheets loaded successfully!", "done");
-    } else {
+    if (!finalUrl.includes("timesheet")) {
       sendLog(`App redirected to: ${finalUrl} — may need longer settle time`, "error");
+      return;
     }
+
+    sendLog("Timesheets page loaded!");
+
+    // Calculate pay period: Friday–Thursday ending on most recent Thursday
+    const { startLabel, endLabel, startM, startD, startY, endM, endD, endY } = (() => {
+      const today = new Date();
+      const daysSinceThursday = (today.getDay() - 4 + 7) % 7;
+      const thursday = new Date(today);
+      thursday.setDate(today.getDate() - daysSinceThursday);
+      const friday = new Date(thursday);
+      friday.setDate(thursday.getDate() - 6);
+      const fmt = (d) => `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+      return {
+        startLabel: fmt(friday),
+        endLabel: fmt(thursday),
+        startM: friday.getMonth() + 1,
+        startD: friday.getDate(),
+        startY: friday.getFullYear(),
+        endM: thursday.getMonth() + 1,
+        endD: thursday.getDate(),
+        endY: thursday.getFullYear(),
+      };
+    })();
+
+    sendLog(`Pay period: ${startLabel} → ${endLabel}`);
+    sendLog("Looking for calendar icon...");
+
+    // Click the calendar / date-range trigger
+    const [{ result: calClicked }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      args: [],
+      func: () => {
+        // Common patterns for date range pickers
+        const btn =
+          document.querySelector('[aria-label*="date" i]') ||
+          document.querySelector('[aria-label*="calendar" i]') ||
+          document.querySelector('[aria-label*="range" i]') ||
+          document.querySelector('button[class*="date" i]') ||
+          document.querySelector('button[class*="calendar" i]') ||
+          document.querySelector('input[placeholder*="date" i]') ||
+          // SVG calendar icons are usually inside a button — grab the button
+          (() => {
+            const svgs = Array.from(document.querySelectorAll("svg"));
+            const calSvg = svgs.find((s) => {
+              const u = s.querySelector("use");
+              const title = s.querySelector("title");
+              return (
+                s.getAttribute("aria-label")?.toLowerCase().includes("calendar") ||
+                title?.textContent?.toLowerCase().includes("calendar") ||
+                u?.getAttribute("href")?.toLowerCase().includes("calendar")
+              );
+            });
+            return calSvg?.closest("button") || calSvg;
+          })();
+        if (!btn) return "not-found";
+        btn.click();
+        return btn.tagName + (btn.className ? "." + btn.className.trim().split(" ")[0] : "");
+      },
+    });
+
+    sendLog(`Calendar trigger: ${calClicked}`);
+
+    if (calClicked === "not-found") {
+      sendLog("Could not find calendar icon — send a screenshot of the Timesheets page.", "error");
+      return;
+    }
+
+    await sleep(800);
+
+    // Try to set date range — check for hidden <input type="date"> fields first
+    const [{ result: inputsSet }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      args: [startM, startD, startY, endM, endD, endY],
+      func: (sm, sd, sy, em, ed, ey) => {
+        const pad = (n) => String(n).padStart(2, "0");
+        const startStr = `${sy}-${pad(sm)}-${pad(sd)}`;
+        const endStr   = `${ey}-${pad(em)}-${pad(ed)}`;
+
+        const dateInputs = Array.from(document.querySelectorAll('input[type="date"]'));
+        if (dateInputs.length >= 2) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+          setter.call(dateInputs[0], startStr);
+          dateInputs[0].dispatchEvent(new Event("input", { bubbles: true }));
+          dateInputs[0].dispatchEvent(new Event("change", { bubbles: true }));
+          setter.call(dateInputs[1], endStr);
+          dateInputs[1].dispatchEvent(new Event("input", { bubbles: true }));
+          dateInputs[1].dispatchEvent(new Event("change", { bubbles: true }));
+          return `set-inputs: ${startStr} → ${endStr}`;
+        }
+        // Log what's visible to help debug
+        const visible = Array.from(document.querySelectorAll("input")).map(
+          (i) => `${i.type}|${i.placeholder}|${i.className.slice(0, 30)}`
+        );
+        return `no-date-inputs found. inputs: ${visible.slice(0, 5).join(" ; ")}`;
+      },
+    });
+
+    sendLog(`Date picker: ${inputsSet}`, "done");
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
   }
