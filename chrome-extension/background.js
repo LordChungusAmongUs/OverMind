@@ -325,34 +325,50 @@ async function _runPayrollJob(sendLog) {
     // Wait for page to re-render with the filtered date range
     await sleep(2500);
 
-    // Lazy-scroll loop: scroll → wait for cloud data to render → repeat until stable
+    // Lazy-scroll loop — count shift tables, not page height
+    // (FigurePOS loads employees into a fixed container; height may not change)
     sendLog("Loading all employee blocks (lazy scroll)...");
-    let lastHeight = 0;
+
+    const countShiftTables = () => chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => Array.from(document.querySelectorAll("table")).filter((t) => {
+        const hdrs = Array.from(t.querySelectorAll("th, thead td"))
+          .map((c) => c.innerText.trim().toLowerCase());
+        return hdrs.some((h) => h.includes("payable")) && hdrs.some((h) => h.includes("position"));
+      }).length,
+    }).then(([{ result }]) => result);
+
+    // Also try scrolling the ant-table scroll container itself
+    const scrollDown = () => chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        window.scrollBy(0, 800);
+        // Also scroll any overflow containers that might hold employee list
+        document.querySelectorAll('[class*="scroll"], [class*="content"], [class*="body"]').forEach((el) => {
+          if (el.scrollHeight > el.clientHeight) el.scrollBy(0, 800);
+        });
+      },
+    });
+
+    let lastCount = 0;
     let stableRounds = 0;
-    const MAX_ROUNDS = 40;
+    const MAX_ROUNDS = 50;
 
     for (let round = 0; round < MAX_ROUNDS && stableRounds < 3; round++) {
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => window.scrollBy(0, 800),
-      });
-      await sleep(3000); // wait for cloud API response + render
+      await scrollDown();
+      await sleep(3000);
 
-      const [{ result: h }] = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => document.body.scrollHeight,
-      });
-
-      if (h === lastHeight) {
+      const count = await countShiftTables();
+      if (count === lastCount) {
         stableRounds++;
       } else {
         stableRounds = 0;
-        lastHeight = h;
-        sendLog(`Scrolling... (${h}px loaded)`);
+        lastCount = count;
+        sendLog(`Scrolling... (${count} employees loaded)`);
       }
     }
 
-    sendLog("All content loaded — extracting data...");
+    sendLog(`All content loaded — ${lastCount} employee block(s) found. Extracting...`);
 
     sendLog("Extracting timesheet data from DOM...");
 
@@ -408,34 +424,58 @@ async function _runPayrollJob(sendLog) {
           }
 
           // ── Find employee name ────────────────────────────────────────
-          // Strategy 1: look in same parent container for a non-table, non-empty element
           const NAME_SKIP_RE = /^(clock|payable|position|total|hours|break|location|cost|rate|search|edit|\+|shift|in|out)$/i;
           let empName = null;
 
-          // Walk up, checking all non-table siblings BEFORE this table
-          let el = table;
-          outer:
-          for (let depth = 0; depth < 8; depth++) {
-            const parent = el.parentElement;
-            if (!parent) break;
-            const siblings = Array.from(parent.children);
-            const tableIdx = siblings.indexOf(el);
-            for (let i = tableIdx - 1; i >= 0; i--) {
-              const sib = siblings[i];
-              if (sib.tagName === "TABLE") continue;
-              const t = sib.innerText?.trim().replace(/\s+/g, " ");
-              // A name: 2-50 chars, has letters, not a pure keyword, no newlines (it's a single label)
-              if (t && t.length >= 2 && t.length <= 50 && /[a-zA-Z]/.test(t) && !NAME_SKIP_RE.test(t) && !t.includes("\n")) {
-                empName = t;
-                break outer;
+          // Strategy 1: Ant Design structure — name is a sibling of .ant-spin-nested-loading
+          const spinWrapper = table.closest(".ant-spin-nested-loading") ||
+                              table.closest(".ant-spin-container")?.parentElement;
+          if (spinWrapper) {
+            let sib = spinWrapper.previousElementSibling;
+            while (sib && !empName) {
+              // Try the element's own text first
+              const t = sib.innerText?.trim();
+              if (t && t.length >= 2 && t.length <= 60 && /[a-zA-Z]/.test(t) && !NAME_SKIP_RE.test(t)) {
+                // Pick just the first non-empty line if multi-line
+                const line = t.split("\n").map((l) => l.trim()).find(
+                  (l) => l.length >= 2 && l.length <= 60 && /[a-zA-Z]/.test(l) && !NAME_SKIP_RE.test(l)
+                );
+                if (line) empName = line;
               }
-              // If the sibling has multiple lines, grab just the first meaningful line
-              if (t && t.includes("\n")) {
-                const firstLine = t.split("\n").map(l => l.trim()).find(l => l.length >= 2 && l.length <= 50 && /[a-zA-Z]/.test(l) && !NAME_SKIP_RE.test(l));
-                if (firstLine) { empName = firstLine; break outer; }
+              // Try deepest leaf element with a short name
+              if (!empName) {
+                const leaf = Array.from(sib.querySelectorAll("*"))
+                  .reverse()
+                  .find((c) => {
+                    const ct = c.children.length === 0 && c.innerText?.trim();
+                    return ct && ct.length >= 2 && ct.length <= 60 && /[a-zA-Z]/.test(ct) && !NAME_SKIP_RE.test(ct);
+                  });
+                if (leaf) empName = leaf.innerText.trim();
               }
+              sib = sib.previousElementSibling;
             }
-            el = parent;
+          }
+
+          // Strategy 2: walk up DOM siblings (fallback)
+          if (!empName) {
+            let el = spinWrapper || table;
+            outer:
+            for (let depth = 0; depth < 8; depth++) {
+              const parent = el.parentElement;
+              if (!parent) break;
+              const siblings = Array.from(parent.children);
+              const idx = siblings.indexOf(el);
+              for (let i = idx - 1; i >= 0; i--) {
+                const sib = siblings[i];
+                if (sib.tagName === "TABLE") continue;
+                const t = sib.innerText?.trim();
+                const line = t?.split("\n").map((l) => l.trim()).find(
+                  (l) => l.length >= 2 && l.length <= 60 && /[a-zA-Z]/.test(l) && !NAME_SKIP_RE.test(l)
+                );
+                if (line) { empName = line; break outer; }
+              }
+              el = parent;
+            }
           }
 
           // Collect shift rows (exclude header and Totals row)
