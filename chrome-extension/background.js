@@ -270,117 +270,116 @@ async function _runPayrollJob(sendLog) {
 
     await sleep(800);
 
-    // Click start date then end date in the calendar grid
-    const [{ result: clickResult }] = await chrome.scripting.executeScript({
+    // Fill the two MM/DD/YYYY text inputs in the picker header
+    const [{ result: fillResult }] = await chrome.scripting.executeScript({
       target: { tabId },
-      args: [startD, startM, startY, endD, endM, endY],
-      func: (sd, sm, sy, ed, em, ey) => {
-        function findDayCell(day, month, year) {
-          const pad = (n) => String(n).padStart(2, "0");
-          const isoDate = `${year}-${pad(month)}-${pad(day)}`;
-          const monthNames = ["january","february","march","april","may","june",
-                              "july","august","september","october","november","december"];
-          const monthName = monthNames[month - 1];
-          const ariaLabel1 = `${monthName} ${day}, ${year}`;
-          const ariaLabel2 = `${month}/${day}/${year}`;
+      args: [startLabel, endLabel],
+      func: (startDate, endDate) => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
 
-          // Try data-date attribute (ISO or M/D/Y)
+        // Find inputs that look like date fields (MM/DD/YYYY)
+        const allInputs = Array.from(document.querySelectorAll("input"));
+        const dateInputs = allInputs.filter((i) => {
+          const p = (i.placeholder || "").toLowerCase();
+          const v = i.value || "";
           return (
-            document.querySelector(`[data-date="${isoDate}"]`) ||
-            document.querySelector(`[data-date="${month}/${day}/${year}"]`) ||
-            document.querySelector(`[data-day="${isoDate}"]`) ||
-            document.querySelector(`[data-value="${isoDate}"]`) ||
-            document.querySelector(`[aria-label="${ariaLabel1}"]`) ||
-            document.querySelector(`[aria-label="${ariaLabel2}"]`) ||
-            // Fallback: find a cell whose sole text content is the day number
-            // that sits inside a visible calendar grid
-            (() => {
-              const candidates = Array.from(
-                document.querySelectorAll("td, th, button, div, span")
-              ).filter((el) => {
-                const t = el.textContent?.trim();
-                return t === String(day) && el.getBoundingClientRect().width > 0;
-              });
-              // Pick the one deepest in the DOM (most specific) that's inside a calendar
-              return candidates.find((el) => el.closest('[class*="calendar" i], [class*="picker" i], [class*="datepicker" i], [role="grid"], [role="gridcell"]'))
-                || candidates[0];
-            })()
+            p.includes("mm") || p.includes("dd") || p.includes("date") ||
+            /\d{1,2}\/\d{1,2}\/\d{4}/.test(v) ||
+            i.type === "text"
           );
+        });
+
+        if (dateInputs.length < 2) {
+          return `only-${dateInputs.length}-inputs-found`;
         }
 
-        const startCell = findDayCell(sd, sm, sy);
-        if (!startCell) return `start-cell-not-found (looking for day ${sd})`;
-        startCell.click();
-        return `clicked-start:${startCell.tagName}[${startCell.getAttribute("data-date") || startCell.textContent?.trim()}]`;
+        function fillInput(el, val) {
+          el.focus();
+          setter.call(el, val);
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+          el.dispatchEvent(new KeyboardEvent("keyup",  { key: "Enter", bubbles: true }));
+          el.blur();
+        }
+
+        fillInput(dateInputs[0], startDate);
+        fillInput(dateInputs[1], endDate);
+
+        return `filled: ${startDate} → ${endDate} (using inputs[0] placeholder="${dateInputs[0].placeholder}", inputs[1] placeholder="${dateInputs[1].placeholder}")`;
       },
     });
 
-    sendLog(`Start date click: ${clickResult}`);
+    sendLog(`Date inputs: ${fillResult}`);
 
-    if (clickResult.startsWith("start-cell-not-found")) {
-      sendLog("Could not find start date cell in calendar.", "error");
-      return;
-    }
+    await sleep(600);
 
-    await sleep(400);
-
-    // Click end date
-    const [{ result: endResult }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      args: [endD, endM, endY],
-      func: (ed, em, ey) => {
-        function findDayCell(day, month, year) {
-          const pad = (n) => String(n).padStart(2, "0");
-          const isoDate = `${year}-${pad(month)}-${pad(day)}`;
-          const monthNames = ["january","february","march","april","may","june",
-                              "july","august","september","october","november","december"];
-          const ariaLabel1 = `${monthNames[month - 1]} ${day}, ${year}`;
-          return (
-            document.querySelector(`[data-date="${isoDate}"]`) ||
-            document.querySelector(`[data-day="${isoDate}"]`) ||
-            document.querySelector(`[data-value="${isoDate}"]`) ||
-            document.querySelector(`[aria-label="${ariaLabel1}"]`) ||
-            (() => {
-              const candidates = Array.from(
-                document.querySelectorAll("td, th, button, div, span")
-              ).filter((el) => {
-                const t = el.textContent?.trim();
-                return t === String(day) && el.getBoundingClientRect().width > 0;
-              });
-              return candidates.find((el) => el.closest('[class*="calendar" i], [class*="picker" i], [class*="datepicker" i], [role="grid"], [role="gridcell"]'))
-                || candidates[0];
-            })()
-          );
-        }
-        const endCell = findDayCell(ed, em, ey);
-        if (!endCell) return `end-cell-not-found (looking for day ${ed})`;
-        endCell.click();
-        return `clicked-end:${endCell.tagName}[${endCell.getAttribute("data-date") || endCell.textContent?.trim()}]`;
-      },
-    });
-
-    sendLog(`End date click: ${endResult}`);
-
-    if (endResult.startsWith("end-cell-not-found")) {
-      sendLog("Could not find end date cell in calendar.", "error");
-      return;
-    }
-
-    await sleep(400);
-
-    // Confirm / apply the selection if there's an Apply or OK button
-    await chrome.scripting.executeScript({
+    // Verify "7 days" appears in the picker header
+    const [{ result: verification }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        const apply = Array.from(document.querySelectorAll("button")).find((b) => {
-          const t = b.textContent?.trim().toLowerCase();
-          return t === "apply" || t === "ok" || t === "done" || t === "confirm";
-        });
-        if (apply) apply.click();
+        const body = document.body.innerText;
+        const match = body.match(/\((\d+)\s*days?\)/i);
+        return match ? match[0] : "days-label-not-found";
       },
     });
 
-    sendLog("Date range selected!", "done");
+    sendLog(`Picker shows: ${verification}`);
+
+    if (!verification.includes("7")) {
+      sendLog(`Expected (7 days) but got: ${verification} — falling back to cell clicks`, "running");
+
+      // Fallback: click day cells by text content, skipping the Wk column (first td in each tr)
+      for (const [day, label] of [[startD, "start"], [endD, "end"]]) {
+        const [{ result: cellResult }] = await chrome.scripting.executeScript({
+          target: { tabId },
+          args: [day],
+          func: (targetDay) => {
+            const rows = Array.from(document.querySelectorAll("tr"));
+            for (const row of rows) {
+              const cells = Array.from(row.querySelectorAll("td"));
+              // Skip the first cell (week number column)
+              for (let i = 1; i < cells.length; i++) {
+                const cell = cells[i];
+                const t = cell.textContent?.trim();
+                if (t === String(targetDay) && cell.getBoundingClientRect().width > 0) {
+                  cell.click();
+                  return `clicked td[${i}] text="${t}"`;
+                }
+              }
+            }
+            return `not-found`;
+          },
+        });
+        sendLog(`${label} cell: ${cellResult}`);
+        await sleep(400);
+      }
+    }
+
+    await sleep(400);
+
+    // Click "Apply Dates"
+    const [{ result: applyResult }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const btn = Array.from(document.querySelectorAll("button")).find((b) =>
+          b.textContent?.trim().toLowerCase().includes("apply")
+        );
+        if (!btn) return "apply-button-not-found";
+        if (btn.disabled) return "apply-button-disabled";
+        btn.click();
+        return `clicked: "${btn.textContent?.trim()}"`;
+      },
+    });
+
+    sendLog(`Apply Dates: ${applyResult}`);
+
+    if (applyResult.startsWith("apply-button-not-found") || applyResult.startsWith("apply-button-disabled")) {
+      sendLog("Apply Dates button issue — check calendar state.", "error");
+      return;
+    }
+
+    sendLog("Date range applied!", "done");
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
   }
