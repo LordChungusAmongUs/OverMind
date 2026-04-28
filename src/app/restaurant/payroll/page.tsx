@@ -22,6 +22,7 @@ export default function PayrollPage() {
   const [currentStep, setCurrentStep] = useState(-1);
   const [extReady, setExtReady] = useState(false);
   const [credsSaved, setCredsSaved] = useState(false);
+  const [email, setEmail] = useState("kingsbbq2015@gmail.com");
   const [password, setPassword] = useState("");
   const [savingCreds, setSavingCreds] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
@@ -64,7 +65,7 @@ export default function PayrollPage() {
     if (!password) return;
     setSavingCreds(true);
     window.dispatchEvent(new CustomEvent("overmind:ext:saveCredentials", {
-      detail: { email: "kingsbbq2015@gmail.com", password },
+      detail: { email, password },
     }));
     // Fallback if ack never comes
     setTimeout(() => { setSavingCreds(false); setCredsSaved(true); }, 3000);
@@ -116,7 +117,12 @@ export default function PayrollPage() {
                 {credsSaved && <CheckCircle className="w-3 h-3 text-green-400 ml-auto" />}
               </div>
               <p className="text-xs text-green-800 font-mono mb-1">Email</p>
-              <p className="text-xs text-green-500 font-mono mb-3 bg-black/30 px-2 py-1 rounded">kingsbbq2015@gmail.com</p>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full bg-black/40 border border-green-500/20 rounded px-2 py-1.5 text-xs font-mono text-green-300 placeholder-green-900 focus:outline-none focus:border-green-500/40 mb-3"
+              />
               {!credsSaved ? (
                 <>
                   <p className="text-xs text-green-800 font-mono mb-1">Password <span className="text-green-900">(stored locally in extension)</span></p>
