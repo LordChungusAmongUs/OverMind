@@ -177,31 +177,30 @@ async function _runPayrollJob(sendLog) {
     return;
   }
 
-  // Let the SPA fully settle after login before navigating
-  sendLog("Dashboard detected — waiting for app to settle...");
+  sendLog("Dashboard detected — letting app settle...");
   await sleep(3000);
 
-  const [{ result: preNavUrl }] = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => window.location.href,
-  });
-  sendLog(`Current URL before navigation: ${preNavUrl}`);
-
   try {
+    sendLog("Navigating to Timesheets...");
     await chrome.tabs.update(tabId, { url: "https://app.figurepos.com/reports/timesheet" });
     await waitForTabLoad(tabId);
-    await sleep(1000);
+    await sleep(1500);
 
-    const [{ result: postNavUrl }] = await chrome.scripting.executeScript({
+    // Bring the FigurePOS tab into focus so you can see the result
+    const tab = await chrome.tabs.get(tabId);
+    await chrome.tabs.update(tabId, { active: true });
+    await chrome.windows.update(tab.windowId, { focused: true });
+
+    const [{ result: finalUrl }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => window.location.href,
     });
-    sendLog(`Landed on: ${postNavUrl}`);
+    sendLog(`Landed on: ${finalUrl}`);
 
-    if (postNavUrl.includes("timesheet")) {
-      sendLog("Navigated to Timesheets!", "done");
+    if (finalUrl.includes("timesheet")) {
+      sendLog("Timesheets loaded successfully!", "done");
     } else {
-      sendLog(`Unexpected redirect to: ${postNavUrl}`, "error");
+      sendLog(`App redirected to: ${finalUrl} — may need longer settle time`, "error");
     }
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
