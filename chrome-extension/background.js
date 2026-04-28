@@ -92,6 +92,7 @@ async function _runPayrollJob(sendLog) {
   const { email, password } = stored.figurepos;
   sendLog("Filling login form...");
 
+  // Step 1: fill fields
   await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
     args: [email, password],
@@ -113,24 +114,36 @@ async function _runPayrollJob(sendLog) {
         setter.call(emailInput, em);
         emailInput.dispatchEvent(new Event("input", { bubbles: true }));
         emailInput.dispatchEvent(new Event("change", { bubbles: true }));
+        emailInput.dispatchEvent(new Event("blur", { bubbles: true }));
       }
       if (pwInput) {
         setter.call(pwInput, pw);
         pwInput.dispatchEvent(new Event("input", { bubbles: true }));
         pwInput.dispatchEvent(new Event("change", { bubbles: true }));
+        pwInput.dispatchEvent(new Event("blur", { bubbles: true }));
       }
+    },
+  });
 
+  // Step 2: wait for React to process, then click submit
+  await sleep(800);
+
+  const [{ result: submitResult }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
       const submit =
         document.querySelector('button[type="submit"]') ||
         Array.from(document.querySelectorAll("button")).find((b) => {
           const t = b.textContent?.trim().toLowerCase();
           return t === "log in" || t === "login" || t === "sign in" || t === "continue";
         });
-      if (submit) submit.click();
+      if (!submit) return "no-button";
+      submit.click();
+      return submit.textContent?.trim() || "clicked";
     },
   });
 
-  sendLog("Credentials submitted — waiting for dashboard...");
+  sendLog(`Submit button: "${submitResult}" — waiting for dashboard...`);
 
   await waitForTabLoad(tabId);
   await sleep(1000);
