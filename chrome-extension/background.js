@@ -316,7 +316,119 @@ async function _runPayrollJob(sendLog) {
         return `clicked: "${btn.textContent?.trim()}"`;
       },
     });
-    sendLog(`Apply Dates: ${applyResult}`, applyResult.startsWith("clicked") ? "done" : "error");
+    if (!applyResult.startsWith("clicked")) {
+      sendLog(`Apply Dates: ${applyResult}`, "error");
+      return;
+    }
+    sendLog(`Apply Dates: ${applyResult}`);
+
+    // Wait for page to re-render with the filtered date range
+    await sleep(2500);
+    sendLog("Scraping timesheet data...");
+
+    const [{ result: rawLines }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const main = document.querySelector("main") ||
+                     document.querySelector('[class*="content" i]') ||
+                     document.body;
+        return main.innerText
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0)
+          .slice(0, 200)
+          .join("\n");
+      },
+    });
+
+    // ── Parse ────────────────────────────────────────────────────────────
+    const lines = rawLines.split("\n");
+
+    // Common role keywords — extend as needed
+    const ROLE_KEYWORDS = [
+      "server", "kitchen", "host", "hostess", "manager", "bartender",
+      "cook", "cashier", "dishwasher", "prep", "expo", "busser", "bar",
+    ];
+    const HOURS_RE = /^(\d+\.\d+)$/;           // decimal hours cell e.g. "6.50"
+    const TIME_RE  = /^\d{1,2}:\d{2}\s*(am|pm)/i; // time-of-day cell
+    const NAME_SKIP = /^(search|all|clock|edit|\+|shift|today|yesterday|this|last|apply|cancel|reports|timesheet|management|employee|department|position|role|date|in|out|total|hours|week|filter)/i;
+
+    const employees = {}; // { name: { serverShifts: [{role,hours}], otherShifts: [{role,hours}] } }
+    let current = null;
+    let pendingRole = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Detect employee name: not a number, not a role keyword, not a UI label,
+      // and reasonably short (2–40 chars). Adjust heuristics based on output.
+      const isRole = ROLE_KEYWORDS.some((r) => line.toLowerCase().startsWith(r));
+      const isHours = HOURS_RE.test(line);
+      const isTime  = TIME_RE.test(line);
+      const isSkip  = NAME_SKIP.test(line);
+      const looksLikeName = !isRole && !isHours && !isTime && !isSkip &&
+                            line.length >= 2 && line.length <= 45 &&
+                            !/^\d/.test(line) && /[a-z]/i.test(line);
+
+      if (looksLikeName && !current) {
+        current = line;
+        employees[current] = employees[current] || { serverShifts: [], otherShifts: [] };
+        pendingRole = null;
+        continue;
+      }
+
+      if (isRole) { pendingRole = line; continue; }
+
+      if (isHours && pendingRole && current) {
+        const hours = parseFloat(line);
+        const isServer = pendingRole.toLowerCase().includes("server");
+        if (isServer) {
+          employees[current].serverShifts.push({ role: pendingRole, hours });
+        } else {
+          employees[current].otherShifts.push({ role: pendingRole, hours });
+        }
+        pendingRole = null;
+        continue;
+      }
+
+      // A new name can follow once we've seen at least one shift or a blank signal
+      if (looksLikeName && current && (employees[current].serverShifts.length + employees[current].otherShifts.length > 0)) {
+        current = line;
+        employees[current] = employees[current] || { serverShifts: [], otherShifts: [] };
+        pendingRole = null;
+      }
+    }
+
+    // ── Format & log results ────────────────────────────────────────────
+    const names = Object.keys(employees);
+    if (names.length === 0) {
+      // Parser didn't match — dump raw lines so structure can be inspected
+      sendLog("Parser found 0 employees. Raw page sample:");
+      for (const chunk of lines.slice(0, 60)) sendLog("  " + chunk);
+      sendLog("Paste the above to fix the parser.", "error");
+      return;
+    }
+
+    sendLog(`Found ${names.length} employee(s):`);
+    for (const name of names) {
+      const emp = employees[name];
+      const serverTotal = emp.serverShifts.reduce((s, x) => s + x.hours, 0);
+      const otherTotal  = emp.otherShifts.reduce((s, x) => s + x.hours, 0);
+      const otherRoles  = [...new Set(emp.otherShifts.map((x) => x.role))].join(", ");
+
+      sendLog(`▸ ${name}`);
+      for (const s of emp.serverShifts) {
+        sendLog(`    Server: ${s.hours.toFixed(2)}h`);
+      }
+      if (otherTotal > 0) {
+        sendLog(`    Other (${otherRoles}): ${otherTotal.toFixed(2)}h`);
+      }
+      if (serverTotal + otherTotal === 0) {
+        sendLog(`    (no shifts parsed)`);
+      }
+    }
+
+    sendLog("Timesheet scrape complete.", "done");
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
   }
