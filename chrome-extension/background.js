@@ -336,7 +336,7 @@ async function _runPayrollJob(sendLog) {
         target: { tabId },
         func: () => window.scrollBy(0, 800),
       });
-      await sleep(2000); // wait for API response + render
+      await sleep(3000); // wait for cloud API response + render
 
       const [{ result: h }] = await chrome.scripting.executeScript({
         target: { tabId },
@@ -366,6 +366,9 @@ async function _runPayrollJob(sendLog) {
         // by checking if their header row contains "Payable" and "Position".
         const tables = Array.from(document.querySelectorAll("table"));
 
+        // Diagnostic: capture structure around the first shift table found
+        let diagDone = false;
+
         for (const table of tables) {
           // Get all header cells (thead or first <tr>)
           const headerRow =
@@ -385,24 +388,55 @@ async function _runPayrollJob(sendLog) {
 
           if (iPayable < 0 || iPosition < 0) continue; // not a shift table
 
-          // Find the employee name in the DOM preceding this table
-          let empName = null;
-          const candidates = [];
-
-          // Walk up the DOM tree looking for a preceding sibling with a short name
-          let el = table;
-          for (let depth = 0; depth < 6 && !empName; depth++) {
-            let sib = el.previousElementSibling;
-            while (sib) {
-              const t = sib.innerText?.trim();
-              if (t && t.length >= 2 && t.length <= 60 && !/total|clock|payable|position|hours|break|location|cost|rate/i.test(t)) {
-                candidates.push(t);
-              }
-              sib = sib.previousElementSibling;
+          // ── Diagnostic: log parent structure once ─────────────────────
+          if (!diagDone) {
+            diagDone = true;
+            const diag = [];
+            let p = table.parentElement;
+            for (let d = 0; d < 5; d++) {
+              if (!p) break;
+              const childTags = Array.from(p.children).map((c) => {
+                const tag = c.tagName;
+                const cls = c.className?.toString().slice(0, 30) || "";
+                const txt = c.innerText?.trim().slice(0, 40).replace(/\n/g, " ") || "";
+                return `${tag}[${cls}]="${txt}"`;
+              });
+              diag.push(`depth${d} parent <${p.tagName} class="${p.className?.toString().slice(0,40)}">: ${childTags.join(" | ")}`);
+              p = p.parentElement;
             }
-            el = el.parentElement;
+            out.push({ __diag: diag });
           }
-          empName = candidates[0] || null;
+
+          // ── Find employee name ────────────────────────────────────────
+          // Strategy 1: look in same parent container for a non-table, non-empty element
+          const NAME_SKIP_RE = /^(clock|payable|position|total|hours|break|location|cost|rate|search|edit|\+|shift|in|out)$/i;
+          let empName = null;
+
+          // Walk up, checking all non-table siblings BEFORE this table
+          let el = table;
+          outer:
+          for (let depth = 0; depth < 8; depth++) {
+            const parent = el.parentElement;
+            if (!parent) break;
+            const siblings = Array.from(parent.children);
+            const tableIdx = siblings.indexOf(el);
+            for (let i = tableIdx - 1; i >= 0; i--) {
+              const sib = siblings[i];
+              if (sib.tagName === "TABLE") continue;
+              const t = sib.innerText?.trim().replace(/\s+/g, " ");
+              // A name: 2-50 chars, has letters, not a pure keyword, no newlines (it's a single label)
+              if (t && t.length >= 2 && t.length <= 50 && /[a-zA-Z]/.test(t) && !NAME_SKIP_RE.test(t) && !t.includes("\n")) {
+                empName = t;
+                break outer;
+              }
+              // If the sibling has multiple lines, grab just the first meaningful line
+              if (t && t.includes("\n")) {
+                const firstLine = t.split("\n").map(l => l.trim()).find(l => l.length >= 2 && l.length <= 50 && /[a-zA-Z]/.test(l) && !NAME_SKIP_RE.test(l));
+                if (firstLine) { empName = firstLine; break outer; }
+              }
+            }
+            el = parent;
+          }
 
           // Collect shift rows (exclude header and Totals row)
           const bodyRows = Array.from(
@@ -440,6 +474,14 @@ async function _runPayrollJob(sendLog) {
     // ── Aggregate & format ────────────────────────────────────────────────
     let parsed;
     try { parsed = JSON.parse(jsonData); } catch { parsed = []; }
+
+    // Pull out and log the diagnostic block if present
+    const diagEntry = parsed.find((e) => e.__diag);
+    if (diagEntry) {
+      sendLog("DOM structure around first shift table:");
+      for (const line of diagEntry.__diag) sendLog("  " + line);
+      parsed = parsed.filter((e) => !e.__diag);
+    }
 
     if (!parsed.length) {
       sendLog("No employee shift tables found in DOM.", "error");
