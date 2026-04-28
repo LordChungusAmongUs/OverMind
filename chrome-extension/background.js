@@ -180,32 +180,11 @@ async function _runPayrollJob(sendLog) {
   sendLog("Logged in! Clicking Reports > Timesheets...");
 
   try {
-    // Find the Timesheets <a> href and navigate directly — avoids toggling Reports
-    const [{ result: tsHref }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        // Prefer an <a> whose href contains "timesheet"
-        const byHref = Array.from(document.querySelectorAll("a")).find(
-          (a) => a.href.toLowerCase().includes("timesheet")
-        );
-        if (byHref) return byHref.href;
-        // Fallback: <a> whose own text is "Timesheets"
-        const byText = Array.from(document.querySelectorAll("a")).find(
-          (a) => a.textContent?.trim().toLowerCase() === "timesheets"
-        );
-        return byText?.href || null;
-      },
-    });
-
-    if (tsHref) {
-      sendLog(`Navigating to Timesheets (${tsHref})...`);
-      await chrome.tabs.update(tabId, { url: tsHref });
-      await waitForTabLoad(tabId);
-      await sleep(500);
-      sendLog("Navigated to Timesheets!", "done");
-    } else {
-      sendLog("Timesheets link not found — may need to expand Reports manually.", "error");
-    }
+    sendLog("Navigating to Timesheets...");
+    await chrome.tabs.update(tabId, { url: "https://app.figurepos.com/reports/timesheet" });
+    await waitForTabLoad(tabId);
+    await sleep(500);
+    sendLog("Navigated to Timesheets!", "done");
   } catch (err) {
     sendLog(`ERROR: ${err.message}`, "error");
   }
