@@ -324,109 +324,157 @@ async function _runPayrollJob(sendLog) {
 
     // Wait for page to re-render with the filtered date range
     await sleep(2500);
-    sendLog("Scraping timesheet data...");
 
-    const [{ result: rawLines }] = await chrome.scripting.executeScript({
+    // Scroll to bottom so all employee blocks load into the DOM
+    sendLog("Loading all employee blocks...");
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => window.scrollTo(0, document.body.scrollHeight),
+    });
+    await sleep(1500);
+
+    sendLog("Extracting timesheet data from DOM...");
+
+    const [{ result: jsonData }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        const main = document.querySelector("main") ||
-                     document.querySelector('[class*="content" i]') ||
-                     document.body;
-        return main.innerText
-          .split("\n")
-          .map((l) => l.trim())
-          .filter((l) => l.length > 0)
-          .slice(0, 200)
-          .join("\n");
+        const out = [];
+
+        // Every employee block = a name header + a table ending with a Totals row.
+        // Find all tables on the page and identify the ones that look like shift tables
+        // by checking if their header row contains "Payable" and "Position".
+        const tables = Array.from(document.querySelectorAll("table"));
+
+        for (const table of tables) {
+          // Get all header cells (thead or first <tr>)
+          const headerRow =
+            table.querySelector("thead tr") ||
+            table.querySelector("tr:first-child");
+          if (!headerRow) continue;
+
+          const headerCells = Array.from(headerRow.querySelectorAll("th, td"));
+          const headers = headerCells.map((c) => c.innerText.trim().toLowerCase());
+
+          // Column indices — position MUST be present
+          const ci = (kw) => headers.findIndex((h) => h.includes(kw));
+          const iClockIn   = ci("clock in");
+          const iClockOut  = ci("clock out");
+          const iPayable   = ci("payable");
+          const iPosition  = ci("position");
+
+          if (iPayable < 0 || iPosition < 0) continue; // not a shift table
+
+          // Find the employee name in the DOM preceding this table
+          let empName = null;
+          const candidates = [];
+
+          // Walk up the DOM tree looking for a preceding sibling with a short name
+          let el = table;
+          for (let depth = 0; depth < 6 && !empName; depth++) {
+            let sib = el.previousElementSibling;
+            while (sib) {
+              const t = sib.innerText?.trim();
+              if (t && t.length >= 2 && t.length <= 60 && !/total|clock|payable|position|hours|break|location|cost|rate/i.test(t)) {
+                candidates.push(t);
+              }
+              sib = sib.previousElementSibling;
+            }
+            el = el.parentElement;
+          }
+          empName = candidates[0] || null;
+
+          // Collect shift rows (exclude header and Totals row)
+          const bodyRows = Array.from(
+            table.querySelectorAll("tbody tr, tr:not(:first-child)")
+          );
+
+          const shifts = [];
+          for (const row of bodyRows) {
+            const cells = Array.from(row.querySelectorAll("td"));
+            if (!cells.length) continue;
+
+            // Skip totals row
+            const firstText = cells[0]?.innerText?.trim().toLowerCase();
+            if (firstText === "totals" || firstText === "total") continue;
+
+            const clockIn  = iClockIn  >= 0 ? cells[iClockIn]?.innerText?.trim()  : "";
+            const clockOut = iClockOut >= 0 ? cells[iClockOut]?.innerText?.trim() : "";
+            const payable  = cells[iPayable]?.innerText?.trim();
+            const position = cells[iPosition]?.innerText?.trim();
+
+            if (!payable || payable === "") continue;
+
+            shifts.push({ clockIn, clockOut, payable, position: position || "" });
+          }
+
+          if (shifts.length > 0) {
+            out.push({ name: empName || "Unknown", shifts });
+          }
+        }
+
+        return JSON.stringify(out);
       },
     });
 
-    // ── Parse ────────────────────────────────────────────────────────────
-    const lines = rawLines.split("\n");
+    // ── Aggregate & format ────────────────────────────────────────────────
+    let parsed;
+    try { parsed = JSON.parse(jsonData); } catch { parsed = []; }
 
-    // Common role keywords — extend as needed
-    const ROLE_KEYWORDS = [
-      "server", "kitchen", "host", "hostess", "manager", "bartender",
-      "cook", "cashier", "dishwasher", "prep", "expo", "busser", "bar",
-    ];
-    const HOURS_RE = /^(\d+\.\d+)$/;           // decimal hours cell e.g. "6.50"
-    const TIME_RE  = /^\d{1,2}:\d{2}\s*(am|pm)/i; // time-of-day cell
-    const NAME_SKIP = /^(search|all|clock|edit|\+|shift|today|yesterday|this|last|apply|cancel|reports|timesheet|management|employee|department|position|role|date|in|out|total|hours|week|filter)/i;
-
-    const employees = {}; // { name: { serverShifts: [{role,hours}], otherShifts: [{role,hours}] } }
-    let current = null;
-    let pendingRole = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      // Detect employee name: not a number, not a role keyword, not a UI label,
-      // and reasonably short (2–40 chars). Adjust heuristics based on output.
-      const isRole = ROLE_KEYWORDS.some((r) => line.toLowerCase().startsWith(r));
-      const isHours = HOURS_RE.test(line);
-      const isTime  = TIME_RE.test(line);
-      const isSkip  = NAME_SKIP.test(line);
-      const looksLikeName = !isRole && !isHours && !isTime && !isSkip &&
-                            line.length >= 2 && line.length <= 45 &&
-                            !/^\d/.test(line) && /[a-z]/i.test(line);
-
-      if (looksLikeName && !current) {
-        current = line;
-        employees[current] = employees[current] || { serverShifts: [], otherShifts: [] };
-        pendingRole = null;
-        continue;
-      }
-
-      if (isRole) { pendingRole = line; continue; }
-
-      if (isHours && pendingRole && current) {
-        const hours = parseFloat(line);
-        const isServer = pendingRole.toLowerCase().includes("server");
-        if (isServer) {
-          employees[current].serverShifts.push({ role: pendingRole, hours });
-        } else {
-          employees[current].otherShifts.push({ role: pendingRole, hours });
-        }
-        pendingRole = null;
-        continue;
-      }
-
-      // A new name can follow once we've seen at least one shift or a blank signal
-      if (looksLikeName && current && (employees[current].serverShifts.length + employees[current].otherShifts.length > 0)) {
-        current = line;
-        employees[current] = employees[current] || { serverShifts: [], otherShifts: [] };
-        pendingRole = null;
-      }
-    }
-
-    // ── Format & log results ────────────────────────────────────────────
-    const names = Object.keys(employees);
-    if (names.length === 0) {
-      // Parser didn't match — dump raw lines so structure can be inspected
-      sendLog("Parser found 0 employees. Raw page sample:");
-      for (const chunk of lines.slice(0, 60)) sendLog("  " + chunk);
-      sendLog("Paste the above to fix the parser.", "error");
+    if (!parsed.length) {
+      sendLog("No employee shift tables found in DOM.", "error");
       return;
     }
 
-    sendLog(`Found ${names.length} employee(s):`);
-    for (const name of names) {
-      const emp = employees[name];
-      const serverTotal = emp.serverShifts.reduce((s, x) => s + x.hours, 0);
-      const otherTotal  = emp.otherShifts.reduce((s, x) => s + x.hours, 0);
-      const otherRoles  = [...new Set(emp.otherShifts.map((x) => x.role))].join(", ");
+    sendLog(`Found ${parsed.length} employee block(s):`);
 
-      sendLog(`▸ ${name}`);
-      for (const s of emp.serverShifts) {
-        sendLog(`    Server: ${s.hours.toFixed(2)}h`);
+    const csvRows = ["employee,server_hours,other_hours,other_breakdown,grand_total"];
+
+    for (const emp of parsed) {
+      const serverShifts = [];
+      const otherByRole  = {}; // role → total hours
+
+      let blankPosition = false;
+
+      for (const shift of emp.shifts) {
+        if (!shift.position) { blankPosition = true; break; }
+        const hrs = parseFloat(shift.payable) || 0;
+        if (shift.position.toLowerCase() === "server") {
+          serverShifts.push({ ...shift, hrs });
+        } else {
+          otherByRole[shift.position] = (otherByRole[shift.position] || 0) + hrs;
+        }
       }
-      if (otherTotal > 0) {
-        sendLog(`    Other (${otherRoles}): ${otherTotal.toFixed(2)}h`);
+
+      if (blankPosition) {
+        sendLog(`⚠ ${emp.name}: blank Position on a shift — stopping.`, "error");
+        return;
       }
-      if (serverTotal + otherTotal === 0) {
-        sendLog(`    (no shifts parsed)`);
+
+      const serverTotal = serverShifts.reduce((s, x) => s + x.hrs, 0);
+      const otherTotal  = Object.values(otherByRole).reduce((s, x) => s + x, 0);
+      const grandTotal  = serverTotal + otherTotal;
+
+      // Per-employee detail
+      sendLog(`▸ ${emp.name}`);
+      sendLog(`    Shifts:`);
+      for (const s of emp.shifts) {
+        const hrs = parseFloat(s.payable) || 0;
+        sendLog(`      ${s.clockIn} – ${s.clockOut}   ${s.position}   ${hrs.toFixed(2)}h`);
       }
+      sendLog(`    Totals:`);
+      sendLog(`      Server: ${serverTotal.toFixed(2)} hrs`);
+      const otherBreakdown = Object.entries(otherByRole).map(([r, h]) => `${r}: ${h.toFixed(2)}`).join("; ");
+      sendLog(`      Other:  ${otherTotal.toFixed(2)} hrs   (${otherBreakdown || "none"})`);
+      sendLog(`      Grand:  ${grandTotal.toFixed(2)} hrs`);
+
+      // CSV row
+      csvRows.push(
+        `"${emp.name}",${serverTotal.toFixed(2)},${otherTotal.toFixed(2)},"${otherBreakdown}",${grandTotal.toFixed(2)}`
+      );
     }
+
+    sendLog("── CSV SUMMARY ──");
+    for (const row of csvRows) sendLog(row);
 
     sendLog("Timesheet scrape complete.", "done");
   } catch (err) {
