@@ -180,19 +180,34 @@ async function _runPayrollJob(sendLog) {
   sendLog("Logged in! Clicking Reports > Timesheets...");
 
   try {
-    // Click "Reports" to expand the menu
-    await chrome.scripting.executeScript({
+    // Check if Timesheets is already visible; if not, expand Reports first
+    const [{ result: tsVisible }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
         const all = Array.from(document.querySelectorAll("a, button, li, span, div"));
-        const reports = all.find((el) => el.textContent?.trim().toLowerCase() === "reports");
-        if (reports) reports.click();
+        const ts = all.find(
+          (el) =>
+            el.textContent?.trim().toLowerCase() === "timesheets" ||
+            el.textContent?.trim().toLowerCase() === "timesheet"
+        );
+        return ts ? ts.offsetParent !== null : false;
       },
     });
 
-    await sleep(800);
+    if (!tsVisible) {
+      sendLog("Reports menu is collapsed — expanding...");
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const all = Array.from(document.querySelectorAll("a, button, li, span, div"));
+          const reports = all.find((el) => el.textContent?.trim().toLowerCase() === "reports");
+          if (reports) reports.click();
+        },
+      });
+      await sleep(800);
+    }
 
-    // Click "Timesheets" from the expanded Reports menu
+    // Click Timesheets
     const [{ result: clicked }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
