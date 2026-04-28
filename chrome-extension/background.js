@@ -160,7 +160,7 @@ async function _runPayrollJob(sendLog) {
           return {
             hasPassword: !!document.querySelector('input[type="password"]'),
             hasManagement:
-              text.toLowerCase().includes("management") ||
+              text.toLowerCase().includes("reports") ||
               text.toLowerCase().includes("timesheets"),
           };
         },
@@ -177,20 +177,22 @@ async function _runPayrollJob(sendLog) {
     return;
   }
 
-  sendLog("Logged in! Clicking Management > Timesheets...");
+  sendLog("Logged in! Clicking Reports > Timesheets...");
 
   try {
+    // Click "Reports" to expand the menu
     await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
         const all = Array.from(document.querySelectorAll("a, button, li, span, div"));
-        const mgmt = all.find((el) => el.textContent?.trim().toLowerCase() === "management");
-        if (mgmt) mgmt.click();
+        const reports = all.find((el) => el.textContent?.trim().toLowerCase() === "reports");
+        if (reports) reports.click();
       },
     });
 
     await sleep(800);
 
+    // Click "Timesheets" from the expanded Reports menu
     const [{ result: clicked }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
@@ -208,7 +210,7 @@ async function _runPayrollJob(sendLog) {
     if (clicked) {
       sendLog("Navigated to Timesheets!", "done");
     } else {
-      sendLog("Logged in but Timesheets link not found.", "error");
+      sendLog("Reached dashboard but Timesheets link not found under Reports.", "error");
     }
   } catch (err) {
     sendLog(`ERROR: ${err.message}`, "error");
