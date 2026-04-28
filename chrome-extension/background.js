@@ -325,13 +325,34 @@ async function _runPayrollJob(sendLog) {
     // Wait for page to re-render with the filtered date range
     await sleep(2500);
 
-    // Scroll to bottom so all employee blocks load into the DOM
-    sendLog("Loading all employee blocks...");
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => window.scrollTo(0, document.body.scrollHeight),
-    });
-    await sleep(1500);
+    // Lazy-scroll loop: scroll → wait for cloud data to render → repeat until stable
+    sendLog("Loading all employee blocks (lazy scroll)...");
+    let lastHeight = 0;
+    let stableRounds = 0;
+    const MAX_ROUNDS = 40;
+
+    for (let round = 0; round < MAX_ROUNDS && stableRounds < 3; round++) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => window.scrollBy(0, 800),
+      });
+      await sleep(2000); // wait for API response + render
+
+      const [{ result: h }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => document.body.scrollHeight,
+      });
+
+      if (h === lastHeight) {
+        stableRounds++;
+      } else {
+        stableRounds = 0;
+        lastHeight = h;
+        sendLog(`Scrolling... (${h}px loaded)`);
+      }
+    }
+
+    sendLog("All content loaded — extracting data...");
 
     sendLog("Extracting timesheet data from DOM...");
 
