@@ -329,6 +329,60 @@ async function _runPayrollJob(sendLog) {
     // (FigurePOS loads employees into a fixed container; height may not change)
     sendLog("Loading all employee blocks (lazy scroll)...");
 
+    // Find the scrollable employee-list container once, then reuse it
+    const [{ result: scrollDiag }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        // Walk up from the first shift table to find ALL scrollable ancestors
+        const table = Array.from(document.querySelectorAll("table")).find((t) => {
+          const hs = Array.from(t.querySelectorAll("th,thead td")).map((c) => c.innerText.toLowerCase());
+          return hs.some((h) => h.includes("payable"));
+        });
+        if (!table) return "no-shift-table-found";
+
+        const scrollables = [];
+        let el = table.parentElement;
+        while (el && el !== document.documentElement) {
+          const s = window.getComputedStyle(el);
+          const oy = s.overflowY;
+          if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 50) {
+            scrollables.push({
+              tag: el.tagName,
+              cls: (el.className || "").toString().slice(0, 60),
+              scrollH: el.scrollHeight,
+              clientH: el.clientHeight,
+              scrollTop: el.scrollTop,
+            });
+          }
+          el = el.parentElement;
+        }
+        // Also check body/html
+        scrollables.push({
+          tag: "BODY",
+          cls: "",
+          scrollH: document.body.scrollHeight,
+          clientH: document.body.clientHeight,
+          scrollTop: document.body.scrollTop,
+        });
+        return JSON.stringify(scrollables);
+      },
+    });
+
+    sendLog("Scrollable ancestors: " + scrollDiag);
+
+    // Parse scrollable containers - pick the outermost non-table one
+    let scrollContainerCls = null;
+    try {
+      const scrollables = JSON.parse(scrollDiag);
+      // Outermost = last in list (walked up from table); skip ant-table internals
+      const outer = [...scrollables].reverse().find(
+        (s) => !s.cls.includes("ant-table") && s.scrollH > s.clientH + 50
+      );
+      if (outer) scrollContainerCls = outer.cls.split(" ")[0];
+    } catch (_) {}
+
+    sendLog(`Scroll target class: ${scrollContainerCls || "window"}`);
+
     const countShiftTables = () => chrome.scripting.executeScript({
       target: { tabId },
       func: () => Array.from(document.querySelectorAll("table")).filter((t) => {
@@ -338,25 +392,43 @@ async function _runPayrollJob(sendLog) {
       }).length,
     }).then(([{ result }]) => result);
 
-    // Also try scrolling the ant-table scroll container itself
-    const scrollDown = () => chrome.scripting.executeScript({
+    const scrollDown = (cls) => chrome.scripting.executeScript({
       target: { tabId },
-      func: () => {
-        window.scrollBy(0, 800);
-        // Also scroll any overflow containers that might hold employee list
-        document.querySelectorAll('[class*="scroll"], [class*="content"], [class*="body"]').forEach((el) => {
-          if (el.scrollHeight > el.clientHeight) el.scrollBy(0, 800);
+      args: [cls],
+      func: (targetCls) => {
+        // Always scroll the window
+        window.scrollBy(0, 900);
+        document.documentElement.scrollTop += 900;
+        document.body.scrollTop += 900;
+
+        // Scroll the identified container by class
+        if (targetCls) {
+          const el = document.querySelector(`.${targetCls}`);
+          if (el) el.scrollTop += 900;
+        }
+
+        // Also scroll every overflowing div that isn't an ant-table internal
+        Array.from(document.querySelectorAll("div")).forEach((el) => {
+          try {
+            const s = window.getComputedStyle(el);
+            const oy = s.overflowY;
+            if ((oy === "auto" || oy === "scroll") &&
+                el.scrollHeight > el.clientHeight + 50 &&
+                !(el.className || "").includes("ant-table")) {
+              el.scrollTop += 900;
+            }
+          } catch (_) {}
         });
       },
     });
 
     let lastCount = 0;
     let stableRounds = 0;
-    const MAX_ROUNDS = 50;
+    const MAX_ROUNDS = 60;
 
-    for (let round = 0; round < MAX_ROUNDS && stableRounds < 3; round++) {
-      await scrollDown();
-      await sleep(3000);
+    for (let round = 0; round < MAX_ROUNDS && stableRounds < 4; round++) {
+      await scrollDown(scrollContainerCls);
+      await sleep(3500);
 
       const count = await countShiftTables();
       if (count === lastCount) {
