@@ -180,34 +180,7 @@ async function _runPayrollJob(sendLog) {
   sendLog("Logged in! Clicking Reports > Timesheets...");
 
   try {
-    // Check if Timesheets is already visible; if not, expand Reports first
-    const [{ result: tsVisible }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const all = Array.from(document.querySelectorAll("a, button, li, span, div"));
-        const ts = all.find(
-          (el) =>
-            el.textContent?.trim().toLowerCase() === "timesheets" ||
-            el.textContent?.trim().toLowerCase() === "timesheet"
-        );
-        return ts ? ts.offsetParent !== null : false;
-      },
-    });
-
-    if (!tsVisible) {
-      sendLog("Reports menu is collapsed — expanding...");
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          const all = Array.from(document.querySelectorAll("a, button, li, span, div"));
-          const reports = all.find((el) => el.textContent?.trim().toLowerCase() === "reports");
-          if (reports) reports.click();
-        },
-      });
-      await sleep(800);
-    }
-
-    // Click Timesheets
+    // Try clicking Timesheets directly (Reports is expanded by default)
     const [{ result: clicked }] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
@@ -217,15 +190,44 @@ async function _runPayrollJob(sendLog) {
             el.textContent?.trim().toLowerCase() === "timesheets" ||
             el.textContent?.trim().toLowerCase() === "timesheet"
         );
-        if (ts) { ts.click(); return true; }
-        return false;
+        if (!ts) return "not-found";
+        const rect = ts.getBoundingClientRect();
+        if (rect.height === 0 || rect.width === 0) return "hidden";
+        ts.click();
+        return "clicked";
       },
     });
 
-    if (clicked) {
-      sendLog("Navigated to Timesheets!", "done");
+    // If Timesheets was hidden, Reports must be collapsed — expand it and retry
+    if (clicked === "hidden" || clicked === "not-found") {
+      sendLog("Reports menu collapsed — expanding...");
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const all = Array.from(document.querySelectorAll("a, button, li, span, div"));
+          const reports = all.find((el) => el.textContent?.trim().toLowerCase() === "reports");
+          if (reports) reports.click();
+        },
+      });
+      await sleep(800);
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const all = Array.from(document.querySelectorAll("a, button, li, span, div"));
+          const ts = all.find(
+            (el) =>
+              el.textContent?.trim().toLowerCase() === "timesheets" ||
+              el.textContent?.trim().toLowerCase() === "timesheet"
+          );
+          if (ts) ts.click();
+        },
+      });
+    }
+
+    if (clicked === "not-found") {
+      sendLog("Timesheets link not found in sidebar.", "error");
     } else {
-      sendLog("Reached dashboard but Timesheets link not found under Reports.", "error");
+      sendLog("Navigated to Timesheets!", "done");
     }
   } catch (err) {
     sendLog(`ERROR: ${err.message}`, "error");
