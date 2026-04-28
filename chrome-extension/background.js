@@ -270,41 +270,38 @@ async function _runPayrollJob(sendLog) {
 
     await sleep(800);
 
-    // Click start date — search ALL buttons (not just visible), last match = right month pane
-    const [{ result: startResult }] = await chrome.scripting.executeScript({
+    // Type directly into the MM/DD/YYYY input fields using execCommand (simulates real typing)
+    const [{ result: fillResult }] = await chrome.scripting.executeScript({
       target: { tabId },
-      args: [startD],
-      func: (day) => {
-        const dayBtns = Array.from(document.querySelectorAll("button"))
-          .filter((b) => b.textContent?.trim() === String(day));
-        if (!dayBtns.length) return `not-found: day ${day}`;
-        const btn = dayBtns[dayBtns.length - 1]; // last = right/later month
-        btn.scrollIntoView({ block: "center", inline: "center" });
-        btn.click();
-        return `clicked "${btn.textContent?.trim()}" (${dayBtns.length} found)`;
+      args: [startLabel, endLabel],
+      func: (start, end) => {
+        const inputs = Array.from(document.querySelectorAll('input[placeholder="MM/DD/YYYY"]'));
+        if (inputs.length < 2) return `only ${inputs.length} MM/DD/YYYY inputs found`;
+
+        function typeInto(input, value) {
+          input.focus();
+          input.select();
+          const ok = document.execCommand("insertText", false, value);
+          if (!ok) {
+            // execCommand fallback via native setter
+            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+            setter.call(input, value);
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+          input.blur();
+        }
+
+        // Try the last two inputs first (dialog inputs render after page inputs)
+        const pair = inputs.length >= 4 ? inputs.slice(-2) : inputs.slice(0, 2);
+        typeInto(pair[0], start);
+        typeInto(pair[1], end);
+        return `typed into inputs[-2] and inputs[-1]: ${start} → ${end} (${inputs.length} total found)`;
       },
     });
-    sendLog(`Start date (${startD}): ${startResult}`);
+    sendLog(`Date fields: ${fillResult}`);
 
-    await sleep(500);
-
-    // Click end date
-    const [{ result: endResult }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      args: [endD],
-      func: (day) => {
-        const dayBtns = Array.from(document.querySelectorAll("button"))
-          .filter((b) => b.textContent?.trim() === String(day));
-        if (!dayBtns.length) return `not-found: day ${day}`;
-        const btn = dayBtns[dayBtns.length - 1];
-        btn.scrollIntoView({ block: "center", inline: "center" });
-        btn.click();
-        return `clicked "${btn.textContent?.trim()}" (${dayBtns.length} found)`;
-      },
-    });
-    sendLog(`End date (${endD}): ${endResult}`);
-
-    await sleep(500);
+    await sleep(600);
 
     // Click "Apply Dates"
     const [{ result: applyResult }] = await chrome.scripting.executeScript({
@@ -314,7 +311,7 @@ async function _runPayrollJob(sendLog) {
           b.textContent?.trim().toLowerCase().includes("apply")
         );
         if (!btn) return "not-found";
-        if (btn.disabled) return "disabled — range not accepted";
+        if (btn.disabled) return "disabled — dates not accepted yet";
         btn.click();
         return `clicked: "${btn.textContent?.trim()}"`;
       },
