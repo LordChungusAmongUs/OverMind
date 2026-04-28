@@ -270,47 +270,56 @@ async function _runPayrollJob(sendLog) {
 
     await sleep(800);
 
-    // Dump calendar DOM structure so we can see exactly what we're working with
-    const [{ result: domInfo }] = await chrome.scripting.executeScript({
+    // Click start date — search ALL buttons (not just visible), last match = right month pane
+    const [{ result: startResult }] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: () => {
-        const lines = [];
-
-        // All visible inputs
-        const inputs = Array.from(document.querySelectorAll("input")).filter(
-          (i) => i.getBoundingClientRect().width > 0
-        );
-        lines.push(`INPUTS(${inputs.length}): ` + inputs.map(
-          (i) => `type=${i.type} placeholder="${i.placeholder}" value="${i.value}"`
-        ).join(" | "));
-
-        // All <td> cells that have short text (day numbers 1-31)
-        const tds = Array.from(document.querySelectorAll("td")).filter((td) => {
-          const t = td.textContent?.trim();
-          return /^\d{1,2}$/.test(t) && td.getBoundingClientRect().width > 0;
-        });
-        // Sample first 16 with their column index in the row
-        const tdSample = tds.slice(0, 16).map((td) => {
-          const cells = Array.from(td.parentElement.querySelectorAll("td"));
-          const col = cells.indexOf(td);
-          return `"${td.textContent?.trim()}"@col${col}`;
-        });
-        lines.push(`TD-CELLS: ${tdSample.join(", ")}`);
-
-        // All buttons
-        const btns = Array.from(document.querySelectorAll("button")).filter(
-          (b) => b.getBoundingClientRect().width > 0
-        );
-        lines.push(`BUTTONS: ` + btns.map((b) => `"${b.textContent?.trim().slice(0, 20)}"`).join(" | "));
-
-        return lines.join("\n");
+      args: [startD],
+      func: (day) => {
+        const dayBtns = Array.from(document.querySelectorAll("button"))
+          .filter((b) => b.textContent?.trim() === String(day));
+        if (!dayBtns.length) return `not-found: day ${day}`;
+        const btn = dayBtns[dayBtns.length - 1]; // last = right/later month
+        btn.scrollIntoView({ block: "center", inline: "center" });
+        btn.click();
+        return `clicked "${btn.textContent?.trim()}" (${dayBtns.length} found)`;
       },
     });
+    sendLog(`Start date (${startD}): ${startResult}`);
 
-    // Send each line as a separate log entry
-    for (const line of domInfo.split("\n")) sendLog(line);
+    await sleep(500);
 
-    sendLog("Diagnostic complete — paste this log so selectors can be fixed.", "error");
+    // Click end date
+    const [{ result: endResult }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      args: [endD],
+      func: (day) => {
+        const dayBtns = Array.from(document.querySelectorAll("button"))
+          .filter((b) => b.textContent?.trim() === String(day));
+        if (!dayBtns.length) return `not-found: day ${day}`;
+        const btn = dayBtns[dayBtns.length - 1];
+        btn.scrollIntoView({ block: "center", inline: "center" });
+        btn.click();
+        return `clicked "${btn.textContent?.trim()}" (${dayBtns.length} found)`;
+      },
+    });
+    sendLog(`End date (${endD}): ${endResult}`);
+
+    await sleep(500);
+
+    // Click "Apply Dates"
+    const [{ result: applyResult }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const btn = Array.from(document.querySelectorAll("button")).find((b) =>
+          b.textContent?.trim().toLowerCase().includes("apply")
+        );
+        if (!btn) return "not-found";
+        if (btn.disabled) return "disabled — range not accepted";
+        btn.click();
+        return `clicked: "${btn.textContent?.trim()}"`;
+      },
+    });
+    sendLog(`Apply Dates: ${applyResult}`, applyResult.startsWith("clicked") ? "done" : "error");
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
   }
