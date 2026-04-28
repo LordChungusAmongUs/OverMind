@@ -325,282 +325,129 @@ async function _runPayrollJob(sendLog) {
     // Wait for page to re-render with the filtered date range
     await sleep(2500);
 
-    // Lazy-scroll loop — count shift tables, not page height
-    // (FigurePOS loads employees into a fixed container; height may not change)
-    sendLog("Loading all employee blocks (lazy scroll)...");
+    // Virtual-scroll accumulator — extract at each scroll position, merge by name
+    sendLog("Scanning all employees (virtual scroll)...");
 
-    // Find the scrollable employee-list container once, then reuse it
-    const [{ result: scrollDiag }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        // Walk up from the first shift table to find ALL scrollable ancestors
-        const table = Array.from(document.querySelectorAll("table")).find((t) => {
+    // Inline extractor: returns employee objects currently in the DOM
+    const EXTRACTOR = () => {
+      const out = [];
+      const NAME_SKIP = /^(clock|payable|position|total|hours|break|location|cost|rate|search|edit|\+|shift|in|out)$/i;
+
+      function findName(table) {
+        const spinWrapper = table.closest(".ant-spin-nested-loading") ||
+                            table.closest(".ant-spin-container")?.parentElement;
+        const start = spinWrapper || table;
+        let el = start;
+        for (let depth = 0; depth < 10; depth++) {
+          const parent = el.parentElement;
+          if (!parent) break;
+          const siblings = Array.from(parent.children);
+          const idx = siblings.indexOf(el);
+          for (let i = idx - 1; i >= 0; i--) {
+            const sib = siblings[i];
+            if (sib.tagName === "TABLE") continue;
+            const lines = (sib.innerText || "").split("\n").map((l) => l.trim());
+            const name = lines.find(
+              (l) => l.length >= 2 && l.length <= 60 && /[a-zA-Z]/.test(l) && !NAME_SKIP.test(l)
+            );
+            if (name) return name;
+          }
+          el = parent;
+        }
+        return null;
+      }
+
+      for (const table of Array.from(document.querySelectorAll("table"))) {
+        const headerRow = table.querySelector("thead tr") || table.querySelector("tr:first-child");
+        if (!headerRow) continue;
+        const headers = Array.from(headerRow.querySelectorAll("th,td")).map((c) => c.innerText.trim().toLowerCase());
+        const ci = (kw) => headers.findIndex((h) => h.includes(kw));
+        const iClockIn = ci("clock in"), iClockOut = ci("clock out");
+        const iPayable = ci("payable"), iPosition = ci("position");
+        if (iPayable < 0 || iPosition < 0) continue;
+
+        const name = findName(table) || "Unknown";
+        const shifts = [];
+        for (const row of Array.from(table.querySelectorAll("tbody tr, tr:not(:first-child)"))) {
+          const cells = Array.from(row.querySelectorAll("td"));
+          if (!cells.length) continue;
+          const ft = cells[0]?.innerText?.trim().toLowerCase();
+          if (ft === "totals" || ft === "total") continue;
+          const payable = cells[iPayable]?.innerText?.trim();
+          if (!payable) continue;
+          shifts.push({
+            clockIn:  iClockIn  >= 0 ? cells[iClockIn]?.innerText?.trim()  : "",
+            clockOut: iClockOut >= 0 ? cells[iClockOut]?.innerText?.trim() : "",
+            payable,
+            position: cells[iPosition]?.innerText?.trim() || "",
+          });
+        }
+        if (shifts.length) out.push({ name, shifts });
+      }
+      return JSON.stringify(out);
+    };
+
+    // Scroll the virtual list container (no class, scrollH>>clientH, not ant-table)
+    const SCROLL_AND_CHECK = () => {
+      function findContainer() {
+        const tbl = Array.from(document.querySelectorAll("table")).find((t) => {
           const hs = Array.from(t.querySelectorAll("th,thead td")).map((c) => c.innerText.toLowerCase());
           return hs.some((h) => h.includes("payable"));
         });
-        if (!table) return "no-shift-table-found";
-
-        const scrollables = [];
-        let el = table.parentElement;
+        if (!tbl) return null;
+        let el = tbl.parentElement;
         while (el && el !== document.documentElement) {
-          const s = window.getComputedStyle(el);
-          const oy = s.overflowY;
-          if ((oy === "auto" || oy === "scroll") && el.scrollHeight > el.clientHeight + 50) {
-            scrollables.push({
-              tag: el.tagName,
-              cls: (el.className || "").toString().slice(0, 60),
-              scrollH: el.scrollHeight,
-              clientH: el.clientHeight,
-              scrollTop: el.scrollTop,
-            });
+          const oy = window.getComputedStyle(el).overflowY;
+          const cls = (el.className || "").toString();
+          if ((oy === "auto" || oy === "scroll") && el.scrollHeight > 800 && !cls.includes("ant-table")) {
+            return el;
           }
           el = el.parentElement;
         }
-        // Also check body/html
-        scrollables.push({
-          tag: "BODY",
-          cls: "",
-          scrollH: document.body.scrollHeight,
-          clientH: document.body.clientHeight,
-          scrollTop: document.body.scrollTop,
-        });
-        return JSON.stringify(scrollables);
-      },
-    });
+        return null;
+      }
+      const c = findContainer();
+      if (!c) { window.scrollBy(0, 400); return { atBottom: false }; }
+      const atBottom = c.scrollTop + c.clientHeight >= c.scrollHeight - 30;
+      c.scrollTop += c.clientHeight;
+      return { atBottom, scrollTop: c.scrollTop, scrollH: c.scrollHeight };
+    };
 
-    sendLog("Scrollable ancestors: " + scrollDiag);
-
-    // Parse scrollable containers - pick the outermost non-table one
-    let scrollContainerCls = null;
-    try {
-      const scrollables = JSON.parse(scrollDiag);
-      // Outermost = last in list (walked up from table); skip ant-table internals
-      const outer = [...scrollables].reverse().find(
-        (s) => !s.cls.includes("ant-table") && s.scrollH > s.clientH + 50
-      );
-      if (outer) scrollContainerCls = outer.cls.split(" ")[0];
-    } catch (_) {}
-
-    sendLog(`Scroll target class: ${scrollContainerCls || "window"}`);
-
-    const countShiftTables = () => chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => Array.from(document.querySelectorAll("table")).filter((t) => {
-        const hdrs = Array.from(t.querySelectorAll("th, thead td"))
-          .map((c) => c.innerText.trim().toLowerCase());
-        return hdrs.some((h) => h.includes("payable")) && hdrs.some((h) => h.includes("position"));
-      }).length,
-    }).then(([{ result }]) => result);
-
-    const scrollDown = (cls) => chrome.scripting.executeScript({
-      target: { tabId },
-      args: [cls],
-      func: (targetCls) => {
-        // Always scroll the window
-        window.scrollBy(0, 900);
-        document.documentElement.scrollTop += 900;
-        document.body.scrollTop += 900;
-
-        // Scroll the identified container by class
-        if (targetCls) {
-          const el = document.querySelector(`.${targetCls}`);
-          if (el) el.scrollTop += 900;
-        }
-
-        // Also scroll every overflowing div that isn't an ant-table internal
-        Array.from(document.querySelectorAll("div")).forEach((el) => {
-          try {
-            const s = window.getComputedStyle(el);
-            const oy = s.overflowY;
-            if ((oy === "auto" || oy === "scroll") &&
-                el.scrollHeight > el.clientHeight + 50 &&
-                !(el.className || "").includes("ant-table")) {
-              el.scrollTop += 900;
-            }
-          } catch (_) {}
-        });
-      },
-    });
-
-    let lastCount = 0;
+    const allEmployees = {}; // name → { name, shifts } — accumulated across positions
     let stableRounds = 0;
-    const MAX_ROUNDS = 60;
+    const MAX_ROUNDS = 80;
 
     for (let round = 0; round < MAX_ROUNDS && stableRounds < 4; round++) {
-      await scrollDown(scrollContainerCls);
-      await sleep(3500);
+      // Extract what's visible right now
+      const [{ result: chunkJson }] = await chrome.scripting.executeScript({ target: { tabId }, func: EXTRACTOR });
+      const chunk = (() => { try { return JSON.parse(chunkJson); } catch { return []; } })();
 
-      const count = await countShiftTables();
-      if (count === lastCount) {
-        stableRounds++;
-      } else {
-        stableRounds = 0;
-        lastCount = count;
-        sendLog(`Scrolling... (${count} employees loaded)`);
+      let newCount = 0;
+      for (const emp of chunk) {
+        if (!allEmployees[emp.name]) { allEmployees[emp.name] = emp; newCount++; }
       }
+      if (newCount > 0) {
+        sendLog(`Found ${Object.keys(allEmployees).length} employees so far...`);
+        stableRounds = 0;
+      } else {
+        stableRounds++;
+      }
+
+      // Scroll to next position
+      const [{ result: scrollResult }] = await chrome.scripting.executeScript({ target: { tabId }, func: SCROLL_AND_CHECK });
+      if (scrollResult?.atBottom) stableRounds = Math.max(stableRounds, 2);
+      await sleep(3000);
     }
 
-    sendLog(`All content loaded — ${lastCount} employee block(s) found. Extracting...`);
-
-    sendLog("Extracting timesheet data from DOM...");
-
-    const [{ result: jsonData }] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const out = [];
-
-        // Every employee block = a name header + a table ending with a Totals row.
-        // Find all tables on the page and identify the ones that look like shift tables
-        // by checking if their header row contains "Payable" and "Position".
-        const tables = Array.from(document.querySelectorAll("table"));
-
-        // Diagnostic: capture structure around the first shift table found
-        let diagDone = false;
-
-        for (const table of tables) {
-          // Get all header cells (thead or first <tr>)
-          const headerRow =
-            table.querySelector("thead tr") ||
-            table.querySelector("tr:first-child");
-          if (!headerRow) continue;
-
-          const headerCells = Array.from(headerRow.querySelectorAll("th, td"));
-          const headers = headerCells.map((c) => c.innerText.trim().toLowerCase());
-
-          // Column indices — position MUST be present
-          const ci = (kw) => headers.findIndex((h) => h.includes(kw));
-          const iClockIn   = ci("clock in");
-          const iClockOut  = ci("clock out");
-          const iPayable   = ci("payable");
-          const iPosition  = ci("position");
-
-          if (iPayable < 0 || iPosition < 0) continue; // not a shift table
-
-          // ── Diagnostic: log parent structure once ─────────────────────
-          if (!diagDone) {
-            diagDone = true;
-            const diag = [];
-            let p = table.parentElement;
-            for (let d = 0; d < 5; d++) {
-              if (!p) break;
-              const childTags = Array.from(p.children).map((c) => {
-                const tag = c.tagName;
-                const cls = c.className?.toString().slice(0, 30) || "";
-                const txt = c.innerText?.trim().slice(0, 40).replace(/\n/g, " ") || "";
-                return `${tag}[${cls}]="${txt}"`;
-              });
-              diag.push(`depth${d} parent <${p.tagName} class="${p.className?.toString().slice(0,40)}">: ${childTags.join(" | ")}`);
-              p = p.parentElement;
-            }
-            out.push({ __diag: diag });
-          }
-
-          // ── Find employee name ────────────────────────────────────────
-          const NAME_SKIP_RE = /^(clock|payable|position|total|hours|break|location|cost|rate|search|edit|\+|shift|in|out)$/i;
-          let empName = null;
-
-          // Strategy 1: Ant Design structure — name is a sibling of .ant-spin-nested-loading
-          const spinWrapper = table.closest(".ant-spin-nested-loading") ||
-                              table.closest(".ant-spin-container")?.parentElement;
-          if (spinWrapper) {
-            let sib = spinWrapper.previousElementSibling;
-            while (sib && !empName) {
-              // Try the element's own text first
-              const t = sib.innerText?.trim();
-              if (t && t.length >= 2 && t.length <= 60 && /[a-zA-Z]/.test(t) && !NAME_SKIP_RE.test(t)) {
-                // Pick just the first non-empty line if multi-line
-                const line = t.split("\n").map((l) => l.trim()).find(
-                  (l) => l.length >= 2 && l.length <= 60 && /[a-zA-Z]/.test(l) && !NAME_SKIP_RE.test(l)
-                );
-                if (line) empName = line;
-              }
-              // Try deepest leaf element with a short name
-              if (!empName) {
-                const leaf = Array.from(sib.querySelectorAll("*"))
-                  .reverse()
-                  .find((c) => {
-                    const ct = c.children.length === 0 && c.innerText?.trim();
-                    return ct && ct.length >= 2 && ct.length <= 60 && /[a-zA-Z]/.test(ct) && !NAME_SKIP_RE.test(ct);
-                  });
-                if (leaf) empName = leaf.innerText.trim();
-              }
-              sib = sib.previousElementSibling;
-            }
-          }
-
-          // Strategy 2: walk up DOM siblings (fallback)
-          if (!empName) {
-            let el = spinWrapper || table;
-            outer:
-            for (let depth = 0; depth < 8; depth++) {
-              const parent = el.parentElement;
-              if (!parent) break;
-              const siblings = Array.from(parent.children);
-              const idx = siblings.indexOf(el);
-              for (let i = idx - 1; i >= 0; i--) {
-                const sib = siblings[i];
-                if (sib.tagName === "TABLE") continue;
-                const t = sib.innerText?.trim();
-                const line = t?.split("\n").map((l) => l.trim()).find(
-                  (l) => l.length >= 2 && l.length <= 60 && /[a-zA-Z]/.test(l) && !NAME_SKIP_RE.test(l)
-                );
-                if (line) { empName = line; break outer; }
-              }
-              el = parent;
-            }
-          }
-
-          // Collect shift rows (exclude header and Totals row)
-          const bodyRows = Array.from(
-            table.querySelectorAll("tbody tr, tr:not(:first-child)")
-          );
-
-          const shifts = [];
-          for (const row of bodyRows) {
-            const cells = Array.from(row.querySelectorAll("td"));
-            if (!cells.length) continue;
-
-            // Skip totals row
-            const firstText = cells[0]?.innerText?.trim().toLowerCase();
-            if (firstText === "totals" || firstText === "total") continue;
-
-            const clockIn  = iClockIn  >= 0 ? cells[iClockIn]?.innerText?.trim()  : "";
-            const clockOut = iClockOut >= 0 ? cells[iClockOut]?.innerText?.trim() : "";
-            const payable  = cells[iPayable]?.innerText?.trim();
-            const position = cells[iPosition]?.innerText?.trim();
-
-            if (!payable || payable === "") continue;
-
-            shifts.push({ clockIn, clockOut, payable, position: position || "" });
-          }
-
-          if (shifts.length > 0) {
-            out.push({ name: empName || "Unknown", shifts });
-          }
-        }
-
-        return JSON.stringify(out);
-      },
-    });
-
-    // ── Aggregate & format ────────────────────────────────────────────────
-    let parsed;
-    try { parsed = JSON.parse(jsonData); } catch { parsed = []; }
-
-    // Pull out and log the diagnostic block if present
-    const diagEntry = parsed.find((e) => e.__diag);
-    if (diagEntry) {
-      sendLog("DOM structure around first shift table:");
-      for (const line of diagEntry.__diag) sendLog("  " + line);
-      parsed = parsed.filter((e) => !e.__diag);
-    }
+    const parsed = Object.values(allEmployees);
+    sendLog(`Extraction complete — ${parsed.length} unique employee(s).`);
 
     if (!parsed.length) {
-      sendLog("No employee shift tables found in DOM.", "error");
+      sendLog("No employee data captured.", "error");
       return;
     }
 
-    sendLog(`Found ${parsed.length} employee block(s):`);
+    sendLog(`Processing ${parsed.length} employee(s)...`);
 
     const csvRows = ["employee,server_hours,other_hours,other_breakdown,grand_total"];
 
