@@ -177,16 +177,34 @@ async function _runPayrollJob(sendLog) {
     return;
   }
 
-  sendLog("Logged in! Clicking Reports > Timesheets...");
+  // Let the SPA fully settle after login before navigating
+  sendLog("Dashboard detected — waiting for app to settle...");
+  await sleep(3000);
+
+  const [{ result: preNavUrl }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => window.location.href,
+  });
+  sendLog(`Current URL before navigation: ${preNavUrl}`);
 
   try {
-    sendLog("Navigating to Timesheets...");
     await chrome.tabs.update(tabId, { url: "https://app.figurepos.com/reports/timesheet" });
     await waitForTabLoad(tabId);
-    await sleep(500);
-    sendLog("Navigated to Timesheets!", "done");
+    await sleep(1000);
+
+    const [{ result: postNavUrl }] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => window.location.href,
+    });
+    sendLog(`Landed on: ${postNavUrl}`);
+
+    if (postNavUrl.includes("timesheet")) {
+      sendLog("Navigated to Timesheets!", "done");
+    } else {
+      sendLog(`Unexpected redirect to: ${postNavUrl}`, "error");
+    }
   } catch (err) {
-    sendLog(`ERROR: ${err.message}`, "error");
+    sendLog(`Navigation error: ${err.message}`, "error");
   }
 }
 
