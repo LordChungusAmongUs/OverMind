@@ -660,7 +660,39 @@ async function _runPayrollJob(sendLog) {
       return;
     }
 
-    sendLog("Continue clicked.", "done");
+    sendLog("Continue clicked — waiting for password field...");
+
+    let passwordResult = "not-found";
+    for (let i = 0; i < 10; i++) {
+      await sleep(1000);
+      const frames = await chrome.scripting.executeScript({
+        target: { tabId: asureTabId, allFrames: true },
+        func: (pw) => {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+          const input = document.querySelector('input[type="password"]');
+          if (!input) return "not-found";
+          input.focus();
+          setter.call(input, pw);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          input.blur();
+          return `filled: name="${input.name}" id="${input.id}"`;
+        },
+        args: ["Stevenpwns1337!"],
+      });
+      const hit = frames.find((f) => f.result && f.result !== "not-found");
+      if (hit) { passwordResult = hit.result; break; }
+      sendLog(`  waiting for password field... (${i + 1}s)`);
+    }
+
+    sendLog(`Password field: ${passwordResult}`);
+
+    if (passwordResult === "not-found") {
+      sendLog("Could not find password input.", "error");
+      return;
+    }
+
+    sendLog("Password entered.", "done");
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
   }
