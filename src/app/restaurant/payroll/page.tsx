@@ -116,6 +116,15 @@ export default function PayrollPage() {
 
   const reset = () => { setStatus("idle"); setLogs([]); setCurrentStep(-1); };
 
+  // Auto-start when ?autostart=1 is in the URL and extension + creds are ready
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const autostart = new URLSearchParams(window.location.search).get("autostart") === "1";
+    if (autostart && extReady && credsSaved && status === "idle") {
+      runJob();
+    }
+  }, [extReady, credsSaved, status]);
+
   const ready = extReady && credsSaved;
 
   return (
