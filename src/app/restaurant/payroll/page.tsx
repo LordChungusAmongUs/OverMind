@@ -16,6 +16,7 @@ const steps = [
   "Open Payroll Solutions",
   "Navigate to Asure Central",
   "Enter Asure username",
+  "Click Continue",
 ];
 
 export default function PayrollPage() {
@@ -67,6 +68,7 @@ export default function PayrollPage() {
       if (log.includes("Opening Payroll Solutions")) setCurrentStep(5);
       if (log.includes("Asure Central nav") || log.includes("looking for Asure Central")) setCurrentStep(6);
       if (log.includes("entering username")) setCurrentStep(7);
+      if (log.includes("clicking Continue")) setCurrentStep(8);
       if (s === "done") setStatus("done");
       if (s === "error") setStatus("error");
     };

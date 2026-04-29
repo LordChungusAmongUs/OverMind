@@ -635,7 +635,32 @@ async function _runPayrollJob(sendLog) {
       return;
     }
 
-    sendLog("Username entered.", "done");
+    sendLog("Username entered — clicking Continue...");
+    await sleep(500);
+
+    const [{ result: continueResult }] = await chrome.scripting.executeScript({
+      target: { tabId: asureTabId },
+      func: () => {
+        const btn =
+          document.querySelector('button[type="submit"]') ||
+          Array.from(document.querySelectorAll("button")).find((b) => {
+            const t = b.textContent?.trim().toLowerCase();
+            return t === "continue" || t === "next" || t === "sign in" || t === "log in";
+          });
+        if (!btn) return "not-found";
+        btn.click();
+        return `clicked: "${btn.textContent?.trim()}"`;
+      },
+    });
+
+    sendLog(`Continue button: ${continueResult}`);
+
+    if (continueResult === "not-found") {
+      sendLog("Could not find Continue button.", "error");
+      return;
+    }
+
+    sendLog("Continue clicked.", "done");
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
   }
