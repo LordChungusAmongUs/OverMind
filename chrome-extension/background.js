@@ -507,10 +507,52 @@ async function _runPayrollJob(sendLog) {
     sendLog("Opening Payroll Solutions...");
     const payrollTab = await chrome.tabs.create({ url: "https://www.payrollsolutions.com" });
     await waitForTabLoad(payrollTab.id, 30000);
+    await sleep(2000);
     const payrollTabInfo = await chrome.tabs.get(payrollTab.id);
     await chrome.tabs.update(payrollTab.id, { active: true });
     await chrome.windows.update(payrollTabInfo.windowId, { focused: true });
-    sendLog("Payroll Solutions ready.", "done");
+    sendLog("Payroll Solutions loaded — looking for Asure Central...");
+
+    const [{ result: asureClicked }] = await chrome.scripting.executeScript({
+      target: { tabId: payrollTab.id },
+      func: () => {
+        const candidates = Array.from(document.querySelectorAll("a, button, [role='menuitem'], li, span"));
+        const link = candidates.find((el) =>
+          el.textContent?.trim().toLowerCase().includes("asure central")
+        );
+        if (!link) return "not-found";
+        link.click();
+        return `${link.tagName}: "${link.textContent?.trim()}"`;
+      },
+    });
+
+    sendLog(`Asure Central nav: ${asureClicked}`);
+
+    if (asureClicked === "not-found") {
+      sendLog("Could not find 'Asure Central' in nav — send a screenshot of payrollsolutions.com.", "error");
+      return;
+    }
+
+    // Give the click time to open the login page (new tab or same tab)
+    await sleep(3000);
+
+    // Check if a new tab opened for Asure
+    const allTabs = await chrome.tabs.query({ currentWindow: true });
+    const asureTab = allTabs.find((t) => t.url?.includes("asurehcm.com") || t.url?.includes("asureidentity") || t.url?.includes("identity.asure"));
+
+    if (asureTab) {
+      await waitForTabLoad(asureTab.id, 20000);
+      await chrome.tabs.update(asureTab.id, { active: true });
+      sendLog("Asure Central login page ready.", "done");
+    } else {
+      // Navigated in the same tab
+      const [{ result: currentUrl }] = await chrome.scripting.executeScript({
+        target: { tabId: payrollTab.id },
+        func: () => window.location.href,
+      });
+      sendLog(`Landed on: ${currentUrl}`);
+      sendLog("Asure Central login page ready.", "done");
+    }
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
   }

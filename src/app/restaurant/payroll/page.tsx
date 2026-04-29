@@ -14,6 +14,7 @@ const steps = [
   "Pull & process timesheet data",
   "Close FigurePOS tab",
   "Open Payroll Solutions",
+  "Navigate to Asure Central",
 ];
 
 export default function PayrollPage() {
@@ -51,6 +52,7 @@ export default function PayrollPage() {
       if (log.includes("Scanning all employees") || log.includes("Extraction complete") || log.includes("Processing")) setCurrentStep(3);
       if (log.includes("Closing FigurePOS tab")) setCurrentStep(4);
       if (log.includes("Opening Payroll Solutions")) setCurrentStep(5);
+      if (log.includes("Asure Central nav") || log.includes("looking for Asure Central")) setCurrentStep(6);
       if (s === "done") setStatus("done");
       if (s === "error") setStatus("error");
     };
