@@ -15,6 +15,7 @@ const steps = [
   "Close FigurePOS tab",
   "Open Payroll Solutions",
   "Navigate to Asure Central",
+  "Enter Asure username",
 ];
 
 export default function PayrollPage() {
@@ -53,6 +54,7 @@ export default function PayrollPage() {
       if (log.includes("Closing FigurePOS tab")) setCurrentStep(4);
       if (log.includes("Opening Payroll Solutions")) setCurrentStep(5);
       if (log.includes("Asure Central nav") || log.includes("looking for Asure Central")) setCurrentStep(6);
+      if (log.includes("entering username")) setCurrentStep(7);
       if (s === "done") setStatus("done");
       if (s === "error") setStatus("error");
     };

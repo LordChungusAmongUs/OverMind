@@ -540,19 +540,54 @@ async function _runPayrollJob(sendLog) {
     const allTabs = await chrome.tabs.query({ currentWindow: true });
     const asureTab = allTabs.find((t) => t.url?.includes("asurehcm.com") || t.url?.includes("asureidentity") || t.url?.includes("identity.asure"));
 
+    let asureTabId;
     if (asureTab) {
       await waitForTabLoad(asureTab.id, 20000);
       await chrome.tabs.update(asureTab.id, { active: true });
-      sendLog("Asure Central login page ready.", "done");
+      asureTabId = asureTab.id;
     } else {
-      // Navigated in the same tab
+      asureTabId = payrollTab.id;
       const [{ result: currentUrl }] = await chrome.scripting.executeScript({
-        target: { tabId: payrollTab.id },
+        target: { tabId: asureTabId },
         func: () => window.location.href,
       });
       sendLog(`Landed on: ${currentUrl}`);
-      sendLog("Asure Central login page ready.", "done");
     }
+    sendLog("Asure Central login page ready — entering username...");
+
+    await sleep(1000);
+
+    const [{ result: usernameResult }] = await chrome.scripting.executeScript({
+      target: { tabId: asureTabId },
+      func: (username) => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+        const input =
+          document.querySelector('input[name="username"]') ||
+          document.querySelector('input[name="email"]') ||
+          document.querySelector('input[type="email"]') ||
+          document.querySelector('input[autocomplete="username"]') ||
+          document.querySelector('input[placeholder*="user" i]') ||
+          document.querySelector('input[placeholder*="email" i]') ||
+          document.querySelector('input[type="text"]');
+        if (!input) return "not-found";
+        input.focus();
+        setter.call(input, username);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        input.blur();
+        return `filled: "${input.name || input.type}"`;
+      },
+      args: ["Stephen.Owens"],
+    });
+
+    sendLog(`Username field: ${usernameResult}`);
+
+    if (usernameResult === "not-found") {
+      sendLog("Could not find username input on Asure login page.", "error");
+      return;
+    }
+
+    sendLog("Username entered.", "done");
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
   }
