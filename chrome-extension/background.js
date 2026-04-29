@@ -594,31 +594,39 @@ async function _runPayrollJob(sendLog) {
     await chrome.tabs.update(asureTabId, { active: true });
 
     sendLog("Asure Central login page ready — entering username...");
+    await sleep(2000);
 
-    await sleep(1000);
-
-    const [{ result: usernameResult }] = await chrome.scripting.executeScript({
-      target: { tabId: asureTabId },
-      func: (username) => {
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-        const input =
-          document.querySelector('input[name="username"]') ||
-          document.querySelector('input[name="email"]') ||
-          document.querySelector('input[type="email"]') ||
-          document.querySelector('input[autocomplete="username"]') ||
-          document.querySelector('input[placeholder*="user" i]') ||
-          document.querySelector('input[placeholder*="email" i]') ||
-          document.querySelector('input[type="text"]');
-        if (!input) return "not-found";
-        input.focus();
-        setter.call(input, username);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-        input.blur();
-        return `filled: "${input.name || input.type}"`;
-      },
-      args: ["Stephen.Owens"],
-    });
+    // Poll for the username field to appear (OAuth pages render the form async)
+    let usernameResult = "not-found";
+    for (let i = 0; i < 10; i++) {
+      const frames = await chrome.scripting.executeScript({
+        target: { tabId: asureTabId, allFrames: true },
+        func: (username) => {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+          const input =
+            document.querySelector('input[name="username"]') ||
+            document.querySelector('input[id*="username" i]') ||
+            document.querySelector('input[name="email"]') ||
+            document.querySelector('input[type="email"]') ||
+            document.querySelector('input[autocomplete="username"]') ||
+            document.querySelector('input[placeholder*="user" i]') ||
+            document.querySelector('input[placeholder*="email" i]') ||
+            document.querySelector('input[type="text"]');
+          if (!input) return "not-found";
+          input.focus();
+          setter.call(input, username);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          input.blur();
+          return `filled: name="${input.name}" id="${input.id}" type="${input.type}"`;
+        },
+        args: ["Stephen.Owens"],
+      });
+      const hit = frames.find((f) => f.result && f.result !== "not-found");
+      if (hit) { usernameResult = hit.result; break; }
+      sendLog(`  waiting for username field... (${i + 1}s)`);
+      await sleep(1000);
+    }
 
     sendLog(`Username field: ${usernameResult}`);
 
