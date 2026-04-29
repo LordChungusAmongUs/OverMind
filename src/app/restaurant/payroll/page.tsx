@@ -11,9 +11,9 @@ const steps = [
   "Open FigurePOS login page",
   "Fill credentials & log in",
   "Navigate to Timesheets",
-  "Pull timesheet data",
-  "Calculate payroll",
-  "Generate pay stubs",
+  "Pull & process timesheet data",
+  "Close FigurePOS tab",
+  "Open Payroll Solutions",
 ];
 
 export default function PayrollPage() {
@@ -48,6 +48,9 @@ export default function PayrollPage() {
       if (log.includes("Opening FigurePOS")) setCurrentStep(0);
       if (log.includes("Filling login")) setCurrentStep(1);
       if (log.includes("Timesheets")) setCurrentStep(2);
+      if (log.includes("Scanning all employees") || log.includes("Extraction complete") || log.includes("Processing")) setCurrentStep(3);
+      if (log.includes("Closing FigurePOS tab")) setCurrentStep(4);
+      if (log.includes("Opening Payroll Solutions")) setCurrentStep(5);
       if (s === "done") setStatus("done");
       if (s === "error") setStatus("error");
     };
@@ -212,7 +215,6 @@ export default function PayrollPage() {
                 {steps.map((step, i) => {
                   const isDone = (status === "done" && i <= currentStep) || (status !== "done" && i < currentStep);
                   const isActive = i === currentStep && status === "running";
-                  const isLocked = i > 2;
                   return (
                     <div key={step} className="flex items-center gap-3">
                       <div className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${isDone ? "bg-green-500/20 border-green-500/50" : isActive ? "bg-green-500/10 border-green-400/50" : "bg-black/20 border-green-500/10"}`}>
@@ -220,8 +222,8 @@ export default function PayrollPage() {
                         {isActive && <Loader2 className="w-3 h-3 text-green-400 animate-spin" />}
                         {!isDone && !isActive && <span className="text-green-900 font-mono" style={{ fontSize: "9px" }}>{i + 1}</span>}
                       </div>
-                      <span className={`text-xs font-mono ${isDone ? "text-green-400" : isActive ? "text-green-300" : isLocked ? "text-green-900" : "text-green-700"}`}>
-                        {step}{isLocked && <span className="ml-1 text-green-900">[ soon ]</span>}
+                      <span className={`text-xs font-mono ${isDone ? "text-green-400" : isActive ? "text-green-300" : "text-green-700"}`}>
+                        {step}
                       </span>
                     </div>
                   );

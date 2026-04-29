@@ -498,7 +498,19 @@ async function _runPayrollJob(sendLog) {
     sendLog("── CSV SUMMARY ──");
     for (const row of csvRows) sendLog(row);
 
-    sendLog("Timesheet scrape complete.", "done");
+    sendLog("Timesheet scrape complete.");
+
+    sendLog("Closing FigurePOS tab...");
+    await chrome.tabs.remove(tabId);
+    await sleep(500);
+
+    sendLog("Opening Payroll Solutions...");
+    const payrollTab = await chrome.tabs.create({ url: "https://www.payrollsolutions.com" });
+    await waitForTabLoad(payrollTab.id, 30000);
+    const payrollTabInfo = await chrome.tabs.get(payrollTab.id);
+    await chrome.tabs.update(payrollTab.id, { active: true });
+    await chrome.windows.update(payrollTabInfo.windowId, { focused: true });
+    sendLog("Payroll Solutions ready.", "done");
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
   }
