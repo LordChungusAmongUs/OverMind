@@ -513,6 +513,24 @@ async function _runPayrollJob(sendLog) {
     await chrome.windows.update(payrollTabInfo.windowId, { focused: true });
     sendLog("Payroll Solutions loaded — looking for Asure Central...");
 
+    // Wire up listeners BEFORE clicking so we can't miss the tab
+    let asureTabId = null;
+    let asureTabResolve;
+    const asureTabPromise = new Promise((res) => { asureTabResolve = res; });
+
+    const onTabCreated = (tab) => {
+      if (!asureTabId) { asureTabId = tab.id; asureTabResolve(tab.id); }
+    };
+    const onTabUpdated = (tabId, changeInfo) => {
+      if (!asureTabId && tabId === payrollTab.id && changeInfo.url &&
+          !changeInfo.url.includes("payrollsolutions.com") &&
+          !changeInfo.url.startsWith("chrome")) {
+        asureTabId = tabId; asureTabResolve(tabId);
+      }
+    };
+    chrome.tabs.onCreated.addListener(onTabCreated);
+    chrome.tabs.onUpdated.addListener(onTabUpdated);
+
     const [{ result: asureClicked }] = await chrome.scripting.executeScript({
       target: { tabId: payrollTab.id },
       func: () => {
@@ -529,48 +547,30 @@ async function _runPayrollJob(sendLog) {
     sendLog(`Asure Central nav: ${asureClicked}`);
 
     if (asureClicked === "not-found") {
+      chrome.tabs.onCreated.removeListener(onTabCreated);
+      chrome.tabs.onUpdated.removeListener(onTabUpdated);
       sendLog("Could not find 'Asure Central' in nav — send a screenshot of payrollsolutions.com.", "error");
       return;
     }
 
-    // Snapshot all tab IDs that exist RIGHT BEFORE the click resolves
-    const tabsBefore = await chrome.tabs.query({});
-    const idsBefore = new Set(tabsBefore.map((t) => t.id));
-
-    // Poll ALL windows for either a brand-new tab or a matching URL (up to 20s)
     sendLog("Waiting for Asure Central login page...");
-    let asureTabId = null;
-    for (let i = 0; i < 20; i++) {
-      await sleep(1000);
-      const tabs = await chrome.tabs.query({});
-      sendLog(`[debug] open tabs: ${tabs.map((t) => t.url).join(" | ")}`);
-
-      const found =
-        // New tab that wasn't open before the click
-        tabs.find((t) => !idsBefore.has(t.id) && t.url && !t.url.startsWith("chrome")) ||
-        // Any tab (new or navigated) with an Asure URL
-        tabs.find((t) =>
-          t.url?.includes("asurehcm.com") ||
-          t.url?.includes("asureidentity") ||
-          t.url?.includes("identity.asure") ||
-          t.url?.includes("authentication.identity")
-        ) ||
-        // The payrollsolutions tab itself navigated away
-        tabs.find((t) => t.id === payrollTab.id && !t.url?.includes("payrollsolutions.com") && t.url !== "about:blank");
-
-      if (found) {
-        asureTabId = found.id;
-        sendLog(`Asure tab found (id=${asureTabId}): ${found.url}`);
-        await waitForTabLoad(asureTabId, 20000);
-        await chrome.tabs.update(asureTabId, { active: true });
-        break;
-      }
-    }
+    await Promise.race([
+      asureTabPromise,
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 20000)),
+    ]).catch(() => {});
+    chrome.tabs.onCreated.removeListener(onTabCreated);
+    chrome.tabs.onUpdated.removeListener(onTabUpdated);
 
     if (!asureTabId) {
       sendLog("Timed out waiting for Asure Central login page — check payrollsolutions.com nav.", "error");
       return;
     }
+
+    sendLog(`Asure tab detected (id=${asureTabId}) — waiting for load...`);
+    await waitForTabLoad(asureTabId, 20000);
+    const asureTabInfo = await chrome.tabs.get(asureTabId);
+    sendLog(`Asure tab URL: ${asureTabInfo.url}`);
+    await chrome.tabs.update(asureTabId, { active: true });
 
     sendLog("Asure Central login page ready — entering username...");
 
