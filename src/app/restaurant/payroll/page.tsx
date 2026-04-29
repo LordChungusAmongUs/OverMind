@@ -18,6 +18,7 @@ const steps = [
   "Enter Asure username",
   "Click Continue",
   "Enter Asure password",
+  "Submit & log in to Asure",
 ];
 
 export default function PayrollPage() {
@@ -71,6 +72,7 @@ export default function PayrollPage() {
       if (log.includes("entering username")) setCurrentStep(7);
       if (log.includes("clicking Continue")) setCurrentStep(8);
       if (log.includes("waiting for password field")) setCurrentStep(9);
+      if (log.includes("Password entered — clicking")) setCurrentStep(10);
       if (s === "done") setStatus("done");
       if (s === "error") setStatus("error");
     };

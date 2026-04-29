@@ -692,7 +692,32 @@ async function _runPayrollJob(sendLog) {
       return;
     }
 
-    sendLog("Password entered.", "done");
+    sendLog("Password entered — clicking Continue...");
+    await sleep(500);
+
+    const [{ result: submitResult }] = await chrome.scripting.executeScript({
+      target: { tabId: asureTabId },
+      func: () => {
+        const btn =
+          document.querySelector('button[type="submit"]') ||
+          Array.from(document.querySelectorAll("button")).find((b) => {
+            const t = b.textContent?.trim().toLowerCase();
+            return t === "continue" || t === "next" || t === "sign in" || t === "log in";
+          });
+        if (!btn) return "not-found";
+        btn.click();
+        return `clicked: "${btn.textContent?.trim()}"`;
+      },
+    });
+
+    sendLog(`Submit: ${submitResult}`);
+
+    if (submitResult === "not-found") {
+      sendLog("Could not find Continue button after password.", "error");
+      return;
+    }
+
+    sendLog("Logged in to Asure Central.", "done");
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
   }
