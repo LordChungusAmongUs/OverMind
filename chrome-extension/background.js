@@ -533,23 +533,34 @@ async function _runPayrollJob(sendLog) {
       return;
     }
 
-    // Poll until a tab navigates to asurehcm.com (up to 20s)
+    // Snapshot all tab IDs that exist RIGHT BEFORE the click resolves
+    const tabsBefore = await chrome.tabs.query({});
+    const idsBefore = new Set(tabsBefore.map((t) => t.id));
+
+    // Poll ALL windows for either a brand-new tab or a matching URL (up to 20s)
     sendLog("Waiting for Asure Central login page...");
     let asureTabId = null;
     for (let i = 0; i < 20; i++) {
       await sleep(1000);
-      const tabs = await chrome.tabs.query({ currentWindow: true });
+      const tabs = await chrome.tabs.query({});
       sendLog(`[debug] open tabs: ${tabs.map((t) => t.url).join(" | ")}`);
-      const found = tabs.find((t) =>
-        t.url?.includes("asurehcm.com") ||
-        t.url?.includes("asureidentity") ||
-        t.url?.includes("identity.asure") ||
-        // also catch mid-redirect: the payrollsolutions tab itself may navigate
-        (t.id === payrollTab.id && !t.url?.includes("payrollsolutions.com"))
-      );
+
+      const found =
+        // New tab that wasn't open before the click
+        tabs.find((t) => !idsBefore.has(t.id) && t.url && !t.url.startsWith("chrome")) ||
+        // Any tab (new or navigated) with an Asure URL
+        tabs.find((t) =>
+          t.url?.includes("asurehcm.com") ||
+          t.url?.includes("asureidentity") ||
+          t.url?.includes("identity.asure") ||
+          t.url?.includes("authentication.identity")
+        ) ||
+        // The payrollsolutions tab itself navigated away
+        tabs.find((t) => t.id === payrollTab.id && !t.url?.includes("payrollsolutions.com") && t.url !== "about:blank");
+
       if (found) {
         asureTabId = found.id;
-        sendLog(`Asure tab found: ${found.url}`);
+        sendLog(`Asure tab found (id=${asureTabId}): ${found.url}`);
         await waitForTabLoad(asureTabId, 20000);
         await chrome.tabs.update(asureTabId, { active: true });
         break;
