@@ -13,6 +13,13 @@ window.addEventListener("overmind:payroll:run", () => {
     }
   });
 
+  // Relay user input (e.g. MFA code) from the page back to the extension
+  const onInput = (e) => port.postMessage({ action: "user:input", ...e.detail });
+  window.addEventListener("overmind:payroll:input", onInput);
+  port.onDisconnect.addListener(() => {
+    window.removeEventListener("overmind:payroll:input", onInput);
+  });
+
   port.postMessage({ action: "start" });
 });
 

@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import Sidebar from "@/components/layout/Sidebar";
 import { DollarSign, Play, CheckCircle, AlertCircle, Loader2, Terminal, Puzzle, Wifi, WifiOff, KeyRound } from "lucide-react";
 
-type Status = "idle" | "running" | "done" | "error";
+type Status = "idle" | "running" | "done" | "error" | "awaiting-input";
 interface LogEntry { text: string; status: Status; }
 
 const steps = [
@@ -19,6 +19,7 @@ const steps = [
   "Click Continue",
   "Enter Asure password",
   "Submit & log in to Asure",
+  "Enter SMS verification code",
 ];
 
 export default function PayrollPage() {
@@ -30,6 +31,8 @@ export default function PayrollPage() {
   const [email, setEmail] = useState("kingsbbq2015@gmail.com");
   const [password, setPassword] = useState("");
   const [savingCreds, setSavingCreds] = useState(false);
+  const [awaitingInput, setAwaitingInput] = useState<{ key: string; label: string } | null>(null);
+  const [inputValue, setInputValue] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
 
   // Ping extension on mount; once ready, load saved credentials
@@ -56,7 +59,7 @@ export default function PayrollPage() {
   useEffect(() => {
     const onLog = (e: Event) => {
       const { log, status: s } = (e as CustomEvent).detail as { log: string; status: string };
-      const mapped: Status = s === "done" ? "done" : s === "error" ? "error" : "running";
+      const mapped: Status = s === "done" ? "done" : s === "error" ? "error" : s === "awaiting-input" ? "awaiting-input" : "running";
       setLogs((prev) => {
         const next = [...prev, { text: log, status: mapped }];
         setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, 50);
@@ -73,8 +76,10 @@ export default function PayrollPage() {
       if (log.includes("clicking Continue")) setCurrentStep(8);
       if (log.includes("waiting for password field")) setCurrentStep(9);
       if (log.includes("Password entered — clicking")) setCurrentStep(10);
-      if (s === "done") setStatus("done");
-      if (s === "error") setStatus("error");
+      if (s === "awaiting-input") setCurrentStep(11);
+      if (s === "awaiting-input") { setAwaitingInput({ key: "mfa", label: log }); setInputValue(""); }
+      if (s === "done") { setStatus("done"); setAwaitingInput(null); }
+      if (s === "error") { setStatus("error"); setAwaitingInput(null); }
     };
     const onCredsSaved = () => { setCredsSaved(true); setSavingCreds(false); };
 
@@ -114,7 +119,16 @@ export default function PayrollPage() {
     window.addEventListener("overmind:payroll:log", cancel);
   };
 
-  const reset = () => { setStatus("idle"); setLogs([]); setCurrentStep(-1); };
+  const submitInput = () => {
+    if (!awaitingInput || !inputValue.trim()) return;
+    window.dispatchEvent(new CustomEvent("overmind:payroll:input", {
+      detail: { key: awaitingInput.key, value: inputValue.trim() },
+    }));
+    setAwaitingInput(null);
+    setInputValue("");
+  };
+
+  const reset = () => { setStatus("idle"); setLogs([]); setCurrentStep(-1); setAwaitingInput(null); };
 
   // Auto-start when ?autostart=1 is in the URL and extension + creds are ready
   useEffect(() => {
@@ -287,7 +301,32 @@ export default function PayrollPage() {
                     <span className={entry.status === "done" ? "text-green-400" : entry.status === "error" ? "text-red-400" : "text-green-300"}>{entry.text}</span>
                   </div>
                 ))}
-                {status === "running" && <div className="flex items-center gap-1 text-green-600"><span>&gt;</span><span className="animate-pulse">_</span></div>}
+                {awaitingInput && (
+                  <div className="mt-3 p-3 rounded-lg border border-yellow-500/40 bg-yellow-500/5">
+                    <p className="text-yellow-400 font-mono text-xs mb-2">&gt; {awaitingInput.label}</p>
+                    <div className="flex gap-2">
+                      <input
+                        autoFocus
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={8}
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && submitInput()}
+                        placeholder="000000"
+                        className="flex-1 bg-black/60 border border-yellow-500/40 rounded px-2 py-1.5 text-sm font-mono text-yellow-300 placeholder-yellow-900 focus:outline-none focus:border-yellow-400/60 tracking-widest"
+                      />
+                      <button
+                        onClick={submitInput}
+                        disabled={!inputValue.trim()}
+                        className="px-3 py-1.5 rounded bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 font-mono text-xs font-bold hover:bg-yellow-500/20 disabled:opacity-40"
+                      >
+                        Submit
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {status === "running" && !awaitingInput && <div className="flex items-center gap-1 text-green-600"><span>&gt;</span><span className="animate-pulse">_</span></div>}
               </div>
             </div>
           </div>

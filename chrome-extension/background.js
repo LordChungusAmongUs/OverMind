@@ -32,14 +32,27 @@ async function runPayrollJob(port) {
     try { port.postMessage({ action: "payroll:log", log, status }); } catch (_) {}
   };
 
+  const waitForInput = (key, label) => new Promise((resolve) => {
+    sendLog(label, "awaiting-input");
+    const handler = (msg) => {
+      if (msg.action === "user:input" && msg.key === key) {
+        port.onMessage.removeListener(handler);
+        resolve(msg.value);
+      }
+    };
+    port.onMessage.addListener(handler);
+    // 5-minute timeout
+    setTimeout(() => { port.onMessage.removeListener(handler); resolve(null); }, 300000);
+  });
+
   try {
-    await _runPayrollJob(sendLog);
+    await _runPayrollJob(sendLog, waitForInput);
   } catch (err) {
     sendLog(`Fatal error: ${err.message}`, "error");
   }
 }
 
-async function _runPayrollJob(sendLog) {
+async function _runPayrollJob(sendLog, waitForInput) {
   sendLog("Opening FigurePOS in a new tab...");
 
   const tab = await chrome.tabs.create({ url: "https://app.figurepos.com/login" });
@@ -714,6 +727,55 @@ async function _runPayrollJob(sendLog) {
 
     if (submitResult === "not-found") {
       sendLog("Could not find Continue button after password.", "error");
+      return;
+    }
+
+    sendLog("Credentials submitted — waiting for SMS code...");
+
+    const mfaCode = await waitForInput("mfa", "Enter the 6-digit SMS code sent to your phone:");
+    if (!mfaCode) {
+      sendLog("MFA timed out — no code entered within 5 minutes.", "error");
+      return;
+    }
+
+    sendLog(`SMS code received — filling field...`);
+
+    let mfaResult = "not-found";
+    for (let i = 0; i < 15; i++) {
+      await sleep(1000);
+      const frames = await chrome.scripting.executeScript({
+        target: { tabId: asureTabId, allFrames: true },
+        func: (code) => {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+          const input =
+            document.querySelector('input[name="code"]') ||
+            document.querySelector('input[name="otp"]') ||
+            document.querySelector('input[name="token"]') ||
+            document.querySelector('input[autocomplete="one-time-code"]') ||
+            document.querySelector('input[inputmode="numeric"]') ||
+            document.querySelector('input[placeholder*="code" i]') ||
+            document.querySelector('input[placeholder*="pin" i]') ||
+            document.querySelector('input[type="tel"]') ||
+            document.querySelector('input[type="number"]') ||
+            document.querySelector('input[type="text"]');
+          if (!input) return "not-found";
+          input.focus();
+          setter.call(input, code);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          input.blur();
+          return `filled: name="${input.name}" type="${input.type}"`;
+        },
+        args: [mfaCode],
+      });
+      const hit = frames.find((f) => f.result && f.result !== "not-found");
+      if (hit) { mfaResult = hit.result; break; }
+      sendLog(`  waiting for MFA field... (${i + 1}s)`);
+    }
+
+    sendLog(`MFA field: ${mfaResult}`);
+    if (mfaResult === "not-found") {
+      sendLog("Could not find MFA code input.", "error");
       return;
     }
 
