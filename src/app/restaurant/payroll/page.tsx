@@ -29,12 +29,24 @@ export default function PayrollPage() {
   const [savingCreds, setSavingCreds] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Ping extension on mount
+  // Ping extension on mount; once ready, load saved credentials
   useEffect(() => {
-    const onReady = () => setExtReady(true);
+    const onReady = () => {
+      setExtReady(true);
+      window.dispatchEvent(new CustomEvent("overmind:ext:getCredentials"));
+    };
+    const onCredsLoaded = (e: Event) => {
+      const data = (e as CustomEvent).detail as { email?: string; password?: string } | null;
+      if (data?.email) setEmail(data.email);
+      if (data?.password) { setPassword(data.password); setCredsSaved(true); }
+    };
     window.addEventListener("overmind:ext:ready", onReady);
+    window.addEventListener("overmind:ext:credentialsLoaded", onCredsLoaded);
     window.dispatchEvent(new CustomEvent("overmind:ext:ping"));
-    return () => window.removeEventListener("overmind:ext:ready", onReady);
+    return () => {
+      window.removeEventListener("overmind:ext:ready", onReady);
+      window.removeEventListener("overmind:ext:credentialsLoaded", onCredsLoaded);
+    };
   }, []);
 
   // Listen for log messages and credential save ack

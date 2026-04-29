@@ -621,7 +621,7 @@ chrome.runtime.onConnect.addListener((port) => {
   }
 });
 
-// One-off message for saving credentials
+// One-off messages for credentials
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "saveCredentials") {
     chrome.storage.local.set({ figurepos: message.data }, () => {
@@ -630,5 +630,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
     });
     sendResponse({ ok: true });
+  }
+  if (message.action === "getCredentials") {
+    chrome.storage.local.get("figurepos", (stored) => {
+      sendResponse(stored.figurepos || null);
+    });
+    return true; // keep channel open for async response
   }
 });

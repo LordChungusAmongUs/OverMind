@@ -21,6 +21,13 @@ window.addEventListener("overmind:ext:saveCredentials", (e) => {
   chrome.runtime.sendMessage({ action: "saveCredentials", data: e.detail }, () => {});
 });
 
+// Load saved credentials and relay back to page
+window.addEventListener("overmind:ext:getCredentials", () => {
+  chrome.runtime.sendMessage({ action: "getCredentials" }, (data) => {
+    window.dispatchEvent(new CustomEvent("overmind:ext:credentialsLoaded", { detail: data || null }));
+  });
+});
+
 // Relay credential-saved ack back to page
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.action === "credentialsSaved") {
