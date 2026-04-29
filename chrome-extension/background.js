@@ -533,26 +533,34 @@ async function _runPayrollJob(sendLog) {
       return;
     }
 
-    // Give the click time to open the login page (new tab or same tab)
-    await sleep(3000);
-
-    // Check if a new tab opened for Asure
-    const allTabs = await chrome.tabs.query({ currentWindow: true });
-    const asureTab = allTabs.find((t) => t.url?.includes("asurehcm.com") || t.url?.includes("asureidentity") || t.url?.includes("identity.asure"));
-
-    let asureTabId;
-    if (asureTab) {
-      await waitForTabLoad(asureTab.id, 20000);
-      await chrome.tabs.update(asureTab.id, { active: true });
-      asureTabId = asureTab.id;
-    } else {
-      asureTabId = payrollTab.id;
-      const [{ result: currentUrl }] = await chrome.scripting.executeScript({
-        target: { tabId: asureTabId },
-        func: () => window.location.href,
-      });
-      sendLog(`Landed on: ${currentUrl}`);
+    // Poll until a tab navigates to asurehcm.com (up to 20s)
+    sendLog("Waiting for Asure Central login page...");
+    let asureTabId = null;
+    for (let i = 0; i < 20; i++) {
+      await sleep(1000);
+      const tabs = await chrome.tabs.query({ currentWindow: true });
+      sendLog(`[debug] open tabs: ${tabs.map((t) => t.url).join(" | ")}`);
+      const found = tabs.find((t) =>
+        t.url?.includes("asurehcm.com") ||
+        t.url?.includes("asureidentity") ||
+        t.url?.includes("identity.asure") ||
+        // also catch mid-redirect: the payrollsolutions tab itself may navigate
+        (t.id === payrollTab.id && !t.url?.includes("payrollsolutions.com"))
+      );
+      if (found) {
+        asureTabId = found.id;
+        sendLog(`Asure tab found: ${found.url}`);
+        await waitForTabLoad(asureTabId, 20000);
+        await chrome.tabs.update(asureTabId, { active: true });
+        break;
+      }
     }
+
+    if (!asureTabId) {
+      sendLog("Timed out waiting for Asure Central login page — check payrollsolutions.com nav.", "error");
+      return;
+    }
+
     sendLog("Asure Central login page ready — entering username...");
 
     await sleep(1000);
