@@ -31,6 +31,7 @@ async function runPayrollJob(port) {
   const sendLog = (log, status = "running") => {
     try { port.postMessage({ action: "payroll:log", log, status }); } catch (_) {}
   };
+  const sendData = (data) => { try { port.postMessage(data); } catch (_) {} };
 
   const waitForInput = (key, label) => new Promise((resolve) => {
     sendLog(label, "awaiting-input");
@@ -46,13 +47,13 @@ async function runPayrollJob(port) {
   });
 
   try {
-    await _runPayrollJob(sendLog, waitForInput);
+    await _runPayrollJob(sendLog, waitForInput, sendData);
   } catch (err) {
     sendLog(`Fatal error: ${err.message}`, "error");
   }
 }
 
-async function _runPayrollJob(sendLog, waitForInput) {
+async function _runPayrollJob(sendLog, waitForInput, sendData = null) {
   sendLog("Opening FigurePOS in a new tab...");
 
   const tab = await chrome.tabs.create({ url: "https://app.figurepos.com/login" });
@@ -463,6 +464,7 @@ async function _runPayrollJob(sendLog, waitForInput) {
     sendLog(`Processing ${parsed.length} employee(s)...`);
 
     const csvRows = ["employee,server_hours,other_hours,other_breakdown,grand_total"];
+    const timesheetSummary = [];
 
     for (const emp of parsed) {
       const serverShifts = [];
@@ -489,6 +491,8 @@ async function _runPayrollJob(sendLog, waitForInput) {
       const otherTotal  = Object.values(otherByRole).reduce((s, x) => s + x, 0);
       const grandTotal  = serverTotal + otherTotal;
 
+      timesheetSummary.push({ name: emp.name, serverHours: serverTotal, otherHours: otherTotal, totalHours: grandTotal, hourlyRate: null, totalPay: null });
+
       // Per-employee detail
       sendLog(`▸ ${emp.name}`);
       sendLog(`    Shifts:`);
@@ -512,6 +516,8 @@ async function _runPayrollJob(sendLog, waitForInput) {
     for (const row of csvRows) sendLog(row);
 
     sendLog("Timesheet scrape complete.");
+    await chrome.storage.local.set({ timesheetSummary });
+    sendLog(`Saved timesheet data for ${timesheetSummary.length} employee(s).`);
 
     sendLog("Closing FigurePOS tab...");
     await chrome.tabs.remove(tabId);
@@ -811,7 +817,7 @@ async function _runPayrollJob(sendLog, waitForInput) {
     // Wait for payroll trigger — auto-sent by dashboard if toggle is on
     const runPayroll = await waitForInput("run-payroll", "");
     if (runPayroll === "yes") {
-      await _runPayrollAutomation(sendLog, waitForInput, asureTabId);
+      await _runPayrollAutomation(sendLog, waitForInput, asureTabId, 0, sendData);
     } else {
       sendLog("Login complete. Payroll automation skipped.", "done");
     }
@@ -820,7 +826,7 @@ async function _runPayrollJob(sendLog, waitForInput) {
   }
 }
 
-async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0) {
+async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0, sendData = null) {
   try {
     if (fromStep > 0) sendLog(`Jumping to payroll step ${fromStep + 1}...`);
     else sendLog("Starting payroll automation...");
@@ -961,7 +967,110 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0)
       }
     }
 
-    sendLog("Checks created — payroll step complete.", "done");
+    }
+
+    // ── Step 3: fill employee checks & send summary for approval ─────
+    if (fromStep <= 3) {
+      if (fromStep < 3) {
+        sendLog("Waiting for check entry page to load...");
+        await waitForTabLoad(tabId, 20000);
+        await sleep(2000);
+      }
+
+      const stored = await chrome.storage.local.get("timesheetSummary");
+      const summary = stored.timesheetSummary || [];
+
+      if (!summary.length) {
+        sendLog("No timesheet data found — run the full job first to scrape FigurePOS.", "error");
+        return;
+      }
+
+      sendLog(`Filling checks for ${summary.length} employee(s)...`);
+
+      const [{ result: fillResult }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        args: [summary],
+        func: (employees) => {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+          const filled = [], notFound = [];
+          for (const emp of employees) {
+            const nameEl = Array.from(document.querySelectorAll("*")).find(
+              (el) => el.childElementCount === 0 && el.textContent?.trim() === emp.name
+            );
+            if (!nameEl) { notFound.push(emp.name); continue; }
+            const row = nameEl.closest("tr") || nameEl.closest("[class*='row']") || nameEl.parentElement;
+            const inputs = row ? Array.from(row.querySelectorAll("input[type='text'],input[type='number']")) : [];
+            if (!inputs.length) { notFound.push(emp.name + " (no input)"); continue; }
+            setter.call(inputs[0], emp.totalHours.toFixed(2));
+            inputs[0].dispatchEvent(new Event("input", { bubbles: true }));
+            inputs[0].dispatchEvent(new Event("change", { bubbles: true }));
+            inputs[0].blur();
+            filled.push(emp.name);
+          }
+          return { filled, notFound };
+        },
+      });
+
+      if (fillResult?.filled?.length) sendLog(`Filled: ${fillResult.filled.join(", ")}`);
+      if (fillResult?.notFound?.length) sendLog(`Not matched on page: ${fillResult.notFound.join(", ")}`);
+
+      await sleep(1000);
+
+      // Try to read pay rates and computed totals back from the page
+      const [{ result: ratesJson }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        args: [summary.map((e) => e.name)],
+        func: (names) => {
+          const out = {};
+          for (const name of names) {
+            const nameEl = Array.from(document.querySelectorAll("*")).find(
+              (el) => el.childElementCount === 0 && el.textContent?.trim() === name
+            );
+            if (!nameEl) continue;
+            const row = nameEl.closest("tr") || nameEl.closest("[class*='row']") || nameEl.parentElement;
+            if (!row) continue;
+            const cells = Array.from(row.querySelectorAll("td, [class*='cell']"));
+            const text = cells.map((c) => c.innerText?.trim()).filter(Boolean);
+            const amounts = text.map((t) => parseFloat(t.replace(/[$,]/g, ""))).filter((n) => !isNaN(n) && n > 0);
+            if (amounts.length >= 2) {
+              out[name] = { hourlyRate: amounts[0], totalPay: amounts[amounts.length - 1] };
+            }
+          }
+          return JSON.stringify(out);
+        },
+      });
+
+      const rates = (() => { try { return JSON.parse(ratesJson); } catch { return {}; } })();
+      const enriched = summary.map((e) => ({
+        ...e,
+        hourlyRate: rates[e.name]?.hourlyRate ?? null,
+        totalPay: rates[e.name]?.totalPay ?? null,
+      }));
+
+      sendLog("Sending check summary to dashboard for review...");
+      if (sendData) sendData({ action: "payroll:summary", employees: enriched });
+
+      const approval = await waitForInput("approve-payroll", "Review the payroll summary and click Approve or Cancel.");
+      if (approval === "approved") {
+        sendLog("Approved — submitting payroll...", "running");
+        const [{ result: submitResult }] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const btn = Array.from(document.querySelectorAll("button, [role='button']")).find((el) => {
+              const t = el.textContent?.trim().toLowerCase();
+              return t === "submit" || t === "confirm" || t === "post" || t === "approve";
+            });
+            if (!btn) return "not-found";
+            btn.click();
+            return `clicked: "${btn.textContent?.trim()}"`;
+          },
+        });
+        sendLog(`Submit: ${submitResult}`);
+        sendLog("Payroll submitted.", "done");
+      } else {
+        sendLog("Payroll cancelled — no changes submitted.", "done");
+      }
+    }
   } catch (err) {
     sendLog(`Payroll error: ${err.message}`, "error");
   }
@@ -994,6 +1103,7 @@ async function runFromStep(port, stepIndex) {
   const sendLog = (log, status = "running") => {
     try { port.postMessage({ action: "payroll:log", log, status }); } catch (_) {}
   };
+  const sendData = (data) => { try { port.postMessage(data); } catch (_) {} };
   const waitForInput = (key, label) => new Promise((resolve) => {
     sendLog(label, "awaiting-input");
     const handler = (msg) => {
@@ -1009,7 +1119,7 @@ async function runFromStep(port, stepIndex) {
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!activeTab) { sendLog("No active tab found.", "error"); return; }
     sendLog(`Running step ${stepIndex + 1} on: ${activeTab.url}`);
-    await _runPayrollAutomation(sendLog, waitForInput, activeTab.id, stepIndex);
+    await _runPayrollAutomation(sendLog, waitForInput, activeTab.id, stepIndex, sendData);
   } catch (err) {
     sendLog(`Error: ${err.message}`, "error");
   }

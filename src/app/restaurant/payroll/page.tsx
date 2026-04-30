@@ -6,6 +6,10 @@ import { DollarSign, Play, CheckCircle, AlertCircle, Loader2, Terminal, Puzzle, 
 
 type Status = "idle" | "running" | "done" | "error" | "awaiting-input" | "login-complete";
 interface LogEntry { text: string; status: Status; }
+interface EmployeeSummary {
+  name: string; serverHours: number; otherHours: number;
+  totalHours: number; hourlyRate: number | null; totalPay: number | null;
+}
 
 const loginSteps = [
   "Open FigurePOS login page",
@@ -26,6 +30,7 @@ const payrollSteps = [
   "Find Payroll Processing card & click Web",
   "Select payroll with next approaching date",
   "Click Create Checks",
+  "Fill checks & await approval",
 ];
 
 export default function PayrollPage() {
@@ -44,6 +49,7 @@ export default function PayrollPage() {
   );
   const [payrollStep, setPayrollStep] = useState(-1);
   const [phase, setPhase] = useState<"login" | "payroll">("login");
+  const [payrollSummary, setPayrollSummary] = useState<EmployeeSummary[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
 
   // Ping extension on mount; once ready, load saved credentials
@@ -92,6 +98,7 @@ export default function PayrollPage() {
       if (log.includes("Looking for Payroll Processing")) setPayrollStep(0);
       if (log.includes("Looking for next approaching") || log.includes("Waiting for Payroll Today")) setPayrollStep(1);
       if (log.includes("Looking for Create Checks") || log.includes("Create Checks:")) setPayrollStep(2);
+      if (log.includes("Sending check summary") || log.includes("Filling checks for")) setPayrollStep(3);
       if (s === "login-complete") {
         setStatus("login-complete");
         setPhase("payroll");
@@ -108,12 +115,18 @@ export default function PayrollPage() {
       if (s === "error") { setStatus("error"); setAwaitingInput(null); }
     };
     const onCredsSaved = () => { setCredsSaved(true); setSavingCreds(false); };
+    const onSummary = (e: Event) => {
+      const { employees } = (e as CustomEvent).detail as { employees: EmployeeSummary[] };
+      if (employees?.length) setPayrollSummary(employees);
+    };
 
     window.addEventListener("overmind:payroll:log", onLog);
     window.addEventListener("overmind:ext:credentialsSaved", onCredsSaved);
+    window.addEventListener("overmind:payroll:summary", onSummary);
     return () => {
       window.removeEventListener("overmind:payroll:log", onLog);
       window.removeEventListener("overmind:ext:credentialsSaved", onCredsSaved);
+      window.removeEventListener("overmind:payroll:summary", onSummary);
     };
   }, []);
 
@@ -168,7 +181,7 @@ export default function PayrollPage() {
 
   const reset = () => {
     setStatus("idle"); setLogs([]); setCurrentStep(-1);
-    setAwaitingInput(null); setPayrollStep(-1); setPhase("login");
+    setAwaitingInput(null); setPayrollStep(-1); setPhase("login"); setPayrollSummary([]);
   };
 
   // Auto-start when ?autostart=1 is in the URL and extension + creds are ready
@@ -389,6 +402,62 @@ export default function PayrollPage() {
                 {status === "running" && !awaitingInput && <div className="flex items-center gap-1 text-green-600"><span>&gt;</span><span className="animate-pulse">_</span></div>}
               </div>
             </div>
+
+            {/* Payroll summary — appears when checks are ready for approval */}
+            {payrollSummary.length > 0 && (
+              <div className="holo-card rounded-xl border border-yellow-500/30 bg-black/40 p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <DollarSign className="w-4 h-4 text-yellow-400" />
+                  <span className="text-xs font-mono font-bold text-yellow-400 uppercase tracking-wider">Payroll Summary — Pending Approval</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs font-mono">
+                    <thead>
+                      <tr className="text-green-700 border-b border-green-500/15">
+                        <th className="text-left pb-2">Employee</th>
+                        <th className="text-right pb-2">Server Hrs</th>
+                        <th className="text-right pb-2">Other Hrs</th>
+                        <th className="text-right pb-2">Total Hrs</th>
+                        <th className="text-right pb-2">Hourly</th>
+                        <th className="text-right pb-2">Total Pay</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payrollSummary.map((emp, i) => (
+                        <tr key={i} className="border-b border-green-500/5 text-green-300">
+                          <td className="py-1.5 font-semibold">{emp.name}</td>
+                          <td className="text-right py-1.5">{emp.serverHours > 0 ? emp.serverHours.toFixed(2) : "—"}</td>
+                          <td className="text-right py-1.5">{emp.otherHours > 0 ? emp.otherHours.toFixed(2) : "—"}</td>
+                          <td className="text-right py-1.5 text-yellow-300 font-bold">{emp.totalHours.toFixed(2)}</td>
+                          <td className="text-right py-1.5">{emp.hourlyRate != null ? `$${emp.hourlyRate.toFixed(2)}` : "—"}</td>
+                          <td className="text-right py-1.5">{emp.totalPay != null ? `$${emp.totalPay.toFixed(2)}` : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex gap-3 mt-4 justify-end">
+                  <button
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent("overmind:payroll:input", { detail: { key: "approve-payroll", value: "cancelled" } }));
+                      setPayrollSummary([]);
+                    }}
+                    className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 font-mono text-xs font-bold hover:bg-red-500/20 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent("overmind:payroll:input", { detail: { key: "approve-payroll", value: "approved" } }));
+                      setPayrollSummary([]);
+                    }}
+                    className="px-4 py-2 rounded-lg bg-green-500/20 border border-green-400/50 text-green-300 font-mono text-xs font-bold hover:bg-green-500/35 transition-all"
+                  >
+                    Approve &amp; Submit
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Step trackers — side by side below log */}
             <div className="grid grid-cols-2 gap-4">

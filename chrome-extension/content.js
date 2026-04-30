@@ -9,6 +9,9 @@ function connectPayrollPort(startMsg) {
     if (msg.action === "payroll:log") {
       window.dispatchEvent(new CustomEvent("overmind:payroll:log", { detail: msg }));
     }
+    if (msg.action === "payroll:summary") {
+      window.dispatchEvent(new CustomEvent("overmind:payroll:summary", { detail: msg }));
+    }
   });
   const onInput = (e) => port.postMessage({ action: "user:input", ...e.detail });
   window.addEventListener("overmind:payroll:input", onInput);
