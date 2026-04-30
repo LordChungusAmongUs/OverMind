@@ -967,8 +967,6 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0,
       }
     }
 
-    }
-
     // ── Step 3: fill employee checks & send summary for approval ─────
     if (fromStep <= 3) {
       if (fromStep < 3) {
