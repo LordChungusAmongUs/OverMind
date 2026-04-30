@@ -4,10 +4,10 @@ import { useState, useRef, useEffect } from "react";
 import Sidebar from "@/components/layout/Sidebar";
 import { DollarSign, Play, CheckCircle, AlertCircle, Loader2, Terminal, Puzzle, Wifi, WifiOff, KeyRound } from "lucide-react";
 
-type Status = "idle" | "running" | "done" | "error" | "awaiting-input";
+type Status = "idle" | "running" | "done" | "error" | "awaiting-input" | "login-complete";
 interface LogEntry { text: string; status: Status; }
 
-const steps = [
+const loginSteps = [
   "Open FigurePOS login page",
   "Fill credentials & log in",
   "Navigate to Timesheets",
@@ -22,6 +22,11 @@ const steps = [
   "Enter SMS verification code",
 ];
 
+const payrollSteps = [
+  "Start payroll automation",
+  // Steps will be added as the workflow is built out
+];
+
 export default function PayrollPage() {
   const [status, setStatus] = useState<Status>("idle");
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -33,6 +38,11 @@ export default function PayrollPage() {
   const [savingCreds, setSavingCreds] = useState(false);
   const [awaitingInput, setAwaitingInput] = useState<{ key: string; label: string } | null>(null);
   const [inputValue, setInputValue] = useState("");
+  const [autoPayroll, setAutoPayroll] = useState(() =>
+    typeof window !== "undefined" && localStorage.getItem("autoPayroll") === "true"
+  );
+  const [payrollStep, setPayrollStep] = useState(-1);
+  const [phase, setPhase] = useState<"login" | "payroll">("login");
   const logRef = useRef<HTMLDivElement>(null);
 
   // Ping extension on mount; once ready, load saved credentials
@@ -78,6 +88,18 @@ export default function PayrollPage() {
       if (log.includes("Password entered — clicking")) setCurrentStep(10);
       if (s === "awaiting-input") setCurrentStep(11);
       if (s === "awaiting-input") { setAwaitingInput({ key: "mfa", label: log }); setInputValue(""); }
+      if (s === "login-complete") {
+        setStatus("login-complete");
+        setPhase("payroll");
+        setPayrollStep(0);
+        // Auto-trigger payroll if toggle is on
+        const auto = localStorage.getItem("autoPayroll") === "true";
+        if (auto) {
+          window.dispatchEvent(new CustomEvent("overmind:payroll:input", {
+            detail: { key: "run-payroll", value: "yes" },
+          }));
+        }
+      }
       if (s === "done") { setStatus("done"); setAwaitingInput(null); }
       if (s === "error") { setStatus("error"); setAwaitingInput(null); }
     };
@@ -128,7 +150,22 @@ export default function PayrollPage() {
     setInputValue("");
   };
 
-  const reset = () => { setStatus("idle"); setLogs([]); setCurrentStep(-1); setAwaitingInput(null); };
+  const toggleAutoPayroll = (val: boolean) => {
+    setAutoPayroll(val);
+    localStorage.setItem("autoPayroll", val ? "true" : "false");
+  };
+
+  const runPayrollNow = () => {
+    window.dispatchEvent(new CustomEvent("overmind:payroll:input", {
+      detail: { key: "run-payroll", value: "yes" },
+    }));
+    setStatus("running");
+  };
+
+  const reset = () => {
+    setStatus("idle"); setLogs([]); setCurrentStep(-1);
+    setAwaitingInput(null); setPayrollStep(-1); setPhase("login");
+  };
 
   // Auto-start when ?autostart=1 is in the URL and extension + creds are ready
   useEffect(() => {
@@ -138,6 +175,23 @@ export default function PayrollPage() {
       runJob();
     }
   }, [extReady, credsSaved, status]);
+
+  // Poll localStorage for a PIN delivered by the relay page
+  useEffect(() => {
+    if (!awaitingInput) return;
+    const interval = setInterval(() => {
+      const pin = localStorage.getItem("overmind_payroll_pin");
+      if (pin) {
+        localStorage.removeItem("overmind_payroll_pin");
+        window.dispatchEvent(new CustomEvent("overmind:payroll:input", {
+          detail: { key: "mfa", value: pin },
+        }));
+        setAwaitingInput(null);
+        setInputValue("");
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [awaitingInput]);
 
   const ready = extReady && credsSaved;
 
@@ -219,6 +273,17 @@ export default function PayrollPage() {
                   <Loader2 className="w-4 h-4 animate-spin" /> RUNNING...
                 </div>
               )}
+              {status === "login-complete" && !autoPayroll && (
+                <div className="space-y-2">
+                  <div className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 font-mono text-xs font-bold">
+                    <CheckCircle className="w-3 h-3" /> LOGGED IN
+                  </div>
+                  <button onClick={runPayrollNow}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-300 font-mono font-bold hover:bg-blue-500/20 transition-all">
+                    <Play className="w-4 h-4" /> RUN PAYROLL
+                  </button>
+                </div>
+              )}
               {status === "done" && (
                 <div className="space-y-2">
                   <div className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 font-mono font-bold">
@@ -251,15 +316,31 @@ export default function PayrollPage() {
               )}
             </div>
 
-            {/* Step tracker */}
+            {/* Auto-payroll toggle */}
+            <div className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-mono font-bold text-green-500 uppercase tracking-wider">Auto-run Payroll</p>
+                  <p className="text-xs text-green-800 font-mono mt-0.5">Start payroll automation after login</p>
+                </div>
+                <button
+                  onClick={() => toggleAutoPayroll(!autoPayroll)}
+                  className={`relative w-10 h-5 rounded-full border transition-all ${autoPayroll ? "bg-green-500/30 border-green-500/50" : "bg-black/40 border-green-500/20"}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${autoPayroll ? "left-5 bg-green-400" : "left-0.5 bg-green-900"}`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Step tracker — login phase */}
             <div className="holo-card rounded-xl border border-green-500/20 bg-black/40 p-4">
               <p className="text-xs text-green-600 font-mono uppercase tracking-widest mb-3">
-                <span className="text-red-500">&gt;</span> workflow steps
+                <span className="text-red-500">&gt;</span> login steps
               </p>
-              <div className="space-y-3">
-                {steps.map((step, i) => {
-                  const isDone = (status === "done" && i <= currentStep) || (status !== "done" && i < currentStep);
-                  const isActive = i === currentStep && status === "running";
+              <div className="space-y-2">
+                {loginSteps.map((step, i) => {
+                  const isDone = i < currentStep || (phase === "payroll");
+                  const isActive = i === currentStep && phase === "login";
                   return (
                     <div key={step} className="flex items-center gap-3">
                       <div className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${isDone ? "bg-green-500/20 border-green-500/50" : isActive ? "bg-green-500/10 border-green-400/50" : "bg-black/20 border-green-500/10"}`}>
@@ -267,14 +348,37 @@ export default function PayrollPage() {
                         {isActive && <Loader2 className="w-3 h-3 text-green-400 animate-spin" />}
                         {!isDone && !isActive && <span className="text-green-900 font-mono" style={{ fontSize: "9px" }}>{i + 1}</span>}
                       </div>
-                      <span className={`text-xs font-mono ${isDone ? "text-green-400" : isActive ? "text-green-300" : "text-green-700"}`}>
-                        {step}
-                      </span>
+                      <span className={`text-xs font-mono ${isDone ? "text-green-400" : isActive ? "text-green-300" : "text-green-700"}`}>{step}</span>
                     </div>
                   );
                 })}
               </div>
             </div>
+
+            {/* Step tracker — payroll phase */}
+            {phase === "payroll" && (
+              <div className="holo-card rounded-xl border border-blue-500/20 bg-black/40 p-4">
+                <p className="text-xs text-blue-600 font-mono uppercase tracking-widest mb-3">
+                  <span className="text-red-500">&gt;</span> payroll steps
+                </p>
+                <div className="space-y-2">
+                  {payrollSteps.map((step, i) => {
+                    const isDone = status === "done" && i <= payrollStep;
+                    const isActive = i === payrollStep && status === "running";
+                    return (
+                      <div key={step} className="flex items-center gap-3">
+                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${isDone ? "bg-blue-500/20 border-blue-500/50" : isActive ? "bg-blue-500/10 border-blue-400/50" : "bg-black/20 border-blue-500/10"}`}>
+                          {isDone && <CheckCircle className="w-3 h-3 text-blue-400" />}
+                          {isActive && <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />}
+                          {!isDone && !isActive && <span className="text-green-900 font-mono" style={{ fontSize: "9px" }}>{i + 1}</span>}
+                        </div>
+                        <span className={`text-xs font-mono ${isDone ? "text-blue-400" : isActive ? "text-blue-300" : "text-green-700"}`}>{step}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Log terminal */}
