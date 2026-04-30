@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CheckCircle, AlertCircle } from "lucide-react";
 
-export default function PayrollRelayPage() {
+function RelayContent() {
   const searchParams = useSearchParams();
   const [delivered, setDelivered] = useState(false);
   const [error, setError] = useState("");
@@ -35,5 +35,13 @@ export default function PayrollRelayPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function PayrollRelayPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-black" />}>
+      <RelayContent />
+    </Suspense>
   );
 }
