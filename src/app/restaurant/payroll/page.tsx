@@ -23,8 +23,8 @@ const loginSteps = [
 ];
 
 const payrollSteps = [
-  "Start payroll automation",
-  // Steps will be added as the workflow is built out
+  "Find Payroll Processing card & click Web",
+  "Select next unfinished payroll",
 ];
 
 export default function PayrollPage() {
@@ -88,6 +88,8 @@ export default function PayrollPage() {
       if (log.includes("Password entered — clicking")) setCurrentStep(10);
       if (s === "awaiting-input") setCurrentStep(11);
       if (s === "awaiting-input") { setAwaitingInput({ key: "mfa", label: log }); setInputValue(""); }
+      if (log.includes("Looking for Payroll Processing")) setPayrollStep(0);
+      if (log.includes("Looking for next unfinished") || log.includes("Waiting for Payroll Today")) setPayrollStep(1);
       if (s === "login-complete") {
         setStatus("login-complete");
         setPhase("payroll");

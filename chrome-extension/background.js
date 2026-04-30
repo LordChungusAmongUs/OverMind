@@ -823,8 +823,111 @@ async function _runPayrollJob(sendLog, waitForInput) {
 async function _runPayrollAutomation(sendLog, waitForInput, tabId) {
   try {
     sendLog("Starting payroll automation...");
-    // Steps will be added here
-    sendLog("Payroll automation complete.", "done");
+
+    // ── Step 1: wait for the Payroll Processing card and click Web ──
+    sendLog("Looking for Payroll Processing card...");
+    let webClicked = null;
+    for (let i = 0; i < 20; i++) {
+      await sleep(1500);
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          // Find any element whose text includes both payroll processing markers
+          const all = Array.from(document.querySelectorAll("*"));
+          const card = all.find((el) => {
+            const t = el.innerText || "";
+            return t.toLowerCase().includes("payroll processing") &&
+                   t.toLowerCase().includes("oneasure");
+          });
+          if (!card) return null;
+
+          // Find the Web button inside or near the card
+          const webBtn =
+            Array.from(card.querySelectorAll("button, a")).find((b) =>
+              b.textContent?.trim().toLowerCase() === "web"
+            ) ||
+            Array.from(document.querySelectorAll("button, a")).find((b) =>
+              b.textContent?.trim().toLowerCase() === "web"
+            );
+          if (!webBtn) return "card-found-no-button";
+          webBtn.click();
+          return `clicked: "${webBtn.textContent?.trim()}"`;
+        },
+      });
+
+      if (result && result !== "card-found-no-button") {
+        webClicked = result;
+        sendLog(`Payroll Processing card: ${result}`);
+        break;
+      }
+      if (result === "card-found-no-button") {
+        sendLog("Card found but no Web button yet — retrying...");
+      } else {
+        sendLog(`  waiting for card... (${i + 1})`);
+      }
+    }
+
+    if (!webClicked) {
+      sendLog("Could not find Payroll Processing card / Web button.", "error");
+      return;
+    }
+
+    // ── Step 2: wait for next page, find the next unfinished payroll ──
+    sendLog("Waiting for Payroll Today page...");
+    await waitForTabLoad(tabId, 20000);
+    await sleep(2000);
+
+    sendLog("Looking for next unfinished payroll...");
+    let payrollClicked = null;
+    for (let i = 0; i < 10; i++) {
+      await sleep(1000);
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          // Find the "Payroll Today" section
+          const headings = Array.from(document.querySelectorAll("*")).filter((el) =>
+            el.childElementCount === 0 &&
+            el.textContent?.trim().toLowerCase() === "payroll today"
+          );
+          if (!headings.length) return "no-section";
+
+          // Collect all Regular Payroll links in the document
+          const links = Array.from(document.querySelectorAll("a, button, [role='link']")).filter((el) => {
+            const t = el.textContent?.trim().toLowerCase();
+            return t?.includes("regular payroll");
+          });
+
+          // Find the first one that is NOT marked complete (no " - 1" suffix)
+          const next = links.find((el) => {
+            const t = el.textContent?.trim();
+            return !t.endsWith("- 1") && !t.endsWith("-1");
+          });
+
+          if (!next) return "all-complete";
+          const label = next.textContent?.trim();
+          next.click();
+          return `clicked: "${label}"`;
+        },
+      });
+
+      if (result && result !== "no-section" && result !== "all-complete") {
+        payrollClicked = result;
+        sendLog(`Next payroll: ${result}`);
+        break;
+      }
+      sendLog(`  ${result === "no-section" ? "waiting for Payroll Today section..." : "all payrolls complete"} (${i + 1})`);
+      if (result === "all-complete") {
+        sendLog("All payrolls in this period are already complete.", "done");
+        return;
+      }
+    }
+
+    if (!payrollClicked) {
+      sendLog("Could not find next unfinished payroll link.", "error");
+      return;
+    }
+
+    sendLog("Payroll selected — ready for next step.", "done");
   } catch (err) {
     sendLog(`Payroll error: ${err.message}`, "error");
   }
