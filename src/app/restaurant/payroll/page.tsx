@@ -401,7 +401,7 @@ export default function PayrollPage() {
                     const isDone = i < currentStep || phase === "payroll";
                     const isActive = i === currentStep && phase === "login";
                     return (
-                      <div key={step} className="flex items-center gap-2 group">
+                      <div key={step} className="flex items-center gap-2">
                         <div className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${isDone ? "bg-green-500/20 border-green-500/50" : isActive ? "bg-green-500/10 border-green-400/50" : "bg-black/20 border-green-500/10"}`}>
                           {isDone && <CheckCircle className="w-3 h-3 text-green-400" />}
                           {isActive && <Loader2 className="w-3 h-3 text-green-400 animate-spin" />}
@@ -414,7 +414,7 @@ export default function PayrollPage() {
                             setStatus("running"); setLogs([]); setPhase("login"); setCurrentStep(i);
                             window.dispatchEvent(new CustomEvent("overmind:payroll:run-login-from", { detail: { step: i } }));
                           }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity px-1.5 py-0.5 rounded bg-green-500/10 border border-green-500/20 text-green-400 font-mono text-xs hover:bg-green-500/20"
+                          className="px-1.5 py-0.5 rounded bg-green-500/10 border border-green-500/20 text-green-400 font-mono text-xs hover:bg-green-500/30 transition-all"
                         >▶</button>
                       </div>
                     );
@@ -432,7 +432,7 @@ export default function PayrollPage() {
                     const isDone = status === "done" && i <= payrollStep;
                     const isActive = i === payrollStep && status === "running";
                     return (
-                      <div key={step} className="flex items-center gap-2 group">
+                      <div key={step} className="flex items-center gap-2">
                         <div className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${isDone ? "bg-blue-500/20 border-blue-500/50" : isActive ? "bg-blue-500/10 border-blue-400/50" : "bg-black/20 border-blue-500/10"}`}>
                           {isDone && <CheckCircle className="w-3 h-3 text-blue-400" />}
                           {isActive && <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />}
@@ -445,7 +445,7 @@ export default function PayrollPage() {
                             setStatus("running"); setLogs([]); setPhase("payroll"); setPayrollStep(i);
                             window.dispatchEvent(new CustomEvent("overmind:payroll:run-from", { detail: { step: i } }));
                           }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono text-xs hover:bg-blue-500/20"
+                          className="px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono text-xs hover:bg-blue-500/30 transition-all"
                         >▶</button>
                       </div>
                     );
