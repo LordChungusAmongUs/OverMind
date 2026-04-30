@@ -921,6 +921,29 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0)
   }
 }
 
+async function runFromLoginStep(port, stepIndex) {
+  const sendLog = (log, status = "running") => {
+    try { port.postMessage({ action: "payroll:log", log, status }); } catch (_) {}
+  };
+  const waitForInput = (key, label) => new Promise((resolve) => {
+    sendLog(label, "awaiting-input");
+    const handler = (msg) => {
+      if (msg.action === "user:input" && msg.key === key) {
+        port.onMessage.removeListener(handler);
+        resolve(msg.value);
+      }
+    };
+    port.onMessage.addListener(handler);
+    setTimeout(() => { port.onMessage.removeListener(handler); resolve(null); }, 300000);
+  });
+  try {
+    sendLog(`Running full login sequence (step ${stepIndex + 1} selected)...`);
+    await _runPayrollJob(sendLog, waitForInput);
+  } catch (err) {
+    sendLog(`Error: ${err.message}`, "error");
+  }
+}
+
 async function runFromStep(port, stepIndex) {
   const sendLog = (log, status = "running") => {
     try { port.postMessage({ action: "payroll:log", log, status }); } catch (_) {}
@@ -952,6 +975,7 @@ chrome.runtime.onConnect.addListener((port) => {
     port.onMessage.addListener((msg) => {
       if (msg.action === "start") runPayrollJob(port);
       if (msg.action === "start-from") runFromStep(port, msg.step);
+      if (msg.action === "start-login-from") runFromLoginStep(port, msg.step);
     });
   }
 });

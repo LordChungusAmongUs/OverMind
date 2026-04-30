@@ -28,6 +28,11 @@ window.addEventListener("overmind:payroll:run-from", (e) => {
   connectPayrollPort({ action: "start-from", step: e.detail.step });
 });
 
+// Jump to a specific login step (uses current active tab)
+window.addEventListener("overmind:payroll:run-login-from", (e) => {
+  connectPayrollPort({ action: "start-login-from", step: e.detail.step });
+});
+
 // Save credentials (one-off message is fine here)
 window.addEventListener("overmind:ext:saveCredentials", (e) => {
   chrome.runtime.sendMessage({ action: "saveCredentials", data: e.detail }, () => {});
