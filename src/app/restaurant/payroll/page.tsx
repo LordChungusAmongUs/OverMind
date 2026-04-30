@@ -24,7 +24,8 @@ const loginSteps = [
 
 const payrollSteps = [
   "Find Payroll Processing card & click Web",
-  "Select next unfinished payroll",
+  "Select payroll with next approaching date",
+  "Click Create Checks",
 ];
 
 export default function PayrollPage() {
@@ -89,7 +90,8 @@ export default function PayrollPage() {
       if (s === "awaiting-input") setCurrentStep(11);
       if (s === "awaiting-input") { setAwaitingInput({ key: "mfa", label: log }); setInputValue(""); }
       if (log.includes("Looking for Payroll Processing")) setPayrollStep(0);
-      if (log.includes("Looking for next unfinished") || log.includes("Waiting for Payroll Today")) setPayrollStep(1);
+      if (log.includes("Looking for next approaching") || log.includes("Waiting for Payroll Today")) setPayrollStep(1);
+      if (log.includes("Looking for Create Checks") || log.includes("Create Checks:")) setPayrollStep(2);
       if (s === "login-complete") {
         setStatus("login-complete");
         setPhase("payroll");
@@ -414,7 +416,7 @@ export default function PayrollPage() {
                             setStatus("running"); setLogs([]); setPhase("login"); setCurrentStep(i);
                             window.dispatchEvent(new CustomEvent("overmind:payroll:run-login-from", { detail: { step: i } }));
                           }}
-                          className="px-1.5 py-0.5 rounded bg-green-500/10 border border-green-500/20 text-green-400 font-mono text-xs hover:bg-green-500/30 transition-all"
+                          className="px-2 py-1 rounded bg-green-500/25 border border-green-400/60 text-green-300 font-mono text-xs font-bold hover:bg-green-500/50 hover:text-white transition-all"
                         >▶</button>
                       </div>
                     );
@@ -445,7 +447,7 @@ export default function PayrollPage() {
                             setStatus("running"); setLogs([]); setPhase("payroll"); setPayrollStep(i);
                             window.dispatchEvent(new CustomEvent("overmind:payroll:run-from", { detail: { step: i } }));
                           }}
-                          className="px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono text-xs hover:bg-blue-500/30 transition-all"
+                          className="px-2 py-1 rounded bg-blue-500/25 border border-blue-400/60 text-blue-300 font-mono text-xs font-bold hover:bg-blue-500/50 hover:text-white transition-all"
                         >▶</button>
                       </div>
                     );

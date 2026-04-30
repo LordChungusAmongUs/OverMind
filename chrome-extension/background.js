@@ -871,9 +871,9 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0)
       await sleep(2000);
     }
 
-    // ── Step 1: find the next unfinished payroll and click it ────────
+    // ── Step 1: find payroll with closest upcoming date and click it ─
     if (fromStep <= 1) {
-      sendLog("Looking for next unfinished payroll...");
+      sendLog("Looking for next approaching payroll...");
       let payrollClicked = null;
       for (let i = 0; i < 10; i++) {
         await sleep(1000);
@@ -888,13 +888,25 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0)
             const links = Array.from(document.querySelectorAll("a, button, [role='link']")).filter((el) =>
               el.textContent?.trim().toLowerCase().includes("regular payroll")
             );
-            const next = links.find((el) => {
+            const unfinished = links.filter((el) => {
               const t = el.textContent?.trim();
               return !t.endsWith("- 1") && !t.endsWith("-1");
             });
-            if (!next) return "all-complete";
-            const label = next.textContent?.trim();
-            next.click();
+            if (!unfinished.length) return "all-complete";
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            let best = null, bestDate = null;
+            for (const el of unfinished) {
+              const m = el.textContent?.trim().match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+              if (!m) continue;
+              let y = m[3].length === 2 ? "20" + m[3] : m[3];
+              const d = new Date(parseInt(y), parseInt(m[1]) - 1, parseInt(m[2]));
+              if (!bestDate || d < bestDate) { bestDate = d; best = el; }
+            }
+            if (!best) best = unfinished[0];
+            const label = best.textContent?.trim();
+            best.click();
             return `clicked: "${label}"`;
           },
         });
@@ -910,12 +922,46 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0)
         sendLog(`  waiting for Payroll Today section... (${i + 1})`);
       }
       if (!payrollClicked) {
-        sendLog("Could not find next unfinished payroll link.", "error");
+        sendLog("Could not find next payroll link.", "error");
+        return;
+      }
+      sendLog("Waiting for payroll detail page...");
+      await waitForTabLoad(tabId, 20000);
+      await sleep(2000);
+    }
+
+    // ── Step 2: click Create Checks ──────────────────────────────────
+    if (fromStep <= 2) {
+      sendLog("Looking for Create Checks button...");
+      let createChecksClicked = null;
+      for (let i = 0; i < 15; i++) {
+        await sleep(1500);
+        const [{ result }] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const btn = Array.from(document.querySelectorAll("button, a, [role='button']")).find((el) => {
+              const t = el.textContent?.trim().toLowerCase();
+              return t === "create checks" || t.includes("create checks");
+            });
+            if (!btn) return "not-found";
+            btn.click();
+            return `clicked: "${btn.textContent?.trim()}"`;
+          },
+        });
+        if (result && result !== "not-found") {
+          createChecksClicked = result;
+          sendLog(`Create Checks: ${result}`);
+          break;
+        }
+        sendLog(`  waiting for Create Checks... (${i + 1})`);
+      }
+      if (!createChecksClicked) {
+        sendLog("Could not find Create Checks button.", "error");
         return;
       }
     }
 
-    sendLog("Payroll selected — ready for next step.", "done");
+    sendLog("Checks created — payroll step complete.", "done");
   } catch (err) {
     sendLog(`Payroll error: ${err.message}`, "error");
   }
