@@ -781,6 +781,31 @@ async function _runPayrollJob(sendLog, waitForInput) {
       return;
     }
 
+    sendLog("MFA code entered — clicking Continue...");
+    await sleep(500);
+
+    const [{ result: mfaSubmit }] = await chrome.scripting.executeScript({
+      target: { tabId: asureTabId },
+      func: () => {
+        const btn =
+          document.querySelector('button[type="submit"]') ||
+          Array.from(document.querySelectorAll("button")).find((b) => {
+            const t = b.textContent?.trim().toLowerCase();
+            return t === "continue" || t === "next" || t === "verify" || t === "submit";
+          });
+        if (!btn) return "not-found";
+        btn.click();
+        return `clicked: "${btn.textContent?.trim()}"`;
+      },
+    });
+
+    sendLog(`MFA submit: ${mfaSubmit}`);
+
+    if (mfaSubmit === "not-found") {
+      sendLog("Could not find Continue button on MFA page.", "error");
+      return;
+    }
+
     sendLog("Logged in to Asure Central.", "done");
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
