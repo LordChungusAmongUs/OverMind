@@ -358,29 +358,38 @@ export default function PayrollPage() {
             </div>
 
             {/* Step tracker — payroll phase */}
-            {phase === "payroll" && (
-              <div className="holo-card rounded-xl border border-blue-500/20 bg-black/40 p-4">
-                <p className="text-xs text-blue-600 font-mono uppercase tracking-widest mb-3">
-                  <span className="text-red-500">&gt;</span> payroll steps
-                </p>
-                <div className="space-y-2">
-                  {payrollSteps.map((step, i) => {
-                    const isDone = status === "done" && i <= payrollStep;
-                    const isActive = i === payrollStep && status === "running";
-                    return (
-                      <div key={step} className="flex items-center gap-3">
-                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${isDone ? "bg-blue-500/20 border-blue-500/50" : isActive ? "bg-blue-500/10 border-blue-400/50" : "bg-black/20 border-blue-500/10"}`}>
-                          {isDone && <CheckCircle className="w-3 h-3 text-blue-400" />}
-                          {isActive && <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />}
-                          {!isDone && !isActive && <span className="text-green-900 font-mono" style={{ fontSize: "9px" }}>{i + 1}</span>}
-                        </div>
-                        <span className={`text-xs font-mono ${isDone ? "text-blue-400" : isActive ? "text-blue-300" : "text-green-700"}`}>{step}</span>
+            <div className="holo-card rounded-xl border border-blue-500/20 bg-black/40 p-4">
+              <p className="text-xs text-blue-600 font-mono uppercase tracking-widest mb-3">
+                <span className="text-red-500">&gt;</span> payroll steps
+              </p>
+              <div className="space-y-2">
+                {payrollSteps.map((step, i) => {
+                  const isDone = status === "done" && i <= payrollStep;
+                  const isActive = i === payrollStep && status === "running";
+                  return (
+                    <div key={step} className="flex items-center gap-2 group">
+                      <div className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${isDone ? "bg-blue-500/20 border-blue-500/50" : isActive ? "bg-blue-500/10 border-blue-400/50" : "bg-black/20 border-blue-500/10"}`}>
+                        {isDone && <CheckCircle className="w-3 h-3 text-blue-400" />}
+                        {isActive && <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />}
+                        {!isDone && !isActive && <span className="text-green-900 font-mono" style={{ fontSize: "9px" }}>{i + 1}</span>}
                       </div>
-                    );
-                  })}
-                </div>
+                      <span className={`text-xs font-mono flex-1 ${isDone ? "text-blue-400" : isActive ? "text-blue-300" : "text-green-700"}`}>{step}</span>
+                      <button
+                        title={`Run from step ${i + 1}`}
+                        onClick={() => {
+                          setStatus("running");
+                          setLogs([]);
+                          setPhase("payroll");
+                          setPayrollStep(i);
+                          window.dispatchEvent(new CustomEvent("overmind:payroll:run-from", { detail: { step: i } }));
+                        }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity px-1.5 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400 font-mono text-xs hover:bg-blue-500/20"
+                      >▶</button>
+                    </div>
+                  );
+                })}
               </div>
-            )}
+            </div>
           </div>
 
           {/* Log terminal */}

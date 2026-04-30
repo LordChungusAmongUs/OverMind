@@ -3,24 +3,29 @@ window.addEventListener("overmind:ext:ping", () => {
   window.dispatchEvent(new CustomEvent("overmind:ext:ready"));
 });
 
-// Payroll job — use a persistent port so the service worker stays alive
-window.addEventListener("overmind:payroll:run", () => {
+function connectPayrollPort(startMsg) {
   const port = chrome.runtime.connect({ name: "payroll" });
-
   port.onMessage.addListener((msg) => {
     if (msg.action === "payroll:log") {
       window.dispatchEvent(new CustomEvent("overmind:payroll:log", { detail: msg }));
     }
   });
-
-  // Relay user input (e.g. MFA code) from the page back to the extension
   const onInput = (e) => port.postMessage({ action: "user:input", ...e.detail });
   window.addEventListener("overmind:payroll:input", onInput);
   port.onDisconnect.addListener(() => {
     window.removeEventListener("overmind:payroll:input", onInput);
   });
+  port.postMessage(startMsg);
+}
 
-  port.postMessage({ action: "start" });
+// Full job
+window.addEventListener("overmind:payroll:run", () => {
+  connectPayrollPort({ action: "start" });
+});
+
+// Jump to a specific payroll step (uses current active tab)
+window.addEventListener("overmind:payroll:run-from", (e) => {
+  connectPayrollPort({ action: "start-from", step: e.detail.step });
 });
 
 // Save credentials (one-off message is fine here)

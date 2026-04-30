@@ -820,111 +820,99 @@ async function _runPayrollJob(sendLog, waitForInput) {
   }
 }
 
-async function _runPayrollAutomation(sendLog, waitForInput, tabId) {
+async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0) {
   try {
-    sendLog("Starting payroll automation...");
+    if (fromStep > 0) sendLog(`Jumping to payroll step ${fromStep + 1}...`);
+    else sendLog("Starting payroll automation...");
 
-    // ── Step 1: wait for the Payroll Processing card and click Web ──
-    sendLog("Looking for Payroll Processing card...");
-    let webClicked = null;
-    for (let i = 0; i < 20; i++) {
-      await sleep(1500);
-      const [{ result }] = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          // Find any element whose text includes both payroll processing markers
-          const all = Array.from(document.querySelectorAll("*"));
-          const card = all.find((el) => {
-            const t = el.innerText || "";
-            return t.toLowerCase().includes("payroll processing") &&
-                   t.toLowerCase().includes("oneasure");
-          });
-          if (!card) return null;
-
-          // Find the Web button inside or near the card
-          const webBtn =
-            Array.from(card.querySelectorAll("button, a")).find((b) =>
-              b.textContent?.trim().toLowerCase() === "web"
-            ) ||
-            Array.from(document.querySelectorAll("button, a")).find((b) =>
-              b.textContent?.trim().toLowerCase() === "web"
-            );
-          if (!webBtn) return "card-found-no-button";
-          webBtn.click();
-          return `clicked: "${webBtn.textContent?.trim()}"`;
-        },
-      });
-
-      if (result && result !== "card-found-no-button") {
-        webClicked = result;
-        sendLog(`Payroll Processing card: ${result}`);
-        break;
+    // ── Step 0: find Payroll Processing card and click Web ──────────
+    if (fromStep <= 0) {
+      sendLog("Looking for Payroll Processing card...");
+      let webClicked = null;
+      for (let i = 0; i < 20; i++) {
+        await sleep(1500);
+        const [{ result }] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const all = Array.from(document.querySelectorAll("*"));
+            const card = all.find((el) => {
+              const t = el.innerText || "";
+              return t.toLowerCase().includes("payroll processing") &&
+                     t.toLowerCase().includes("oneasure");
+            });
+            if (!card) return null;
+            const webBtn =
+              Array.from(card.querySelectorAll("button, a")).find((b) =>
+                b.textContent?.trim().toLowerCase() === "web"
+              ) ||
+              Array.from(document.querySelectorAll("button, a")).find((b) =>
+                b.textContent?.trim().toLowerCase() === "web"
+              );
+            if (!webBtn) return "card-found-no-button";
+            webBtn.click();
+            return `clicked: "${webBtn.textContent?.trim()}"`;
+          },
+        });
+        if (result && result !== "card-found-no-button") {
+          webClicked = result;
+          sendLog(`Payroll Processing card: ${result}`);
+          break;
+        }
+        sendLog(result === "card-found-no-button"
+          ? "Card found but no Web button yet — retrying..."
+          : `  waiting for card... (${i + 1})`);
       }
-      if (result === "card-found-no-button") {
-        sendLog("Card found but no Web button yet — retrying...");
-      } else {
-        sendLog(`  waiting for card... (${i + 1})`);
-      }
-    }
-
-    if (!webClicked) {
-      sendLog("Could not find Payroll Processing card / Web button.", "error");
-      return;
-    }
-
-    // ── Step 2: wait for next page, find the next unfinished payroll ──
-    sendLog("Waiting for Payroll Today page...");
-    await waitForTabLoad(tabId, 20000);
-    await sleep(2000);
-
-    sendLog("Looking for next unfinished payroll...");
-    let payrollClicked = null;
-    for (let i = 0; i < 10; i++) {
-      await sleep(1000);
-      const [{ result }] = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          // Find the "Payroll Today" section
-          const headings = Array.from(document.querySelectorAll("*")).filter((el) =>
-            el.childElementCount === 0 &&
-            el.textContent?.trim().toLowerCase() === "payroll today"
-          );
-          if (!headings.length) return "no-section";
-
-          // Collect all Regular Payroll links in the document
-          const links = Array.from(document.querySelectorAll("a, button, [role='link']")).filter((el) => {
-            const t = el.textContent?.trim().toLowerCase();
-            return t?.includes("regular payroll");
-          });
-
-          // Find the first one that is NOT marked complete (no " - 1" suffix)
-          const next = links.find((el) => {
-            const t = el.textContent?.trim();
-            return !t.endsWith("- 1") && !t.endsWith("-1");
-          });
-
-          if (!next) return "all-complete";
-          const label = next.textContent?.trim();
-          next.click();
-          return `clicked: "${label}"`;
-        },
-      });
-
-      if (result && result !== "no-section" && result !== "all-complete") {
-        payrollClicked = result;
-        sendLog(`Next payroll: ${result}`);
-        break;
-      }
-      sendLog(`  ${result === "no-section" ? "waiting for Payroll Today section..." : "all payrolls complete"} (${i + 1})`);
-      if (result === "all-complete") {
-        sendLog("All payrolls in this period are already complete.", "done");
+      if (!webClicked) {
+        sendLog("Could not find Payroll Processing card / Web button.", "error");
         return;
       }
+      sendLog("Waiting for Payroll Today page...");
+      await waitForTabLoad(tabId, 20000);
+      await sleep(2000);
     }
 
-    if (!payrollClicked) {
-      sendLog("Could not find next unfinished payroll link.", "error");
-      return;
+    // ── Step 1: find the next unfinished payroll and click it ────────
+    if (fromStep <= 1) {
+      sendLog("Looking for next unfinished payroll...");
+      let payrollClicked = null;
+      for (let i = 0; i < 10; i++) {
+        await sleep(1000);
+        const [{ result }] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const headings = Array.from(document.querySelectorAll("*")).filter((el) =>
+              el.childElementCount === 0 &&
+              el.textContent?.trim().toLowerCase() === "payroll today"
+            );
+            if (!headings.length) return "no-section";
+            const links = Array.from(document.querySelectorAll("a, button, [role='link']")).filter((el) =>
+              el.textContent?.trim().toLowerCase().includes("regular payroll")
+            );
+            const next = links.find((el) => {
+              const t = el.textContent?.trim();
+              return !t.endsWith("- 1") && !t.endsWith("-1");
+            });
+            if (!next) return "all-complete";
+            const label = next.textContent?.trim();
+            next.click();
+            return `clicked: "${label}"`;
+          },
+        });
+        if (result && result !== "no-section" && result !== "all-complete") {
+          payrollClicked = result;
+          sendLog(`Next payroll: ${result}`);
+          break;
+        }
+        if (result === "all-complete") {
+          sendLog("All payrolls in this period are already complete.", "done");
+          return;
+        }
+        sendLog(`  waiting for Payroll Today section... (${i + 1})`);
+      }
+      if (!payrollClicked) {
+        sendLog("Could not find next unfinished payroll link.", "error");
+        return;
+      }
     }
 
     sendLog("Payroll selected — ready for next step.", "done");
@@ -933,11 +921,37 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId) {
   }
 }
 
+async function runFromStep(port, stepIndex) {
+  const sendLog = (log, status = "running") => {
+    try { port.postMessage({ action: "payroll:log", log, status }); } catch (_) {}
+  };
+  const waitForInput = (key, label) => new Promise((resolve) => {
+    sendLog(label, "awaiting-input");
+    const handler = (msg) => {
+      if (msg.action === "user:input" && msg.key === key) {
+        port.onMessage.removeListener(handler);
+        resolve(msg.value);
+      }
+    };
+    port.onMessage.addListener(handler);
+    setTimeout(() => { port.onMessage.removeListener(handler); resolve(null); }, 300000);
+  });
+  try {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab) { sendLog("No active tab found.", "error"); return; }
+    sendLog(`Running step ${stepIndex + 1} on: ${activeTab.url}`);
+    await _runPayrollAutomation(sendLog, waitForInput, activeTab.id, stepIndex);
+  } catch (err) {
+    sendLog(`Error: ${err.message}`, "error");
+  }
+}
+
 // Persistent port keeps the service worker alive for the full payroll job
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "payroll") {
     port.onMessage.addListener((msg) => {
       if (msg.action === "start") runPayrollJob(port);
+      if (msg.action === "start-from") runFromStep(port, msg.step);
     });
   }
 });
