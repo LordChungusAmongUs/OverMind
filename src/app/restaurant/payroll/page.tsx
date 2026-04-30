@@ -153,7 +153,7 @@ export default function PayrollPage() {
         setLogs([{ text: "No response from extension — reload extension and refresh this page.", status: "error" }]);
         return "error";
       });
-    }, 5000);
+    }, 12000);
     const cancel = () => { clearTimeout(timer); window.removeEventListener("overmind:payroll:log", cancel); };
     window.addEventListener("overmind:payroll:log", cancel);
   };
