@@ -806,9 +806,27 @@ async function _runPayrollJob(sendLog, waitForInput) {
       return;
     }
 
-    sendLog("Logged in to Asure Central.", "done");
+    sendLog("Logged in to Asure Central.", "login-complete");
+
+    // Wait for payroll trigger — auto-sent by dashboard if toggle is on
+    const runPayroll = await waitForInput("run-payroll", "");
+    if (runPayroll === "yes") {
+      await _runPayrollAutomation(sendLog, waitForInput, asureTabId);
+    } else {
+      sendLog("Login complete. Payroll automation skipped.", "done");
+    }
   } catch (err) {
     sendLog(`Navigation error: ${err.message}`, "error");
+  }
+}
+
+async function _runPayrollAutomation(sendLog, waitForInput, tabId) {
+  try {
+    sendLog("Starting payroll automation...");
+    // Steps will be added here
+    sendLog("Payroll automation complete.", "done");
+  } catch (err) {
+    sendLog(`Payroll error: ${err.message}`, "error");
   }
 }
 
