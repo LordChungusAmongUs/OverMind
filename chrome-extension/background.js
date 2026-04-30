@@ -730,7 +730,9 @@ async function _runPayrollJob(sendLog, waitForInput) {
       return;
     }
 
-    sendLog("Credentials submitted — waiting for SMS code...");
+    sendLog("Credentials submitted — waiting for MFA page to load...");
+    await waitForTabLoad(asureTabId, 20000);
+    await sleep(1500);
 
     const mfaCode = await waitForInput("mfa", "Enter the 6-digit SMS code sent to your phone:");
     if (!mfaCode) {
@@ -741,7 +743,7 @@ async function _runPayrollJob(sendLog, waitForInput) {
     sendLog(`SMS code received — filling field...`);
 
     let mfaResult = "not-found";
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 10; i++) {
       await sleep(1000);
       const frames = await chrome.scripting.executeScript({
         target: { tabId: asureTabId, allFrames: true },
