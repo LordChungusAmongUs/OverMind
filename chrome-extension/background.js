@@ -849,38 +849,61 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0,
     if (fromStep <= 0) {
       sendLog("Looking for Payroll Processing card...");
       let webClicked = null;
-      for (let i = 0; i < 20; i++) {
-        await sleep(1500);
+      for (let i = 0; i < 30; i++) {
+        await sleep(2000);
         const [{ result }] = await chrome.scripting.executeScript({
           target: { tabId },
           func: () => {
+            const bodyText = document.body?.innerText?.toLowerCase() || "";
+
+            // Try 1: find a container that mentions payroll processing
             const all = Array.from(document.querySelectorAll("*"));
             const card = all.find((el) => {
-              const t = el.innerText || "";
-              return t.toLowerCase().includes("payroll processing") &&
-                     t.toLowerCase().includes("oneasure");
+              const t = (el.innerText || "").toLowerCase();
+              return (
+                t.includes("payroll processing") ||
+                (t.includes("payroll") && t.includes("classic") && t.includes("web")) ||
+                (t.includes("payroll") && t.includes("web") && el.querySelectorAll("button, a").length >= 2)
+              ) && el.querySelectorAll("button, a").length > 0 && t.length < 500;
             });
-            if (!card) return null;
-            const webBtn =
-              Array.from(card.querySelectorAll("button, a")).find((b) =>
-                b.textContent?.trim().toLowerCase() === "web"
-              ) ||
-              Array.from(document.querySelectorAll("button, a")).find((b) =>
-                b.textContent?.trim().toLowerCase() === "web"
-              );
-            if (!webBtn) return "card-found-no-button";
-            webBtn.click();
-            return `clicked: "${webBtn.textContent?.trim()}"`;
+
+            const webBtn = card
+              ? Array.from(card.querySelectorAll("button, a")).find(
+                  (b) => b.textContent?.trim().toLowerCase() === "web"
+                )
+              : null;
+
+            // Try 2: find any "Web" button on the page whose nearby text mentions payroll
+            const fallbackBtn = !webBtn
+              ? Array.from(document.querySelectorAll("button, a")).find((b) => {
+                  if (b.textContent?.trim().toLowerCase() !== "web") return false;
+                  const parent = b.closest("[class]") || b.parentElement;
+                  const nearby = (parent?.innerText || "").toLowerCase();
+                  return nearby.includes("payroll") || nearby.includes("classic");
+                })
+              : null;
+
+            const btn = webBtn || fallbackBtn;
+            if (!btn) {
+              // Debug: return a sample of what IS on the page
+              const snippet = bodyText.slice(0, 300).replace(/\s+/g, " ");
+              return `not-found|${snippet}`;
+            }
+            btn.click();
+            return `clicked: "${btn.textContent?.trim()}"`;
           },
         });
-        if (result && result !== "card-found-no-button") {
+
+        if (result && !result.startsWith("not-found")) {
           webClicked = result;
           sendLog(`Payroll Processing card: ${result}`);
           break;
         }
-        sendLog(result === "card-found-no-button"
-          ? "Card found but no Web button yet — retrying..."
-          : `  waiting for card... (${i + 1})`);
+        if (i === 0 && result?.startsWith("not-found")) {
+          const snippet = result.split("|")[1] || "";
+          sendLog(`Page text sample: ${snippet}`);
+        }
+        sendLog(`  waiting for card... (${i + 1})`);
       }
       if (!webClicked) {
         sendLog("Could not find Payroll Processing card / Web button.", "error");
