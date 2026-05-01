@@ -845,156 +845,106 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0,
     if (fromStep > 0) sendLog(`Jumping to payroll step ${fromStep + 1}...`);
     else sendLog("Starting payroll automation...");
 
-    // ── Step 0: find Payroll Processing card and click Web ──────────
+    // ── Step 0: find OneAsure-ETA row → ion-button[Web] → click ────────
     if (fromStep <= 0) {
-      sendLog("Scanning page for interactive elements...");
-      await sleep(3000);
-
-      // ── Diagnostic: dump every button/link/role=button from all frames ──
-      const diagFrames = await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        func: () => {
-          const sel = 'button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]';
-          const els = Array.from(document.querySelectorAll(sel));
-          const rows = els.map((el) => {
-            const text = el.textContent?.trim().replace(/\s+/g, " ").slice(0, 80);
-            return [
-              el.tagName,
-              text || "(empty)",
-              el.id || "",
-              el.getAttribute("aria-label") || "",
-              el.getAttribute("data-testid") || "",
-              el.getAttribute("role") || "",
-            ].join(" | ");
-          });
-          return JSON.stringify({
-            url: window.location.href,
-            iframes: Array.from(document.querySelectorAll("iframe")).map((f) => f.src || f.name),
-            rows: rows.slice(0, 80),
-          });
-        },
-      });
-
-      for (const { result } of diagFrames) {
-        if (!result) continue;
-        const { url, iframes, rows } = JSON.parse(result);
-        sendLog(`FRAME: ${url}`);
-        if (iframes.length) sendLog(`  iframes: ${iframes.join(", ")}`);
-        for (const row of rows) sendLog(`  ${row}`);
-      }
-
-      // ── Diagnostic: shadow DOM ──
-      const shadowDiag = await chrome.scripting.executeScript({
+      // Dismiss Luna chat widget if present
+      await chrome.scripting.executeScript({
         target: { tabId },
         func: () => {
-          const found = [];
-          const walk = (root) => {
-            for (const el of root.querySelectorAll("*")) {
-              if (el.shadowRoot) {
-                for (const s of el.shadowRoot.querySelectorAll('button, a, [role="button"]')) {
-                  const t = s.textContent?.trim().replace(/\s+/g, " ").slice(0, 80);
-                  if (t) found.push(`SHADOW ${s.tagName} | ${t}`);
-                }
-                walk(el.shadowRoot);
-              }
-            }
-          };
-          walk(document);
-          return JSON.stringify(found.slice(0, 30));
+          const closeBtns = Array.from(document.querySelectorAll("button, [role='button']")).filter((b) => {
+            const rect = b.getBoundingClientRect();
+            const label = (b.getAttribute("aria-label") || b.textContent || "").toLowerCase();
+            return rect.bottom > window.innerHeight - 250 && rect.right > window.innerWidth - 250 &&
+              (label.includes("close") || label === "×" || label === "x");
+          });
+          closeBtns.forEach((b) => b.click());
+          return closeBtns.length;
         },
       });
-      const shadowItems = JSON.parse(shadowDiag[0]?.result || "[]");
-      if (shadowItems.length) {
-        sendLog(`Shadow DOM elements:`);
-        for (const s of shadowItems) sendLog(`  ${s}`);
-      }
 
-      // ── Click attempt via debugger protocol (pierces closed shadow DOM) ──
-      sendLog("Searching for Web/Classic pair via debugger...");
-      let webClicked = null;
+      sendLog("Waiting for OneAsure-ETA row to appear...");
 
-      for (let i = 0; i < 20; i++) {
-        await sleep(2000);
-
-        try {
-          await chrome.debugger.attach({ tabId }, "1.3");
-
-          // Search for "Web" and "Classic" text nodes across ALL shadow roots
-          const [webSearch, classicSearch] = await Promise.all([
-            chrome.debugger.sendCommand({ tabId }, "DOM.performSearch",
-              { query: "Web", includeUserAgentShadowDOM: true }),
-            chrome.debugger.sendCommand({ tabId }, "DOM.performSearch",
-              { query: "Classic", includeUserAgentShadowDOM: true }),
-          ]);
-
-          const [webRes, classicRes] = await Promise.all([
-            webSearch.resultCount > 0
-              ? chrome.debugger.sendCommand({ tabId }, "DOM.getSearchResults",
-                  { searchId: webSearch.searchId, fromIndex: 0, toIndex: Math.min(webSearch.resultCount, 40) })
-              : { nodeIds: [] },
-            classicSearch.resultCount > 0
-              ? chrome.debugger.sendCommand({ tabId }, "DOM.getSearchResults",
-                  { searchId: classicSearch.searchId, fromIndex: 0, toIndex: Math.min(classicSearch.resultCount, 40) })
-              : { nodeIds: [] },
-          ]);
-
-          const getBox = async (nodeId) => {
-            try {
-              const { model } = await chrome.debugger.sendCommand({ tabId }, "DOM.getBoxModel", { nodeId });
-              if (!model) return null;
-              return { x: (model.content[0] + model.content[2]) / 2, y: (model.content[1] + model.content[5]) / 2 };
-            } catch { return null; }
-          };
-
-          const [webBoxes, classicBoxes] = await Promise.all([
-            Promise.all((webRes.nodeIds || []).map(async (id) => ({ id, box: await getBox(id) }))),
-            Promise.all((classicRes.nodeIds || []).map(async (id) => ({ id, box: await getBox(id) }))),
-          ]);
-
-          const validWeb     = webBoxes.filter((w) => w.box);
-          const validClassic = classicBoxes.filter((c) => c.box);
-
-          if (i === 0) {
-            sendLog(`Debugger: ${validWeb.length} "Web" + ${validClassic.length} "Classic" visible`);
-            for (const w of validWeb)     sendLog(`  Web     at (${Math.round(w.box.x)}, ${Math.round(w.box.y)})`);
-            for (const c of validClassic) sendLog(`  Classic at (${Math.round(c.box.x)}, ${Math.round(c.box.y)})`);
-          }
-
-          // Click the "Web" element that is physically closest to any "Classic" element
-          let bestWeb = null, bestDist = Infinity;
-          for (const w of validWeb) {
-            for (const c of validClassic) {
-              const dist = Math.hypot(w.box.x - c.box.x, w.box.y - c.box.y);
-              if (dist < bestDist && dist < 600) { bestDist = dist; bestWeb = w; }
+      // Poll (100 ms intervals, up to 30 s) until the ion-button is ready
+      const [{ result: waitResult }] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => new Promise((resolve) => {
+          const deadline = Date.now() + 30000;
+          const check = () => {
+            const row = Array.from(document.querySelectorAll("*")).find(
+              (el) => el.textContent.includes("OneAsure-ETA") && el.children.length < 10
+            );
+            if (!row) {
+              if (Date.now() > deadline) { resolve("timeout-no-row"); return; }
+              setTimeout(check, 100);
+              return;
             }
-          }
+            const webBtn = Array.from(row.querySelectorAll("ion-button")).find(
+              (el) => el.textContent.trim() === "Web"
+            );
+            if (!webBtn || webBtn.offsetParent === null ||
+                webBtn.disabled || webBtn.getAttribute("aria-disabled") === "true") {
+              if (Date.now() > deadline) { resolve("timeout-no-button"); return; }
+              setTimeout(check, 100);
+              return;
+            }
+            resolve("ready");
+          };
+          check();
+        }),
+      });
 
-          if (bestWeb) {
-            const x = Math.round(bestWeb.box.x), y = Math.round(bestWeb.box.y);
-            await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent",
-              { type: "mousePressed", x, y, button: "left", clickCount: 1 });
-            await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent",
-              { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
-            await chrome.debugger.detach({ tabId });
-            webClicked = `debugger Web at (${x},${y}), ${Math.round(bestDist)}px from Classic`;
-            break;
-          }
-
-          await chrome.debugger.detach({ tabId });
-        } catch (dbgErr) {
-          try { await chrome.debugger.detach({ tabId }); } catch (_) {}
-          sendLog(`Debugger error: ${dbgErr.message}`);
-        }
-
-        sendLog(`  waiting for Web/Classic pair... (${i + 1})`);
-      }
-
-      if (!webClicked) {
-        sendLog("Could not find Web button.", "error");
+      if (waitResult !== "ready") {
+        sendLog(`Web button not ready: ${waitResult}`, "error");
         return;
       }
-      sendLog(`Clicked: ${webClicked}`);
-      sendLog("Waiting for Payroll Today page...");
+
+      sendLog("ion-button[Web] found — clicking...");
+      const beforeUrl = (await chrome.tabs.get(tabId)).url;
+
+      // Attempt 1: webBtn.click()
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const row = Array.from(document.querySelectorAll("*")).find(
+            (el) => el.textContent.includes("OneAsure-ETA") && el.children.length < 10
+          );
+          const webBtn = row && Array.from(row.querySelectorAll("ion-button")).find(
+            (el) => el.textContent.trim() === "Web"
+          );
+          if (webBtn) webBtn.click();
+        },
+      });
+
+      await sleep(2000);
+      let afterUrl = (await chrome.tabs.get(tabId)).url;
+
+      // Attempt 2: composed MouseEvent (required for ion-button shadow DOM listeners)
+      if (afterUrl === beforeUrl) {
+        sendLog("No navigation after click() — dispatching composed MouseEvent...");
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const row = Array.from(document.querySelectorAll("*")).find(
+              (el) => el.textContent.includes("OneAsure-ETA") && el.children.length < 10
+            );
+            const webBtn = row && Array.from(row.querySelectorAll("ion-button")).find(
+              (el) => el.textContent.trim() === "Web"
+            );
+            if (webBtn) webBtn.dispatchEvent(
+              new MouseEvent("click", { bubbles: true, cancelable: true, composed: true })
+            );
+          },
+        });
+        await sleep(2000);
+        afterUrl = (await chrome.tabs.get(tabId)).url;
+      }
+
+      if (afterUrl === beforeUrl) {
+        sendLog(`Click did not trigger navigation (still on ${afterUrl})`, "error");
+        return;
+      }
+
+      sendLog(`Navigated to ${afterUrl}`);
       await waitForTabLoad(tabId, 20000);
       await sleep(2000);
     }
