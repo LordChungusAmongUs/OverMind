@@ -901,6 +901,31 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0,
       sendLog("ion-button[Web] found — clicking...");
       const beforeUrl = (await chrome.tabs.get(tabId)).url;
 
+      // Helper: check URL change OR "Payroll Today" appearing in DOM
+      const checkSuccess = async () => {
+        const url = (await chrome.tabs.get(tabId)).url;
+        if (url !== beforeUrl) return `navigated to ${url}`;
+        const [{ result: hasPayroll }] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => !!(document.body?.innerText?.includes("Payroll Today") ||
+                         document.querySelector("ion-card") ||
+                         document.body?.innerText?.includes("Regular Payroll")),
+        });
+        return hasPayroll ? "Payroll Today content appeared" : null;
+      };
+
+      // Grab button ref once so each attempt can find it the same way
+      const findWebBtn = `
+        const row = Array.from(document.querySelectorAll("*")).find(
+          el => el.textContent.includes("OneAsure-ETA") && el.children.length < 10
+        );
+        return row && Array.from(row.querySelectorAll("ion-button")).find(
+          el => el.textContent.trim() === "Web"
+        );
+      `;
+
+      let successReason = null;
+
       // Attempt 1: webBtn.click()
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -914,13 +939,12 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0,
           if (webBtn) webBtn.click();
         },
       });
-
       await sleep(2000);
-      let afterUrl = (await chrome.tabs.get(tabId)).url;
+      successReason = await checkSuccess();
 
-      // Attempt 2: composed MouseEvent (required for ion-button shadow DOM listeners)
-      if (afterUrl === beforeUrl) {
-        sendLog("No navigation after click() — dispatching composed MouseEvent...");
+      // Attempt 2: click the native <button> inside ion-button's shadow root
+      if (!successReason) {
+        sendLog("Attempt 2 — clicking inner shadow button...");
         await chrome.scripting.executeScript({
           target: { tabId },
           func: () => {
@@ -930,21 +954,70 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0,
             const webBtn = row && Array.from(row.querySelectorAll("ion-button")).find(
               (el) => el.textContent.trim() === "Web"
             );
-            if (webBtn) webBtn.dispatchEvent(
-              new MouseEvent("click", { bubbles: true, cancelable: true, composed: true })
-            );
+            const inner = webBtn?.shadowRoot?.querySelector("button") ||
+                          webBtn?.shadowRoot?.querySelector("a");
+            if (inner) inner.click();
+            else if (webBtn) webBtn.click();
           },
         });
         await sleep(2000);
-        afterUrl = (await chrome.tabs.get(tabId)).url;
+        successReason = await checkSuccess();
       }
 
-      if (afterUrl === beforeUrl) {
-        sendLog(`Click did not trigger navigation (still on ${afterUrl})`, "error");
+      // Attempt 3: composed PointerEvent chain + composed MouseEvent
+      if (!successReason) {
+        sendLog("Attempt 3 — composed pointer + mouse events...");
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const row = Array.from(document.querySelectorAll("*")).find(
+              (el) => el.textContent.includes("OneAsure-ETA") && el.children.length < 10
+            );
+            const webBtn = row && Array.from(row.querySelectorAll("ion-button")).find(
+              (el) => el.textContent.trim() === "Web"
+            );
+            if (!webBtn) return;
+            const target = webBtn.shadowRoot?.querySelector("button") || webBtn;
+            const opts = { bubbles: true, cancelable: true, composed: true, isPrimary: true };
+            target.dispatchEvent(new PointerEvent("pointerdown", opts));
+            target.dispatchEvent(new PointerEvent("pointerup", opts));
+            target.dispatchEvent(new MouseEvent("click", opts));
+          },
+        });
+        await sleep(2000);
+        successReason = await checkSuccess();
+      }
+
+      // Attempt 4: follow href or routerLink attribute directly
+      if (!successReason) {
+        sendLog("Attempt 4 — following href/routerLink...");
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const row = Array.from(document.querySelectorAll("*")).find(
+              (el) => el.textContent.includes("OneAsure-ETA") && el.children.length < 10
+            );
+            const webBtn = row && Array.from(row.querySelectorAll("ion-button")).find(
+              (el) => el.textContent.trim() === "Web"
+            );
+            if (!webBtn) return;
+            const href = webBtn.getAttribute("href") ||
+                         webBtn.getAttribute("router-link") ||
+                         webBtn.getAttribute("routerLink") ||
+                         webBtn.shadowRoot?.querySelector("a")?.getAttribute("href");
+            if (href) window.location.href = href;
+          },
+        });
+        await sleep(2000);
+        successReason = await checkSuccess();
+      }
+
+      if (!successReason) {
+        sendLog("All click attempts failed — check that the Asure tab is on the home dashboard.", "error");
         return;
       }
 
-      sendLog(`Navigated to ${afterUrl}`);
+      sendLog(`Web button success: ${successReason}`);
       await waitForTabLoad(tabId, 20000);
       await sleep(2000);
     }
