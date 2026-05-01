@@ -909,93 +909,88 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0,
         for (const s of shadowItems) sendLog(`  ${s}`);
       }
 
-      // ── Click attempt: allFrames, any element whose trimmed text === "Web" ──
-      sendLog("Attempting to click Web button...");
+      // ── Click attempt via debugger protocol (pierces closed shadow DOM) ──
+      sendLog("Searching for Web/Classic pair via debugger...");
       let webClicked = null;
-      for (let i = 0; i < 15; i++) {
+
+      for (let i = 0; i < 20; i++) {
         await sleep(2000);
 
-        // Try regular DOM across all frames — only "Web" that is near "Classic"
-        const frameResults = await chrome.scripting.executeScript({
-          target: { tabId, allFrames: true },
-          func: () => {
-            const isWeb = (el) => el.textContent?.trim().toLowerCase() === "web";
-            const isClassic = (el) => el.textContent?.trim().toLowerCase() === "classic";
+        try {
+          await chrome.debugger.attach({ tabId }, "1.3");
 
-            // Strategy 1: find any element whose parent also contains a "Classic" sibling
-            const allEls = Array.from(document.querySelectorAll(
-              'button, a, [role="button"], [role="link"], span, div, li'
-            ));
-            const webEls = allEls.filter(isWeb);
+          // Search for "Web" and "Classic" text nodes across ALL shadow roots
+          const [webSearch, classicSearch] = await Promise.all([
+            chrome.debugger.sendCommand({ tabId }, "DOM.performSearch",
+              { query: "Web", includeUserAgentShadowDOM: true }),
+            chrome.debugger.sendCommand({ tabId }, "DOM.performSearch",
+              { query: "Classic", includeUserAgentShadowDOM: true }),
+          ]);
 
-            let best = null;
-            for (const el of webEls) {
-              // Walk up to find a container that also has a "Classic" element
-              let node = el.parentElement;
-              for (let depth = 0; depth < 8 && node; depth++) {
-                const siblings = Array.from(node.querySelectorAll(
-                  'button, a, [role="button"], [role="link"], span, div, li'
-                ));
-                if (siblings.some(isClassic)) { best = el; break; }
-                node = node.parentElement;
-              }
-              if (best) break;
+          const [webRes, classicRes] = await Promise.all([
+            webSearch.resultCount > 0
+              ? chrome.debugger.sendCommand({ tabId }, "DOM.getSearchResults",
+                  { searchId: webSearch.searchId, fromIndex: 0, toIndex: Math.min(webSearch.resultCount, 40) })
+              : { nodeIds: [] },
+            classicSearch.resultCount > 0
+              ? chrome.debugger.sendCommand({ tabId }, "DOM.getSearchResults",
+                  { searchId: classicSearch.searchId, fromIndex: 0, toIndex: Math.min(classicSearch.resultCount, 40) })
+              : { nodeIds: [] },
+          ]);
+
+          const getBox = async (nodeId) => {
+            try {
+              const { model } = await chrome.debugger.sendCommand({ tabId }, "DOM.getBoxModel", { nodeId });
+              if (!model) return null;
+              return { x: (model.content[0] + model.content[2]) / 2, y: (model.content[1] + model.content[5]) / 2 };
+            } catch { return null; }
+          };
+
+          const [webBoxes, classicBoxes] = await Promise.all([
+            Promise.all((webRes.nodeIds || []).map(async (id) => ({ id, box: await getBox(id) }))),
+            Promise.all((classicRes.nodeIds || []).map(async (id) => ({ id, box: await getBox(id) }))),
+          ]);
+
+          const validWeb     = webBoxes.filter((w) => w.box);
+          const validClassic = classicBoxes.filter((c) => c.box);
+
+          if (i === 0) {
+            sendLog(`Debugger: ${validWeb.length} "Web" + ${validClassic.length} "Classic" visible`);
+            for (const w of validWeb)     sendLog(`  Web     at (${Math.round(w.box.x)}, ${Math.round(w.box.y)})`);
+            for (const c of validClassic) sendLog(`  Classic at (${Math.round(c.box.x)}, ${Math.round(c.box.y)})`);
+          }
+
+          // Click the "Web" element that is physically closest to any "Classic" element
+          let bestWeb = null, bestDist = Infinity;
+          for (const w of validWeb) {
+            for (const c of validClassic) {
+              const dist = Math.hypot(w.box.x - c.box.x, w.box.y - c.box.y);
+              if (dist < bestDist && dist < 600) { bestDist = dist; bestWeb = w; }
             }
+          }
 
-            // Strategy 2: find the "Classic" button first, then look for "Web" nearby
-            if (!best) {
-              const classicEl = allEls.find(isClassic);
-              if (classicEl) {
-                const container = classicEl.closest("[class]") || classicEl.parentElement;
-                if (container) {
-                  best = Array.from(container.querySelectorAll("*")).find(isWeb) ||
-                    Array.from(container.parentElement?.querySelectorAll("*") || []).find(isWeb);
-                }
-              }
-            }
+          if (bestWeb) {
+            const x = Math.round(bestWeb.box.x), y = Math.round(bestWeb.box.y);
+            await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent",
+              { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+            await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent",
+              { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+            await chrome.debugger.detach({ tabId });
+            webClicked = `debugger Web at (${x},${y}), ${Math.round(bestDist)}px from Classic`;
+            break;
+          }
 
-            if (!best) return null;
-            const rect = best.getBoundingClientRect();
-            best.scrollIntoView({ behavior: "instant", block: "center" });
-            best.click();
-            return `${best.tagName} "${best.textContent?.trim()}" at (${Math.round(rect.left)},${Math.round(rect.top)}) in ${window.location.pathname}`;
-          },
-        });
-        const hit = frameResults.find((r) => r.result);
-        if (hit) { webClicked = hit.result; break; }
+          await chrome.debugger.detach({ tabId });
+        } catch (dbgErr) {
+          try { await chrome.debugger.detach({ tabId }); } catch (_) {}
+          sendLog(`Debugger error: ${dbgErr.message}`);
+        }
 
-        // Shadow DOM fallback — same logic
-        const shadowHit = await chrome.scripting.executeScript({
-          target: { tabId },
-          func: () => {
-            const walk = (root) => {
-              for (const el of root.querySelectorAll("*")) {
-                if (el.shadowRoot) { const r = walk(el.shadowRoot); if (r) return r; }
-                if (el.textContent?.trim().toLowerCase() !== "web") continue;
-                if (!["BUTTON","A","SPAN","DIV","LI"].includes(el.tagName)) continue;
-                let node = el.parentElement;
-                for (let d = 0; d < 8 && node; d++) {
-                  if (Array.from(node.querySelectorAll("*")).some(
-                    (s) => s.textContent?.trim().toLowerCase() === "classic"
-                  )) {
-                    el.click();
-                    return `SHADOW ${el.tagName} "${el.textContent?.trim()}"`;
-                  }
-                  node = node.parentElement;
-                }
-              }
-              return null;
-            };
-            return walk(document);
-          },
-        });
-        if (shadowHit[0]?.result) { webClicked = shadowHit[0].result; break; }
-
-        sendLog(`  waiting for Web button... (${i + 1})`);
+        sendLog(`  waiting for Web/Classic pair... (${i + 1})`);
       }
 
       if (!webClicked) {
-        sendLog("Could not find Web button — see element dump above.", "error");
+        sendLog("Could not find Web button.", "error");
         return;
       }
       sendLog(`Clicked: ${webClicked}`);
