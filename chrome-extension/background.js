@@ -847,68 +847,120 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0,
 
     // ── Step 0: find Payroll Processing card and click Web ──────────
     if (fromStep <= 0) {
-      sendLog("Looking for Payroll Processing card...");
-      let webClicked = null;
-      for (let i = 0; i < 30; i++) {
-        await sleep(2000);
-        const [{ result }] = await chrome.scripting.executeScript({
-          target: { tabId },
-          func: () => {
-            const bodyText = document.body?.innerText?.toLowerCase() || "";
+      sendLog("Scanning page for interactive elements...");
+      await sleep(3000);
 
-            // Try 1: find a container that mentions payroll processing
-            const all = Array.from(document.querySelectorAll("*"));
-            const card = all.find((el) => {
-              const t = (el.innerText || "").toLowerCase();
-              return (
-                t.includes("payroll processing") ||
-                (t.includes("payroll") && t.includes("classic") && t.includes("web")) ||
-                (t.includes("payroll") && t.includes("web") && el.querySelectorAll("button, a").length >= 2)
-              ) && el.querySelectorAll("button, a").length > 0 && t.length < 500;
-            });
+      // ── Diagnostic: dump every button/link/role=button from all frames ──
+      const diagFrames = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: () => {
+          const sel = 'button, a, [role="button"], [role="link"], input[type="button"], input[type="submit"]';
+          const els = Array.from(document.querySelectorAll(sel));
+          const rows = els.map((el) => {
+            const text = el.textContent?.trim().replace(/\s+/g, " ").slice(0, 80);
+            return [
+              el.tagName,
+              text || "(empty)",
+              el.id || "",
+              el.getAttribute("aria-label") || "",
+              el.getAttribute("data-testid") || "",
+              el.getAttribute("role") || "",
+            ].join(" | ");
+          });
+          return JSON.stringify({
+            url: window.location.href,
+            iframes: Array.from(document.querySelectorAll("iframe")).map((f) => f.src || f.name),
+            rows: rows.slice(0, 80),
+          });
+        },
+      });
 
-            const webBtn = card
-              ? Array.from(card.querySelectorAll("button, a")).find(
-                  (b) => b.textContent?.trim().toLowerCase() === "web"
-                )
-              : null;
+      for (const { result } of diagFrames) {
+        if (!result) continue;
+        const { url, iframes, rows } = JSON.parse(result);
+        sendLog(`FRAME: ${url}`);
+        if (iframes.length) sendLog(`  iframes: ${iframes.join(", ")}`);
+        for (const row of rows) sendLog(`  ${row}`);
+      }
 
-            // Try 2: find any "Web" button on the page whose nearby text mentions payroll
-            const fallbackBtn = !webBtn
-              ? Array.from(document.querySelectorAll("button, a")).find((b) => {
-                  if (b.textContent?.trim().toLowerCase() !== "web") return false;
-                  const parent = b.closest("[class]") || b.parentElement;
-                  const nearby = (parent?.innerText || "").toLowerCase();
-                  return nearby.includes("payroll") || nearby.includes("classic");
-                })
-              : null;
-
-            const btn = webBtn || fallbackBtn;
-            if (!btn) {
-              // Debug: return a sample of what IS on the page
-              const snippet = bodyText.slice(0, 300).replace(/\s+/g, " ");
-              return `not-found|${snippet}`;
+      // ── Diagnostic: shadow DOM ──
+      const shadowDiag = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const found = [];
+          const walk = (root) => {
+            for (const el of root.querySelectorAll("*")) {
+              if (el.shadowRoot) {
+                for (const s of el.shadowRoot.querySelectorAll('button, a, [role="button"]')) {
+                  const t = s.textContent?.trim().replace(/\s+/g, " ").slice(0, 80);
+                  if (t) found.push(`SHADOW ${s.tagName} | ${t}`);
+                }
+                walk(el.shadowRoot);
+              }
             }
-            btn.click();
-            return `clicked: "${btn.textContent?.trim()}"`;
+          };
+          walk(document);
+          return JSON.stringify(found.slice(0, 30));
+        },
+      });
+      const shadowItems = JSON.parse(shadowDiag[0]?.result || "[]");
+      if (shadowItems.length) {
+        sendLog(`Shadow DOM elements:`);
+        for (const s of shadowItems) sendLog(`  ${s}`);
+      }
+
+      // ── Click attempt: allFrames, any element whose trimmed text === "Web" ──
+      sendLog("Attempting to click Web button...");
+      let webClicked = null;
+      for (let i = 0; i < 15; i++) {
+        await sleep(2000);
+
+        // Try regular DOM across all frames
+        const frameResults = await chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          func: () => {
+            const candidates = Array.from(document.querySelectorAll(
+              'button, a, [role="button"], [role="link"], span, div, li'
+            )).filter((el) => el.textContent?.trim().toLowerCase() === "web");
+            if (!candidates.length) return null;
+            const el = candidates[0];
+            const rect = el.getBoundingClientRect();
+            el.scrollIntoView({ behavior: "instant", block: "center" });
+            el.click();
+            return `${el.tagName} "${el.textContent?.trim()}" at (${Math.round(rect.left)},${Math.round(rect.top)}) in ${window.location.pathname}`;
           },
         });
+        const hit = frameResults.find((r) => r.result);
+        if (hit) { webClicked = hit.result; break; }
 
-        if (result && !result.startsWith("not-found")) {
-          webClicked = result;
-          sendLog(`Payroll Processing card: ${result}`);
-          break;
-        }
-        if (i === 0 && result?.startsWith("not-found")) {
-          const snippet = result.split("|")[1] || "";
-          sendLog(`Page text sample: ${snippet}`);
-        }
-        sendLog(`  waiting for card... (${i + 1})`);
+        // Try shadow DOM click
+        const shadowHit = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const walk = (root) => {
+              for (const el of root.querySelectorAll("*")) {
+                if (el.textContent?.trim().toLowerCase() === "web" &&
+                    ["BUTTON","A","SPAN","DIV","LI"].includes(el.tagName)) {
+                  el.click();
+                  return `SHADOW ${el.tagName} "${el.textContent?.trim()}"`;
+                }
+                if (el.shadowRoot) { const r = walk(el.shadowRoot); if (r) return r; }
+              }
+              return null;
+            };
+            return walk(document);
+          },
+        });
+        if (shadowHit[0]?.result) { webClicked = shadowHit[0].result; break; }
+
+        sendLog(`  waiting for Web button... (${i + 1})`);
       }
+
       if (!webClicked) {
-        sendLog("Could not find Payroll Processing card / Web button.", "error");
+        sendLog("Could not find Web button — see element dump above.", "error");
         return;
       }
+      sendLog(`Clicked: ${webClicked}`);
       sendLog("Waiting for Payroll Today page...");
       await waitForTabLoad(tabId, 20000);
       await sleep(2000);
