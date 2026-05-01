@@ -915,36 +915,74 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0,
       for (let i = 0; i < 15; i++) {
         await sleep(2000);
 
-        // Try regular DOM across all frames
+        // Try regular DOM across all frames — only "Web" that is near "Classic"
         const frameResults = await chrome.scripting.executeScript({
           target: { tabId, allFrames: true },
           func: () => {
-            const candidates = Array.from(document.querySelectorAll(
+            const isWeb = (el) => el.textContent?.trim().toLowerCase() === "web";
+            const isClassic = (el) => el.textContent?.trim().toLowerCase() === "classic";
+
+            // Strategy 1: find any element whose parent also contains a "Classic" sibling
+            const allEls = Array.from(document.querySelectorAll(
               'button, a, [role="button"], [role="link"], span, div, li'
-            )).filter((el) => el.textContent?.trim().toLowerCase() === "web");
-            if (!candidates.length) return null;
-            const el = candidates[0];
-            const rect = el.getBoundingClientRect();
-            el.scrollIntoView({ behavior: "instant", block: "center" });
-            el.click();
-            return `${el.tagName} "${el.textContent?.trim()}" at (${Math.round(rect.left)},${Math.round(rect.top)}) in ${window.location.pathname}`;
+            ));
+            const webEls = allEls.filter(isWeb);
+
+            let best = null;
+            for (const el of webEls) {
+              // Walk up to find a container that also has a "Classic" element
+              let node = el.parentElement;
+              for (let depth = 0; depth < 8 && node; depth++) {
+                const siblings = Array.from(node.querySelectorAll(
+                  'button, a, [role="button"], [role="link"], span, div, li'
+                ));
+                if (siblings.some(isClassic)) { best = el; break; }
+                node = node.parentElement;
+              }
+              if (best) break;
+            }
+
+            // Strategy 2: find the "Classic" button first, then look for "Web" nearby
+            if (!best) {
+              const classicEl = allEls.find(isClassic);
+              if (classicEl) {
+                const container = classicEl.closest("[class]") || classicEl.parentElement;
+                if (container) {
+                  best = Array.from(container.querySelectorAll("*")).find(isWeb) ||
+                    Array.from(container.parentElement?.querySelectorAll("*") || []).find(isWeb);
+                }
+              }
+            }
+
+            if (!best) return null;
+            const rect = best.getBoundingClientRect();
+            best.scrollIntoView({ behavior: "instant", block: "center" });
+            best.click();
+            return `${best.tagName} "${best.textContent?.trim()}" at (${Math.round(rect.left)},${Math.round(rect.top)}) in ${window.location.pathname}`;
           },
         });
         const hit = frameResults.find((r) => r.result);
         if (hit) { webClicked = hit.result; break; }
 
-        // Try shadow DOM click
+        // Shadow DOM fallback — same logic
         const shadowHit = await chrome.scripting.executeScript({
           target: { tabId },
           func: () => {
             const walk = (root) => {
               for (const el of root.querySelectorAll("*")) {
-                if (el.textContent?.trim().toLowerCase() === "web" &&
-                    ["BUTTON","A","SPAN","DIV","LI"].includes(el.tagName)) {
-                  el.click();
-                  return `SHADOW ${el.tagName} "${el.textContent?.trim()}"`;
-                }
                 if (el.shadowRoot) { const r = walk(el.shadowRoot); if (r) return r; }
+                if (el.textContent?.trim().toLowerCase() !== "web") continue;
+                if (!["BUTTON","A","SPAN","DIV","LI"].includes(el.tagName)) continue;
+                let node = el.parentElement;
+                for (let d = 0; d < 8 && node; d++) {
+                  if (Array.from(node.querySelectorAll("*")).some(
+                    (s) => s.textContent?.trim().toLowerCase() === "classic"
+                  )) {
+                    el.click();
+                    return `SHADOW ${el.tagName} "${el.textContent?.trim()}"`;
+                  }
+                  node = node.parentElement;
+                }
               }
               return null;
             };
