@@ -1131,10 +1131,28 @@ async function runFromStep(port, stepIndex) {
   const sendData = (data) => { try { port.postMessage(data); } catch (_) {} };
   const waitForInput = makeWaitForInput(port, sendLog);
   try {
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!activeTab) { sendLog("No active tab found.", "error"); return; }
-    sendLog(`Running step ${stepIndex + 1} on: ${activeTab.url}`);
-    await _runPayrollAutomation(sendLog, waitForInput, activeTab.id, stepIndex, sendData);
+    // Find the Asure HCM tab; fall back to active tab
+    const allTabs = await chrome.tabs.query({});
+    const asureTab = allTabs.find((t) =>
+      t.url?.includes("asurehcm.com") ||
+      t.url?.includes("asureforce.net") ||
+      t.url?.includes("authentication.identity")
+    );
+
+    let targetTab;
+    if (asureTab) {
+      sendLog(`Found Asure tab: ${asureTab.url}`);
+      await chrome.tabs.update(asureTab.id, { active: true });
+      await chrome.windows.update(asureTab.windowId, { focused: true });
+      targetTab = asureTab;
+    } else {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!activeTab) { sendLog("No active tab found.", "error"); return; }
+      sendLog(`No Asure tab found — using active tab: ${activeTab.url}`);
+      targetTab = activeTab;
+    }
+
+    await _runPayrollAutomation(sendLog, waitForInput, targetTab.id, stepIndex, sendData);
   } catch (err) {
     sendLog(`Error: ${err.message}`, "error");
   }
