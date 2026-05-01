@@ -1012,6 +1012,45 @@ async function _runPayrollAutomation(sendLog, waitForInput, tabId, fromStep = 0,
         successReason = await checkSuccess();
       }
 
+      // Attempt 5: hardware-level click via chrome.debugger at screen coordinates
+      if (!successReason) {
+        sendLog("Attempt 5 — hardware click via debugger...");
+        const [{ result: coords }] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const row = Array.from(document.querySelectorAll("*")).find(
+              (el) => el.textContent.includes("OneAsure-ETA") && el.children.length < 10
+            );
+            const webBtn = row && Array.from(row.querySelectorAll("ion-button")).find(
+              (el) => el.textContent.trim() === "Web"
+            );
+            if (!webBtn) return null;
+            const r = webBtn.getBoundingClientRect();
+            return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+          },
+        });
+        if (coords) {
+          sendLog(`Debugger click at (${coords.x}, ${coords.y})...`);
+          try {
+            await chrome.debugger.attach({ tabId }, "1.3");
+            await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+              type: "mousePressed", x: coords.x, y: coords.y, button: "left", clickCount: 1,
+            });
+            await chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", {
+              type: "mouseReleased", x: coords.x, y: coords.y, button: "left", clickCount: 1,
+            });
+            await chrome.debugger.detach({ tabId });
+          } catch (e) {
+            sendLog(`Debugger error: ${e.message}`);
+            try { await chrome.debugger.detach({ tabId }); } catch (_) {}
+          }
+          await sleep(2000);
+          successReason = await checkSuccess();
+        } else {
+          sendLog("Could not read button coordinates for debugger click.");
+        }
+      }
+
       if (!successReason) {
         sendLog("All click attempts failed — check that the Asure tab is on the home dashboard.", "error");
         return;
