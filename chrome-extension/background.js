@@ -27,24 +27,38 @@ function waitForTabLoad(tabId, timeout = 20000) {
   });
 }
 
+function makeWaitForInput(port, sendLog) {
+  return (key, label) => new Promise((resolve) => {
+    sendLog(label, "awaiting-input");
+    chrome.storage.local.remove("inputResponse");
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      port.onMessage.removeListener(handler);
+      clearInterval(poll);
+      chrome.storage.local.remove("inputResponse");
+      resolve(value);
+    };
+    const handler = (msg) => {
+      if (msg.action === "user:input" && msg.key === key) finish(msg.value);
+    };
+    port.onMessage.addListener(handler);
+    const poll = setInterval(() => {
+      chrome.storage.local.get("inputResponse", ({ inputResponse }) => {
+        if (!done && inputResponse?.key === key) finish(inputResponse.value);
+      });
+    }, 500);
+    setTimeout(() => finish(null), 300000);
+  });
+}
+
 async function runPayrollJob(port) {
   const sendLog = (log, status = "running") => {
     try { port.postMessage({ action: "payroll:log", log, status }); } catch (_) {}
   };
   const sendData = (data) => { try { port.postMessage(data); } catch (_) {} };
-
-  const waitForInput = (key, label) => new Promise((resolve) => {
-    sendLog(label, "awaiting-input");
-    const handler = (msg) => {
-      if (msg.action === "user:input" && msg.key === key) {
-        port.onMessage.removeListener(handler);
-        resolve(msg.value);
-      }
-    };
-    port.onMessage.addListener(handler);
-    // 5-minute timeout
-    setTimeout(() => { port.onMessage.removeListener(handler); resolve(null); }, 300000);
-  });
+  const waitForInput = makeWaitForInput(port, sendLog);
 
   try {
     await _runPayrollJob(sendLog, waitForInput, sendData);
@@ -1078,17 +1092,7 @@ async function runFromLoginStep(port, stepIndex) {
   const sendLog = (log, status = "running") => {
     try { port.postMessage({ action: "payroll:log", log, status }); } catch (_) {}
   };
-  const waitForInput = (key, label) => new Promise((resolve) => {
-    sendLog(label, "awaiting-input");
-    const handler = (msg) => {
-      if (msg.action === "user:input" && msg.key === key) {
-        port.onMessage.removeListener(handler);
-        resolve(msg.value);
-      }
-    };
-    port.onMessage.addListener(handler);
-    setTimeout(() => { port.onMessage.removeListener(handler); resolve(null); }, 300000);
-  });
+  const waitForInput = makeWaitForInput(port, sendLog);
   try {
     sendLog(`Running full login sequence (step ${stepIndex + 1} selected)...`);
     await _runPayrollJob(sendLog, waitForInput);
@@ -1102,17 +1106,7 @@ async function runFromStep(port, stepIndex) {
     try { port.postMessage({ action: "payroll:log", log, status }); } catch (_) {}
   };
   const sendData = (data) => { try { port.postMessage(data); } catch (_) {} };
-  const waitForInput = (key, label) => new Promise((resolve) => {
-    sendLog(label, "awaiting-input");
-    const handler = (msg) => {
-      if (msg.action === "user:input" && msg.key === key) {
-        port.onMessage.removeListener(handler);
-        resolve(msg.value);
-      }
-    };
-    port.onMessage.addListener(handler);
-    setTimeout(() => { port.onMessage.removeListener(handler); resolve(null); }, 300000);
-  });
+  const waitForInput = makeWaitForInput(port, sendLog);
   try {
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!activeTab) { sendLog("No active tab found.", "error"); return; }

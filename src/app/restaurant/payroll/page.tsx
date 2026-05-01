@@ -160,6 +160,7 @@ export default function PayrollPage() {
 
   const submitInput = () => {
     if (!awaitingInput || !inputValue.trim()) return;
+    setLogs((prev) => [...prev, { text: "Code submitted — waiting for extension...", status: "running" }]);
     window.dispatchEvent(new CustomEvent("overmind:payroll:input", {
       detail: { key: awaitingInput.key, value: inputValue.trim() },
     }));

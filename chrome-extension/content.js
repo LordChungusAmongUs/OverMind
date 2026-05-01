@@ -3,6 +3,12 @@ window.addEventListener("overmind:ext:ping", () => {
   window.dispatchEvent(new CustomEvent("overmind:ext:ready"));
 });
 
+// Storage fallback: write any user input to storage so background.js can poll it
+// even if the port has disconnected
+window.addEventListener("overmind:payroll:input", (e) => {
+  chrome.storage.local.set({ inputResponse: { key: e.detail.key, value: e.detail.value } });
+});
+
 function connectPayrollPort(startMsg) {
   const port = chrome.runtime.connect({ name: "payroll" });
   port.onMessage.addListener((msg) => {
