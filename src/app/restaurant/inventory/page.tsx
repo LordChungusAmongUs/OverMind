@@ -1,13 +1,20 @@
 "use client";
 
+/*
+  SUPABASE MIGRATION — run once in the SQL Editor before deploying:
+
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS par_slot1 numeric;
+  ALTER TABLE products ADD COLUMN IF NOT EXISTS par_slot2 numeric;
+  UPDATE products SET par_slot1 = par_level WHERE par_level IS NOT NULL AND par_slot1 IS NULL;
+*/
+
 import { useState, useEffect, useCallback } from "react";
 import Sidebar from "@/components/layout/Sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
 import {
   Package, ClipboardList, ShoppingCart, Settings,
-  ChevronDown, ChevronUp, Pencil, Check, X, Plus,
-  AlertTriangle, TrendingUp, Search,
+  Pencil, Check, X, AlertTriangle, TrendingUp, Search,
 } from "lucide-react";
 
 type Tab = "overview" | "products" | "count" | "orders";
@@ -17,10 +24,35 @@ interface Category { id: string; name: string; }
 interface ProductVendor { id: string; vendor_id: string; vendor_name: string; price: number | null; }
 interface Product {
   id: string; name: string; category_id: string; category_name: string;
-  unit: string; par_level: number | null; par_auto: boolean;
+  unit: string;
+  par_level: number | null;   // legacy fallback
+  par_slot1: number | null;   // Tue delivery (midweek)
+  par_slot2: number | null;   // Fri delivery (weekend — higher)
+  par_auto: boolean;
   product_vendors: ProductVendor[];
 }
 interface CountEntry { product_id: string; quantity: string; }
+
+// Returns the effective par for the given delivery slot.
+// Slot 2 uses par_slot2 if set, otherwise falls back to slot1/legacy.
+function getEffectivePar(p: Product, slot: 1 | 2): number | null {
+  if (slot === 2 && p.par_slot2 != null) return p.par_slot2;
+  return p.par_slot1 ?? p.par_level;
+}
+
+function hasTwiceWeeklyVendor(p: Product, vendors: Vendor[]): boolean {
+  return p.product_vendors.some(pv =>
+    vendors.find(v => v.id === pv.vendor_id)?.order_frequency === "twice_weekly"
+  );
+}
+
+function parDisplay(p: Product, vendors: Vendor[]): string {
+  const s1 = p.par_slot1 ?? p.par_level;
+  if (!hasTwiceWeeklyVendor(p, vendors) || p.par_slot2 == null) {
+    return s1 != null ? String(s1) : "—";
+  }
+  return `Tue: ${s1 ?? "—"}  /  Fri: ${p.par_slot2}`;
+}
 
 export default function InventoryPage() {
   const [tab, setTab] = useState<Tab>("overview");
@@ -33,9 +65,10 @@ export default function InventoryPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editBuf, setEditBuf] = useState<Partial<Product & { prices: Record<string, string> }>>({});
   const [countEntries, setCountEntries] = useState<CountEntry[]>([]);
-  const [orderSlot, setOrderSlot] = useState<1 | 2>(1);
+  const [countSlot, setCountSlot] = useState<1 | 2>(1);
   const [countSubmitting, setCountSubmitting] = useState(false);
-  const [orderData, setOrderData] = useState<Record<string, { items: (Product & { toOrder: number; price: number | null; vendor: string })[] }>>({});
+  const [ordersSlot, setOrdersSlot] = useState<1 | 2>(1);
+  const [orderData, setOrderData] = useState<Record<string, { items: (Product & { toOrder: number; price: number | null; vendor: string; par: number })[] }>>({});
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -68,52 +101,59 @@ export default function InventoryPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ── ORDER GENERATION ────────────────────────────────────────
-  useEffect(() => {
-    if (tab !== "orders") return;
-    generateOrders();
-  }, [tab, products]);
+  // ── ORDER GENERATION ──────────────────────────────────────────────────────
 
-  const generateOrders = async () => {
+  const generateOrders = useCallback(async (slot: 1 | 2) => {
     const { data: latestCounts } = await supabase
       .from("inventory_counts")
       .select("product_id, quantity_on_hand, count_date, order_slot")
       .order("count_date", { ascending: false });
 
+    // Prefer counts from the matching slot; fall back to any slot
     const latestByProduct: Record<string, number> = {};
-    (latestCounts || []).forEach((c: any) => {
-      if (!(c.product_id in latestByProduct)) {
-        latestByProduct[c.product_id] = c.quantity_on_hand;
-      }
+    const slotCounts: typeof latestCounts = (latestCounts || []).filter((c: any) => c.order_slot === slot);
+    const anyCounts: typeof latestCounts = latestCounts || [];
+
+    [...anyCounts].forEach((c: any) => {
+      if (!(c.product_id in latestByProduct)) latestByProduct[c.product_id] = c.quantity_on_hand;
     });
+    // Override with slot-specific counts where available
+    slotCounts.forEach((c: any) => { latestByProduct[c.product_id] = c.quantity_on_hand; });
 
     const grouped: Record<string, { items: any[] }> = {};
 
     for (const product of products) {
-      if (!product.par_level) continue;
+      const par = getEffectivePar(product, slot);
+      if (par == null) continue;
       const onHand = latestByProduct[product.id] ?? null;
       if (onHand === null) continue;
-      const toOrder = Math.ceil(product.par_level - onHand);
+      const toOrder = Math.ceil(par - onHand);
       if (toOrder <= 0) continue;
 
-      // Pick lowest price vendor
       const pvWithPrice = product.product_vendors.filter(pv => pv.price !== null);
       const chosen = pvWithPrice.sort((a, b) => (a.price! - b.price!))[0];
       const vendorName = chosen?.vendor_name || (product.product_vendors[0]?.vendor_name ?? "Unknown");
 
       if (!grouped[vendorName]) grouped[vendorName] = { items: [] };
-      grouped[vendorName].items.push({ ...product, toOrder, price: chosen?.price ?? null, vendor: vendorName });
+      grouped[vendorName].items.push({ ...product, toOrder, par, price: chosen?.price ?? null, vendor: vendorName });
     }
 
     setOrderData(grouped);
-  };
+  }, [products]);
 
-  // ── SAVE EDIT ───────────────────────────────────────────────
+  useEffect(() => {
+    if (tab === "orders") generateOrders(ordersSlot);
+  }, [tab, products, ordersSlot, generateOrders]);
+
+  // ── SAVE EDIT ─────────────────────────────────────────────────────────────
+
   const saveEdit = async (p: Product) => {
     await supabase.from("products").update({
       name: editBuf.name ?? p.name,
       unit: editBuf.unit ?? p.unit,
-      par_level: editBuf.par_level ?? p.par_level,
+      par_level: editBuf.par_slot1 ?? p.par_slot1 ?? p.par_level,
+      par_slot1: editBuf.par_slot1 !== undefined ? editBuf.par_slot1 : p.par_slot1,
+      par_slot2: editBuf.par_slot2 !== undefined ? editBuf.par_slot2 : p.par_slot2,
       category_id: editBuf.category_id ?? p.category_id,
     }).eq("id", p.id);
 
@@ -129,7 +169,8 @@ export default function InventoryPage() {
     loadData();
   };
 
-  // ── SUBMIT COUNT ────────────────────────────────────────────
+  // ── SUBMIT COUNT ──────────────────────────────────────────────────────────
+
   const submitCount = async () => {
     setCountSubmitting(true);
     const filled = countEntries.filter(e => e.quantity !== "");
@@ -137,8 +178,8 @@ export default function InventoryPage() {
 
     for (const entry of filled) {
       const product = products.find(p => p.id === entry.product_id);
-      const vendor = vendors.find(v => product?.product_vendors.some(pv => pv.vendor_id === v.id));
-      const slot = vendor?.order_frequency === "twice_weekly" ? orderSlot : 1;
+      const isTwice = product ? hasTwiceWeeklyVendor(product, vendors) : false;
+      const slot = isTwice ? countSlot : 1;
       await supabase.from("inventory_counts").insert({
         product_id: entry.product_id,
         quantity_on_hand: parseFloat(entry.quantity),
@@ -158,11 +199,13 @@ export default function InventoryPage() {
   );
 
   const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
-    { key: "overview", label: "Overview", icon: Package },
-    { key: "products", label: "Products", icon: Settings },
-    { key: "count", label: "Count Entry", icon: ClipboardList },
-    { key: "orders", label: "Order Sheet", icon: ShoppingCart },
+    { key: "overview", label: "Overview",    icon: Package      },
+    { key: "products", label: "Products",    icon: Settings     },
+    { key: "count",    label: "Count Entry", icon: ClipboardList },
+    { key: "orders",   label: "Order Sheet", icon: ShoppingCart },
   ];
+
+  const slotLabel = (s: 1 | 2) => s === 1 ? "Slot 1 — Tue Delivery" : "Slot 2 — Fri Delivery (Weekend)";
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -170,7 +213,7 @@ export default function InventoryPage() {
       <main className="ml-56 flex-1 p-8">
         <div className="mb-6">
           <h1 className="text-3xl font-bold">Inventory</h1>
-          <p className="text-muted-foreground mt-1">King&apos;s BBQ, Burgers, & More</p>
+          <p className="text-muted-foreground mt-1">King&apos;s BBQ, Burgers, &amp; More</p>
         </div>
 
         {/* Tabs */}
@@ -192,15 +235,15 @@ export default function InventoryPage() {
           <div className="flex items-center justify-center h-64 text-muted-foreground">Loading inventory...</div>
         ) : (
           <>
-            {/* OVERVIEW */}
+            {/* ── OVERVIEW ── */}
             {tab === "overview" && (
               <div>
                 <div className="grid grid-cols-4 gap-4 mb-6">
                   {[
-                    { label: "Total Products", value: products.length, icon: Package, color: "text-primary" },
-                    { label: "With Par Set", value: products.filter(p => p.par_level).length, icon: TrendingUp, color: "text-green-400" },
-                    { label: "Vendors", value: vendors.length, icon: ShoppingCart, color: "text-blue-400" },
-                    { label: "Need Prices", value: products.filter(p => p.product_vendors.every(pv => !pv.price)).length, icon: AlertTriangle, color: "text-yellow-400" },
+                    { label: "Total Products", value: products.length,                                                                icon: Package,       color: "text-primary"      },
+                    { label: "With Par Set",   value: products.filter(p => p.par_slot1 ?? p.par_level).length,                       icon: TrendingUp,    color: "text-green-400"    },
+                    { label: "Dual Par Items", value: products.filter(p => p.par_slot2 != null).length,                              icon: TrendingUp,    color: "text-blue-400"     },
+                    { label: "Need Prices",    value: products.filter(p => p.product_vendors.every(pv => !pv.price)).length,         icon: AlertTriangle, color: "text-yellow-400"   },
                   ].map(({ label, value, icon: Icon, color }) => (
                     <Card key={label}>
                       <CardContent className="p-4 flex items-center gap-3">
@@ -216,7 +259,6 @@ export default function InventoryPage() {
                   ))}
                 </div>
 
-                {/* Vendor summary */}
                 <Card>
                   <CardHeader><CardTitle>Vendors</CardTitle></CardHeader>
                   <CardContent>
@@ -239,10 +281,9 @@ export default function InventoryPage() {
               </div>
             )}
 
-            {/* PRODUCTS */}
+            {/* ── PRODUCTS ── */}
             {tab === "products" && (
               <div>
-                {/* Filters */}
                 <div className="flex gap-3 mb-4">
                   <div className="relative flex-1 max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -264,7 +305,6 @@ export default function InventoryPage() {
                   <span className="px-3 py-2 text-sm text-muted-foreground">{filtered.length} items</span>
                 </div>
 
-                {/* Product table */}
                 <div className="rounded-xl border border-border overflow-hidden">
                   <table className="w-full text-sm">
                     <thead>
@@ -272,8 +312,9 @@ export default function InventoryPage() {
                         <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Product</th>
                         <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Category</th>
                         <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Unit</th>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Par</th>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Vendors & Prices</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Par — Tue Delivery</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Par — Fri Delivery</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground">Vendors &amp; Prices</th>
                         <th className="px-4 py-3"></th>
                       </tr>
                     </thead>
@@ -282,6 +323,7 @@ export default function InventoryPage() {
                         <tr key={p.id} className={`border-b border-border ${i % 2 === 0 ? "bg-background" : "bg-card"}`}>
                           {editingId === p.id ? (
                             <>
+                              {/* Name */}
                               <td className="px-4 py-2">
                                 <input
                                   value={editBuf.name ?? p.name}
@@ -289,6 +331,7 @@ export default function InventoryPage() {
                                   className="w-full px-2 py-1 text-sm rounded bg-secondary border border-ring focus:outline-none"
                                 />
                               </td>
+                              {/* Category */}
                               <td className="px-4 py-2">
                                 <select
                                   value={editBuf.category_id ?? p.category_id}
@@ -298,23 +341,40 @@ export default function InventoryPage() {
                                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                 </select>
                               </td>
+                              {/* Unit */}
                               <td className="px-4 py-2">
                                 <input
                                   value={editBuf.unit ?? p.unit}
                                   onChange={e => setEditBuf(b => ({ ...b, unit: e.target.value }))}
-                                  className="w-24 px-2 py-1 text-sm rounded bg-secondary border border-ring focus:outline-none"
+                                  className="w-20 px-2 py-1 text-sm rounded bg-secondary border border-ring focus:outline-none"
                                 />
                               </td>
+                              {/* Par Slot 1 — Tue */}
                               <td className="px-4 py-2">
                                 <input
-                                  type="number"
-                                  step="0.5"
-                                  value={editBuf.par_level ?? p.par_level ?? ""}
-                                  onChange={e => setEditBuf(b => ({ ...b, par_level: parseFloat(e.target.value) }))}
+                                  type="number" step="0.5"
+                                  value={(editBuf.par_slot1 !== undefined ? editBuf.par_slot1 : (p.par_slot1 ?? p.par_level)) ?? ""}
+                                  onChange={e => setEditBuf(b => ({ ...b, par_slot1: e.target.value === "" ? null : parseFloat(e.target.value) }))}
                                   placeholder="—"
                                   className="w-20 px-2 py-1 text-sm rounded bg-secondary border border-ring focus:outline-none"
                                 />
                               </td>
+                              {/* Par Slot 2 — Fri */}
+                              <td className="px-4 py-2">
+                                <div className="flex flex-col gap-0.5">
+                                  <input
+                                    type="number" step="0.5"
+                                    value={(editBuf.par_slot2 !== undefined ? editBuf.par_slot2 : p.par_slot2) ?? ""}
+                                    onChange={e => setEditBuf(b => ({ ...b, par_slot2: e.target.value === "" ? null : parseFloat(e.target.value) }))}
+                                    placeholder="same as Tue"
+                                    className="w-28 px-2 py-1 text-sm rounded bg-secondary border border-ring focus:outline-none"
+                                  />
+                                  {hasTwiceWeeklyVendor(p, vendors) && (
+                                    <span className="text-xs text-muted-foreground">blank = use Tue par</span>
+                                  )}
+                                </div>
+                              </td>
+                              {/* Prices */}
                               <td className="px-4 py-2">
                                 <div className="space-y-1">
                                   {p.product_vendors.map(pv => (
@@ -322,20 +382,16 @@ export default function InventoryPage() {
                                       <span className="text-xs text-muted-foreground w-28 truncate">{pv.vendor_name}</span>
                                       <span className="text-xs text-muted-foreground">$</span>
                                       <input
-                                        type="number"
-                                        step="0.01"
-                                        placeholder="0.00"
+                                        type="number" step="0.01" placeholder="0.00"
                                         value={(editBuf.prices?.[pv.id]) ?? (pv.price?.toString() ?? "")}
-                                        onChange={e => setEditBuf(b => ({
-                                          ...b,
-                                          prices: { ...(b.prices || {}), [pv.id]: e.target.value }
-                                        }))}
+                                        onChange={e => setEditBuf(b => ({ ...b, prices: { ...(b.prices || {}), [pv.id]: e.target.value } }))}
                                         className="w-20 px-2 py-0.5 text-sm rounded bg-secondary border border-ring focus:outline-none"
                                       />
                                     </div>
                                   ))}
                                 </div>
                               </td>
+                              {/* Actions */}
                               <td className="px-4 py-2">
                                 <div className="flex gap-1">
                                   <button onClick={() => saveEdit(p)} className="p-1.5 rounded bg-primary/20 text-primary hover:bg-primary/30">
@@ -352,13 +408,23 @@ export default function InventoryPage() {
                               <td className="px-4 py-2.5 font-medium">{p.name}</td>
                               <td className="px-4 py-2.5 text-muted-foreground">{p.category_name}</td>
                               <td className="px-4 py-2.5 text-muted-foreground">{p.unit}</td>
+                              {/* Par slot 1 */}
                               <td className="px-4 py-2.5">
-                                {p.par_level ? (
-                                  <span className="text-sm font-medium">{p.par_level}</span>
+                                {(p.par_slot1 ?? p.par_level) != null
+                                  ? <span className="text-sm font-medium">{p.par_slot1 ?? p.par_level}</span>
+                                  : <span className="text-xs text-muted-foreground">not set</span>}
+                              </td>
+                              {/* Par slot 2 */}
+                              <td className="px-4 py-2.5">
+                                {p.par_slot2 != null ? (
+                                  <span className="text-sm font-medium text-blue-400">{p.par_slot2}</span>
+                                ) : hasTwiceWeeklyVendor(p, vendors) ? (
+                                  <span className="text-xs text-muted-foreground italic">same as Tue</span>
                                 ) : (
-                                  <span className="text-xs text-muted-foreground">not set</span>
+                                  <span className="text-xs text-muted-foreground">—</span>
                                 )}
                               </td>
+                              {/* Vendors */}
                               <td className="px-4 py-2.5">
                                 <div className="flex flex-wrap gap-1">
                                   {p.product_vendors.map(pv => (
@@ -386,31 +452,27 @@ export default function InventoryPage() {
               </div>
             )}
 
-            {/* COUNT ENTRY */}
+            {/* ── COUNT ENTRY ── */}
             {tab === "count" && (
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h2 className="text-lg font-semibold">Count Entry</h2>
-                    <p className="text-sm text-muted-foreground">Enter on-hand quantities. Leave blank to skip.</p>
+                    <p className="text-sm text-muted-foreground">Enter on-hand quantities. Par shown for selected delivery slot.</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Order slot:</span>
-                      <div className="flex rounded-lg overflow-hidden border border-border">
+                    <div className="flex rounded-lg overflow-hidden border border-border">
+                      {([1, 2] as const).map(s => (
                         <button
-                          onClick={() => setOrderSlot(1)}
-                          className={`px-3 py-1.5 text-sm ${orderSlot === 1 ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}
+                          key={s}
+                          onClick={() => setCountSlot(s)}
+                          className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                            countSlot === s ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"
+                          }`}
                         >
-                          Slot 1 (Mon/Tue)
+                          {s === 1 ? "Tue Delivery" : "Fri Delivery"}
                         </button>
-                        <button
-                          onClick={() => setOrderSlot(2)}
-                          className={`px-3 py-1.5 text-sm ${orderSlot === 2 ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}
-                        >
-                          Slot 2 (Thu/Fri)
-                        </button>
-                      </div>
+                      ))}
                     </div>
                     <button
                       onClick={submitCount}
@@ -431,17 +493,26 @@ export default function InventoryPage() {
                       <div className="rounded-xl border border-border overflow-hidden">
                         {catProducts.map((p, i) => {
                           const entry = countEntries.find(e => e.product_id === p.id);
+                          const par = getEffectivePar(p, countSlot);
+                          const isDual = hasTwiceWeeklyVendor(p, vendors) && p.par_slot2 != null;
                           return (
                             <div key={p.id} className={`flex items-center gap-4 px-4 py-2.5 ${i % 2 === 0 ? "bg-background" : "bg-card"} ${i !== catProducts.length - 1 ? "border-b border-border" : ""}`}>
                               <span className="flex-1 text-sm font-medium">{p.name}</span>
                               <span className="text-xs text-muted-foreground w-12 text-right">{p.unit}</span>
-                              <span className="text-xs text-muted-foreground w-20 text-right">
-                                par: {p.par_level ?? "—"}
-                              </span>
+                              <div className="text-right w-36">
+                                <span className="text-xs text-muted-foreground">
+                                  par: {par ?? "—"}
+                                </span>
+                                {isDual && (
+                                  <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${
+                                    countSlot === 2 ? "bg-blue-500/20 text-blue-400" : "bg-secondary text-muted-foreground"
+                                  }`}>
+                                    {countSlot === 2 ? "Fri/wknd" : "Tue"}
+                                  </span>
+                                )}
+                              </div>
                               <input
-                                type="number"
-                                step="0.5"
-                                min="0"
+                                type="number" step="0.5" min="0"
                                 value={entry?.quantity ?? ""}
                                 onChange={e => setCountEntries(prev => prev.map(ce =>
                                   ce.product_id === p.id ? { ...ce, quantity: e.target.value } : ce
@@ -459,20 +530,37 @@ export default function InventoryPage() {
               </div>
             )}
 
-            {/* ORDER SHEET */}
+            {/* ── ORDER SHEET ── */}
             {tab === "orders" && (
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h2 className="text-lg font-semibold">Order Sheet</h2>
-                    <p className="text-sm text-muted-foreground">Generated from latest count vs par levels. Lowest price vendor selected per item.</p>
+                    <p className="text-sm text-muted-foreground">
+                      Par for <span className="font-medium text-foreground">{slotLabel(ordersSlot)}</span> vs latest count. Lowest-price vendor per item.
+                    </p>
                   </div>
-                  <button
-                    onClick={() => window.print()}
-                    className="px-4 py-2 text-sm font-medium rounded-lg bg-secondary text-foreground hover:bg-secondary/80"
-                  >
-                    Print
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <div className="flex rounded-lg overflow-hidden border border-border">
+                      {([1, 2] as const).map(s => (
+                        <button
+                          key={s}
+                          onClick={() => setOrdersSlot(s)}
+                          className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                            ordersSlot === s ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {s === 1 ? "Tue Delivery" : "Fri Delivery"}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => window.print()}
+                      className="px-4 py-2 text-sm font-medium rounded-lg bg-secondary text-foreground hover:bg-secondary/80"
+                    >
+                      Print
+                    </button>
+                  </div>
                 </div>
 
                 {Object.keys(orderData).length === 0 ? (
@@ -513,7 +601,7 @@ export default function InventoryPage() {
                                 <tr key={item.id} className="border-b border-border/50">
                                   <td className="py-2 font-medium">{item.name}</td>
                                   <td className="py-2 text-right text-muted-foreground">{item.unit}</td>
-                                  <td className="py-2 text-right text-muted-foreground">{item.par_level}</td>
+                                  <td className="py-2 text-right text-muted-foreground">{item.par}</td>
                                   <td className="py-2 text-right text-muted-foreground">—</td>
                                   <td className="py-2 text-right font-bold text-primary">{item.toOrder}</td>
                                   <td className="py-2 text-right text-muted-foreground">{item.price ? `$${item.price.toFixed(2)}` : "—"}</td>
