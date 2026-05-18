@@ -104,6 +104,7 @@ export default function InventoryPage() {
   // Product edit
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editBuf, setEditBuf] = useState<Partial<Product & { prices: Record<string, string>; location_ids: string[] }>>({});
+  const [locMode, setLocMode] = useState(false);
 
   // Count
   const [countEntries, setCountEntries] = useState<CountEntry[]>([]);
@@ -273,6 +274,22 @@ export default function InventoryPage() {
     setEditingId(null);
     setEditBuf({});
     loadData();
+  };
+
+  // ── Quick location toggle (matrix view) ─────────────────────────────────────
+
+  const toggleProductLocation = async (p: Product, locationId: string) => {
+    const has = p.location_ids.includes(locationId);
+    if (has) {
+      await supabase.from("product_locations").delete().eq("product_id", p.id).eq("location_id", locationId);
+    } else {
+      await supabase.from("product_locations").insert({ product_id: p.id, location_id: locationId });
+    }
+    setProducts(prev => prev.map(prod =>
+      prod.id === p.id
+        ? { ...prod, location_ids: has ? prod.location_ids.filter(id => id !== locationId) : [...prod.location_ids, locationId] }
+        : prod
+    ));
   };
 
   // ── Vendor delivery days ─────────────────────────────────────────────────────
@@ -572,7 +589,80 @@ export default function InventoryPage() {
                   {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
                 <span className="px-3 py-2 text-sm text-muted-foreground">{filtered.length} items</span>
+                <button
+                  onClick={() => { setLocMode(m => !m); setEditingId(null); setEditBuf({}); }}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                    locMode
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-secondary border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  {locMode ? "Done assigning" : "Assign Locations"}
+                </button>
               </div>
+
+              {/* ── LOCATION ASSIGNMENT MATRIX ── */}
+              {locMode && (
+                <div className="mb-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <MapPin className="w-4 h-4 text-primary" />
+                    <p className="text-sm font-medium">Click a checkbox to assign a product to a storage location. Changes save instantly.</p>
+                    {storageLocations.length === 0 && (
+                      <span className="text-sm text-muted-foreground italic">— add locations in Overview first</span>
+                    )}
+                  </div>
+                  {storageLocations.length > 0 && (
+                    <div className="rounded-xl border border-border overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-secondary border-b border-border">
+                            <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground sticky left-0 bg-secondary z-10 min-w-[160px]">Product</th>
+                            <th className="text-left px-3 py-3 text-xs font-medium text-muted-foreground">Category</th>
+                            {storageLocations.map(loc => (
+                              <th key={loc.id} className="px-4 py-3 text-xs font-medium text-center" style={{ minWidth: "110px" }}>
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className="text-muted-foreground">{loc.name}</span>
+                                  <span className="text-xs text-muted-foreground/50">
+                                    {filtered.filter(p => p.location_ids.includes(loc.id)).length} items
+                                  </span>
+                                </div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map((p, i) => (
+                            <tr key={p.id} className={`border-b border-border ${i % 2 === 0 ? "bg-background" : "bg-card"}`}>
+                              <td className={`px-4 py-2.5 font-medium sticky left-0 z-10 ${i % 2 === 0 ? "bg-background" : "bg-card"}`}>
+                                {p.name}
+                              </td>
+                              <td className="px-3 py-2.5 text-xs text-muted-foreground">{p.category_name}</td>
+                              {storageLocations.map(loc => {
+                                const checked = p.location_ids.includes(loc.id);
+                                return (
+                                  <td key={loc.id} className="px-4 py-2.5 text-center">
+                                    <button
+                                      onClick={() => toggleProductLocation(p, loc.id)}
+                                      className={`w-5 h-5 rounded border-2 flex items-center justify-center mx-auto transition-colors ${
+                                        checked
+                                          ? "bg-primary border-primary text-primary-foreground"
+                                          : "border-border bg-secondary hover:border-primary/50"
+                                      }`}
+                                    >
+                                      {checked && <Check className="w-3 h-3" />}
+                                    </button>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="rounded-xl border border-border overflow-hidden">
                 <table className="w-full text-sm">
