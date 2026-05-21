@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import React from "react";
 import Sidebar from "@/components/layout/Sidebar";
-import { ExternalLink, Activity, TrendingUp, AlertTriangle, ChevronDown, ChevronRight, Target } from "lucide-react";
+import { ExternalLink, Activity, TrendingUp, AlertTriangle, ChevronDown, ChevronRight, Target, RefreshCw } from "lucide-react";
 
 // ── TradingView widget types ──────────────────────────────────────────────────
 declare global {
@@ -22,8 +22,10 @@ interface TVWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface Asset { symbol: string; name: string; tvSymbol: string; }
+// shares = number you own; value = manual $ override (empty = auto from price × shares)
 type HoldingEntry = { shares: string; value: string };
 type Holdings     = Record<string, HoldingEntry>;
+type Prices       = Record<string, number>; // symbol → current USD price
 
 const watchlist: { category: string; assets: Asset[] }[] = [
   { category: "Crypto", assets: [
@@ -141,12 +143,22 @@ const categoryColor: Record<string, string> = {
 };
 
 // ── Portfolio helpers ─────────────────────────────────────────────────────────
-function parseVal(h: HoldingEntry | undefined): number {
-  if (!h || !h.value.trim()) return 0;
-  return Math.max(0, parseFloat(h.value) || 0);
+/** Resolve the dollar value of a holding.
+ *  If the user typed a manual $ override, use that.
+ *  Otherwise compute shares × live price. */
+function resolveVal(h: HoldingEntry | undefined, price?: number): number {
+  if (!h) return 0;
+  if (h.value.trim()) return Math.max(0, parseFloat(h.value) || 0);
+  const shares = parseFloat(h.shares) || 0;
+  if (shares > 0 && price != null) return shares * price;
+  return 0;
 }
 function fmtUSD(n: number): string {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtPrice(n: number): string {
+  if (n >= 1) return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return "$" + n.toFixed(6); // tiny prices like DOGE, ADA
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -218,6 +230,39 @@ export default function MarketsPage() {
     document.getElementById("chart-section")?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // ── Live prices ────────────────────────────────────────────────────────────
+  const [prices,       setPrices]       = useState<Prices>({});
+  const [pricesLoading, setPricesLoading] = useState(false);
+  const [pricesLastUpdated, setPricesLastUpdated] = useState<Date | null>(null);
+
+  const allSymbols = useMemo(
+    () => watchlist.flatMap(({ assets }) => assets.map(a => a.symbol)),
+    []
+  );
+
+  const fetchPrices = useCallback(async () => {
+    setPricesLoading(true);
+    try {
+      const res = await fetch(`/api/prices?symbols=${allSymbols.join(",")}`);
+      const data = await res.json();
+      if (data.prices) {
+        setPrices(data.prices);
+        setPricesLastUpdated(new Date());
+      }
+    } catch (e) {
+      console.error("Price fetch error:", e);
+    } finally {
+      setPricesLoading(false);
+    }
+  }, [allSymbols]);
+
+  // Fetch on mount, then every 60 seconds
+  useEffect(() => {
+    fetchPrices();
+    const id = setInterval(fetchPrices, 60_000);
+    return () => clearInterval(id);
+  }, [fetchPrices]);
+
   // ── Portfolio state ─────────────────────────────────────────────────────────
   const [showPortfolio,  setShowPortfolio]  = useState(false);
   const [showOnlyOwned,  setShowOnlyOwned]  = useState(false);
@@ -242,17 +287,23 @@ export default function MarketsPage() {
     }));
   }, []);
 
+  // Value = manual override if set, else shares × live price
+  const resolveHoldingVal = useCallback(
+    (symbol: string) => resolveVal(holdings[symbol], prices[symbol]),
+    [holdings, prices]
+  );
+
   const totalValue = useMemo(
-    () => Object.values(holdings).reduce((s, h) => s + parseVal(h), 0),
-    [holdings]
+    () => allSymbols.reduce((s, sym) => s + resolveHoldingVal(sym), 0),
+    [allSymbols, resolveHoldingVal]
   );
 
   const categoryTotals = useMemo(() => {
     const t: Record<string, number> = {};
     for (const { category, assets } of watchlist)
-      t[category] = assets.reduce((s, a) => s + parseVal(holdings[a.symbol]), 0);
+      t[category] = assets.reduce((s, a) => s + resolveHoldingVal(a.symbol), 0);
     return t;
-  }, [holdings]);
+  }, [resolveHoldingVal]);
 
   const target = parseFloat(targetBalance.replace(/,/g, "")) || 0;
 
@@ -279,17 +330,17 @@ export default function MarketsPage() {
       if (Math.abs(catPct - expectedCatPct) >= 5)
         list.push(`${category} is ${catPct.toFixed(1)}% of portfolio — equal-weight target is ~${expectedCatPct.toFixed(1)}% across ${catsWithHoldings.length} sectors`);
 
-      const ownedInCat = assets.filter(a => parseVal(holdings[a.symbol]) > 0);
+      const ownedInCat = assets.filter(a => resolveHoldingVal(a.symbol) > 0);
       if (ownedInCat.length < 2) continue;
       const expectedAssetPct = 100 / ownedInCat.length;
       for (const asset of ownedInCat) {
-        const assetPct = (parseVal(holdings[asset.symbol]) / catTotal) * 100;
+        const assetPct = (resolveHoldingVal(asset.symbol) / catTotal) * 100;
         if (Math.abs(assetPct - expectedAssetPct) >= 5)
           list.push(`${asset.symbol} is ${assetPct.toFixed(1)}% of ${category} — equal-weight within sector is ~${expectedAssetPct.toFixed(1)}%`);
       }
     }
     return list;
-  }, [holdings, totalValue, categoryTotals, target, expectedCatPct, catsWithHoldings]);
+  }, [resolveHoldingVal, totalValue, categoryTotals, target, expectedCatPct, catsWithHoldings]);
 
   const toggleCat = (cat: string) => {
     setExpandedCats(prev => {
@@ -312,7 +363,14 @@ export default function MarketsPage() {
               <span className="text-red-500">&gt;</span> market_feed.exe
             </p>
             <h1 className="text-3xl font-black font-mono text-green-300">Markets</h1>
-            <p className="text-green-700 text-sm font-mono mt-1">79 assets · 10 sectors · live data</p>
+            <p className="text-green-700 text-sm font-mono mt-1">
+              79 assets · 10 sectors · live prices
+              {pricesLastUpdated && (
+                <span className="text-green-900 ml-2">
+                  updated {pricesLastUpdated.toLocaleTimeString()}
+                </span>
+              )}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <button onClick={() => setShowPortfolio(p => !p)}
@@ -328,6 +386,12 @@ export default function MarketsPage() {
                   {alerts.length}
                 </span>
               )}
+            </button>
+            <button onClick={fetchPrices} disabled={pricesLoading}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-green-500/30 bg-green-500/5 text-green-600 text-xs font-mono hover:bg-green-500/10 hover:border-green-500/50 hover:text-green-400 transition-all disabled:opacity-50"
+              title="Refresh prices">
+              <RefreshCw className={`w-3.5 h-3.5 ${pricesLoading ? "animate-spin" : ""}`} />
+              {pricesLoading ? "fetching…" : "refresh"}
             </button>
             <a href="https://www.tradingview.com" target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-2 px-4 py-2 rounded-lg border border-green-500/30 bg-green-500/5 text-green-400 text-sm font-mono font-medium hover:bg-green-500/10 hover:border-green-500/50 transition-all">
@@ -451,7 +515,7 @@ export default function MarketsPage() {
               {watchlist.map(({ category, assets }) => {
                 const catTotal     = categoryTotals[category];
                 const displayedAssets = showOnlyOwned
-                  ? assets.filter(a => parseVal(holdings[a.symbol]) > 0)
+                  ? assets.filter(a => resolveHoldingVal(a.symbol) > 0)
                   : assets;
                 if (showOnlyOwned && displayedAssets.length === 0) return null;
 
@@ -459,7 +523,7 @@ export default function MarketsPage() {
                 const cc          = categoryColor[category] ?? "text-green-500 border-green-500/20 bg-green-500/5";
                 const catPct      = totalValue > 0 ? (catTotal / totalValue) * 100 : 0;
                 const isCatAlert  = catTotal > 0 && Math.abs(catPct - expectedCatPct) >= 5;
-                const ownedCount  = assets.filter(a => parseVal(holdings[a.symbol]) > 0).length;
+                const ownedCount  = assets.filter(a => resolveHoldingVal(a.symbol) > 0).length;
 
                 return (
                   <div key={category} className="holo-card rounded-xl border border-green-500/15 bg-black/40">
@@ -499,10 +563,13 @@ export default function MarketsPage() {
 
                           {displayedAssets.map(asset => {
                             const h = holdings[asset.symbol] ?? { shares: "", value: "" };
-                            const val = parseVal(h);
+                            const val = resolveHoldingVal(asset.symbol);
+                            const price = prices[asset.symbol];
+                            const autoVal = !h.value.trim() && h.shares && price
+                              ? (parseFloat(h.shares) || 0) * price : null;
                             const pctOfCat   = catTotal > 0 ? (val / catTotal) * 100 : 0;
                             const pctOfTotal = totalValue > 0 ? (val / totalValue) * 100 : 0;
-                            const ownedInCat = assets.filter(a => parseVal(holdings[a.symbol]) > 0);
+                            const ownedInCat = assets.filter(a => resolveHoldingVal(a.symbol) > 0);
                             const expectedAssetPct = ownedInCat.length > 0 ? 100 / ownedInCat.length : 0;
                             const isAssetAlert = val > 0 && ownedInCat.length > 1 && Math.abs(pctOfCat - expectedAssetPct) >= 5;
 
@@ -514,6 +581,7 @@ export default function MarketsPage() {
                                     {asset.symbol}
                                   </span>
                                   <span className="text-[10px] text-green-900 font-mono truncate">{asset.name}</span>
+                                  {price && <span className="text-[10px] text-green-800 font-mono ml-auto flex-shrink-0">{fmtPrice(price)}</span>}
                                 </div>
                                 <input type="number" min="0" step="any"
                                   value={h.shares}
@@ -521,12 +589,19 @@ export default function MarketsPage() {
                                   placeholder="0"
                                   className="w-full text-right bg-transparent border-b border-green-500/20 focus:border-green-400/60 text-green-400 font-mono text-xs focus:outline-none placeholder:text-green-900 py-0.5 transition-colors"
                                 />
-                                <input type="number" min="0" step="any"
-                                  value={h.value}
-                                  onChange={e => setHolding(asset.symbol, "value", e.target.value)}
-                                  placeholder="0.00"
-                                  className="w-full text-right bg-transparent border-b border-green-500/20 focus:border-cyan-500/60 text-cyan-400 font-mono text-xs focus:outline-none placeholder:text-green-900 py-0.5 transition-colors"
-                                />
+                                <div className="relative">
+                                  <input type="number" min="0" step="any"
+                                    value={h.value}
+                                    onChange={e => setHolding(asset.symbol, "value", e.target.value)}
+                                    placeholder={autoVal != null ? autoVal.toFixed(2) : "0.00"}
+                                    className="w-full text-right bg-transparent border-b border-green-500/20 focus:border-cyan-500/60 text-cyan-400 font-mono text-xs focus:outline-none placeholder:text-cyan-900 py-0.5 transition-colors"
+                                  />
+                                  {autoVal != null && !h.value.trim() && (
+                                    <span className="absolute inset-0 flex items-center justify-end text-xs font-mono text-cyan-700 pointer-events-none pr-0.5">
+                                      {fmtUSD(autoVal)}
+                                    </span>
+                                  )}
+                                </div>
                                 <div className={`text-xs font-mono text-right ${isAssetAlert ? "text-amber-400" : "text-green-600"}`}>
                                   {val > 0 ? `${pctOfCat.toFixed(1)}%` : "—"}
                                 </div>
@@ -566,6 +641,7 @@ export default function MarketsPage() {
         <div className="space-y-3">
           {watchlist.map(({ category, assets }) => {
             const cc = categoryColor[category] ?? "text-green-500 border-green-500/20 bg-green-500/5";
+            const catTotal = categoryTotals[category];
             return (
               <div key={category} className="holo-card rounded-xl border border-green-500/15 bg-black/40 p-4">
                 <div className="flex items-center gap-2 mb-3">
@@ -573,23 +649,86 @@ export default function MarketsPage() {
                     {category}
                   </span>
                   <span className="text-xs text-green-800 font-mono">{assets.length} assets</span>
+                  {catTotal > 0 && (
+                    <span className="text-xs text-cyan-700 font-mono ml-auto">{fmtUSD(catTotal)}</span>
+                  )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {assets.map(asset => (
-                    <button key={asset.symbol} onClick={() => openChart(asset)} title={asset.name}
-                      className={`group flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-mono font-medium border transition-all
-                        ${activeSymbol === asset.tvSymbol
-                          ? "border-green-400/60 bg-green-400/10 text-green-300 shadow-[0_0_8px_rgba(0,255,65,0.2)]"
-                          : "border-green-500/20 bg-black/30 text-green-600 hover:border-green-500/40 hover:text-green-400 hover:bg-green-500/5"
-                        }`}>
-                      {asset.symbol}
-                      <a href={`https://www.tradingview.com/chart/?symbol=${asset.tvSymbol}`}
-                        target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity">
-                        <ExternalLink className="w-3 h-3 text-green-700" />
-                      </a>
-                    </button>
-                  ))}
+                <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
+                  {assets.map(asset => {
+                    const h = holdings[asset.symbol] ?? { shares: "", value: "" };
+                    const val = resolveHoldingVal(asset.symbol);
+                    const price = prices[asset.symbol];
+                    const autoVal = !h.value.trim() && h.shares && price
+                      ? (parseFloat(h.shares) || 0) * price : null;
+                    const isActive = activeSymbol === asset.tvSymbol;
+                    return (
+                      <div key={asset.symbol}
+                        className={`rounded-lg border transition-all p-2.5
+                          ${isActive
+                            ? "border-green-400/40 bg-green-400/5 shadow-[0_0_8px_rgba(0,255,65,0.1)]"
+                            : val > 0
+                              ? "border-cyan-500/20 bg-cyan-500/5"
+                              : "border-green-500/15 bg-black/20"
+                          }`}>
+                        {/* Symbol + price row */}
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <button onClick={() => openChart(asset)} title={`Open ${asset.name} chart`}
+                            className={`flex items-center gap-1 text-sm font-mono font-bold transition-colors
+                              ${isActive ? "text-green-300" : val > 0 ? "text-cyan-400" : "text-green-700 hover:text-green-400"}`}>
+                            {asset.symbol}
+                          </button>
+                          <span className="text-[10px] text-green-900 font-mono truncate flex-1">{asset.name}</span>
+                          <a href={`https://www.tradingview.com/chart/?symbol=${asset.tvSymbol}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="text-green-900 hover:text-green-600 transition-colors flex-shrink-0">
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
+                        {/* Live price */}
+                        {price != null ? (
+                          <p className="text-[10px] text-green-700 font-mono mb-2">{fmtPrice(price)}<span className="text-green-900 ml-1">live</span></p>
+                        ) : (
+                          <p className="text-[10px] text-green-900 font-mono mb-2">fetching…</p>
+                        )}
+                        {/* Owned inputs */}
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <p className="text-[9px] text-green-900 font-mono uppercase tracking-widest mb-0.5">Shares owned</p>
+                            <input
+                              type="number" min="0" step="any"
+                              value={h.shares}
+                              onChange={e => setHolding(asset.symbol, "shares", e.target.value)}
+                              placeholder="0"
+                              className="w-full text-right bg-transparent border-b border-green-500/20 focus:border-green-400/50 text-green-400 font-mono text-xs focus:outline-none placeholder:text-green-900 py-0.5 transition-colors"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-[9px] text-green-900 font-mono uppercase tracking-widest mb-0.5">
+                              {autoVal != null ? "auto $" : "$ override"}
+                            </p>
+                            <div className="relative">
+                              <input
+                                type="number" min="0" step="any"
+                                value={h.value}
+                                onChange={e => setHolding(asset.symbol, "value", e.target.value)}
+                                placeholder={autoVal != null ? autoVal.toFixed(2) : "0.00"}
+                                className="w-full text-right bg-transparent border-b border-green-500/20 focus:border-cyan-500/50 text-cyan-400 font-mono text-xs focus:outline-none placeholder:text-cyan-900 py-0.5 transition-colors"
+                              />
+                              {autoVal != null && !h.value.trim() && (
+                                <span className="absolute inset-0 flex items-end justify-end text-xs font-mono text-cyan-600 pointer-events-none pb-0.5">
+                                  {fmtUSD(autoVal)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        {/* Computed value row */}
+                        {val > 0 && (
+                          <p className="text-[10px] text-right text-cyan-700 font-mono mt-1.5 font-bold">{fmtUSD(val)}</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
