@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import React from "react";
 import Sidebar from "@/components/layout/Sidebar";
-import { ExternalLink, Activity, TrendingUp, AlertTriangle, ChevronDown, ChevronRight, Target, RefreshCw } from "lucide-react";
+import { ExternalLink, Activity, TrendingUp, AlertTriangle, ChevronDown, ChevronRight, Target, RefreshCw, Bell, TrendingDown } from "lucide-react";
 
 // ── TradingView widget types ──────────────────────────────────────────────────
 declare global {
@@ -26,6 +26,16 @@ interface Asset { symbol: string; name: string; tvSymbol: string; }
 type HoldingEntry = { shares: string; value: string };
 type Holdings     = Record<string, HoldingEntry>;
 type Prices       = Record<string, number>; // symbol → current USD price
+type Targets      = Record<string, string>; // symbol → target % string (e.g. "40")
+
+type PortfolioAlert = {
+  id: string;
+  type: "balance" | "asset-high" | "asset-low" | "spread";
+  msg: string;
+  symbol?: string;
+  symbolB?: string;
+  deviation?: number;
+};
 
 const watchlist: { category: string; assets: Asset[] }[] = [
   { category: "Crypto", assets: [
@@ -277,14 +287,24 @@ export default function MarketsPage() {
     return localStorage.getItem("om_target_balance") || "";
   });
 
+  const [targets, setTargets] = useState<Targets>(() => {
+    if (typeof window === "undefined") return {};
+    try { return JSON.parse(localStorage.getItem("om_targets") || "{}"); } catch { return {}; }
+  });
+
   useEffect(() => { localStorage.setItem("om_holdings",       JSON.stringify(holdings)); }, [holdings]);
   useEffect(() => { localStorage.setItem("om_target_balance", targetBalance);             }, [targetBalance]);
+  useEffect(() => { localStorage.setItem("om_targets",        JSON.stringify(targets));   }, [targets]);
 
   const setHolding = useCallback((symbol: string, field: keyof HoldingEntry, val: string) => {
     setHoldings(prev => ({
       ...prev,
       [symbol]: { ...(prev[symbol] ?? { shares: "", value: "" }), [field]: val },
     }));
+  }, []);
+
+  const setTarget = useCallback((symbol: string, val: string) => {
+    setTargets(prev => ({ ...prev, [symbol]: val }));
   }, []);
 
   // Value = manual override if set, else shares × live price
@@ -313,34 +333,77 @@ export default function MarketsPage() {
   );
   const expectedCatPct = catsWithHoldings.length > 0 ? 100 / catsWithHoldings.length : 0;
 
-  const alerts = useMemo(() => {
-    const list: string[] = [];
+  const alerts = useMemo((): PortfolioAlert[] => {
+    const list: PortfolioAlert[] = [];
     if (totalValue === 0) return list;
 
+    // ── 1. Total portfolio vs desired balance ────────────────────────────────
     if (target > 0) {
       const diff = ((totalValue - target) / target) * 100;
       if (Math.abs(diff) >= 5)
-        list.push(`Portfolio is ${diff > 0 ? "+" : ""}${diff.toFixed(1)}% vs your target balance (${fmtUSD(target)})`);
+        list.push({
+          id: "balance",
+          type: diff > 0 ? "asset-high" : "asset-low",
+          msg: `Portfolio ${diff > 0 ? "+" : ""}${diff.toFixed(1)}% vs desired balance of ${fmtUSD(target)}`,
+          deviation: diff,
+        });
     }
 
-    for (const { category, assets } of watchlist) {
-      const catTotal = categoryTotals[category];
-      if (catTotal === 0) continue;
-      const catPct = (catTotal / totalValue) * 100;
-      if (Math.abs(catPct - expectedCatPct) >= 5)
-        list.push(`${category} is ${catPct.toFixed(1)}% of portfolio — equal-weight target is ~${expectedCatPct.toFixed(1)}% across ${catsWithHoldings.length} sectors`);
+    // ── 2. Per-asset target % alerts ─────────────────────────────────────────
+    // Collect assets that have a target % AND a held value
+    const trackedAssets: { symbol: string; targetPct: number; actualVal: number; targetVal: number; deviation: number }[] = [];
 
-      const ownedInCat = assets.filter(a => resolveHoldingVal(a.symbol) > 0);
-      if (ownedInCat.length < 2) continue;
-      const expectedAssetPct = 100 / ownedInCat.length;
-      for (const asset of ownedInCat) {
-        const assetPct = (resolveHoldingVal(asset.symbol) / catTotal) * 100;
-        if (Math.abs(assetPct - expectedAssetPct) >= 5)
-          list.push(`${asset.symbol} is ${assetPct.toFixed(1)}% of ${category} — equal-weight within sector is ~${expectedAssetPct.toFixed(1)}%`);
+    for (const { assets } of watchlist) {
+      for (const asset of assets) {
+        const tgtPct = parseFloat(targets[asset.symbol]) || 0;
+        if (tgtPct <= 0) continue;
+        const actualVal  = resolveHoldingVal(asset.symbol);
+        if (actualVal <= 0) continue;
+        const targetVal  = (tgtPct / 100) * totalValue;
+        const deviation  = targetVal > 0 ? ((actualVal - targetVal) / targetVal) * 100 : 0;
+        trackedAssets.push({ symbol: asset.symbol, targetPct: tgtPct, actualVal, targetVal, deviation });
+
+        if (Math.abs(deviation) >= 5) {
+          const over = deviation > 0;
+          list.push({
+            id: `asset-${asset.symbol}`,
+            type: over ? "asset-high" : "asset-low",
+            symbol: asset.symbol,
+            deviation,
+            msg: `${asset.symbol} is ${over ? "+" : ""}${deviation.toFixed(1)}% ${over ? "above" : "below"} target — ${fmtUSD(actualVal)} vs ${fmtUSD(targetVal)} target (${tgtPct}%)`,
+          });
+        }
       }
     }
+
+    // ── 3. Cross-asset spread alerts ─────────────────────────────────────────
+    // Find pairs where the difference in their deviation from target is ≥ 5%
+    const spreadSeen = new Set<string>();
+    for (let i = 0; i < trackedAssets.length; i++) {
+      for (let j = i + 1; j < trackedAssets.length; j++) {
+        const a = trackedAssets[i];
+        const b = trackedAssets[j];
+        const spread = a.deviation - b.deviation;
+        if (Math.abs(spread) >= 5) {
+          const key = [a.symbol, b.symbol].sort().join("-");
+          if (spreadSeen.has(key)) continue;
+          spreadSeen.add(key);
+          const high = spread > 0 ? a : b;
+          const low  = spread > 0 ? b : a;
+          list.push({
+            id: `spread-${key}`,
+            type: "spread",
+            symbol: high.symbol,
+            symbolB: low.symbol,
+            deviation: Math.abs(spread),
+            msg: `Spread: ${high.symbol} ${high.deviation >= 0 ? "+" : ""}${high.deviation.toFixed(1)}% vs target / ${low.symbol} ${low.deviation >= 0 ? "+" : ""}${low.deviation.toFixed(1)}% vs target — ${Math.abs(spread).toFixed(1)}% apart`,
+          });
+        }
+      }
+    }
+
     return list;
-  }, [resolveHoldingVal, totalValue, categoryTotals, target, expectedCatPct, catsWithHoldings]);
+  }, [resolveHoldingVal, totalValue, target, targets]);
 
   const toggleCat = (cat: string) => {
     setExpandedCats(prev => {
@@ -400,21 +463,34 @@ export default function MarketsPage() {
           </div>
         </div>
 
+        {/* ── Always-visible alerts banner ── */}
+        {alerts.length > 0 && (
+          <div className="mb-5 space-y-1.5">
+            <div className="flex items-center gap-2 mb-2">
+              <Bell className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-[10px] text-amber-600 font-mono uppercase tracking-widest">Portfolio Alerts ({alerts.length})</span>
+            </div>
+            {alerts.map(alert => {
+              const isSpread = alert.type === "spread";
+              const isHigh   = alert.type === "asset-high";
+              const isLow    = alert.type === "asset-low";
+              const border   = isSpread ? "border-purple-500/40 bg-purple-500/5 text-purple-300"
+                             : isHigh   ? "border-amber-500/40 bg-amber-500/5 text-amber-300"
+                             :            "border-red-500/40 bg-red-500/5 text-red-300";
+              const Icon = isSpread ? AlertTriangle : isHigh ? TrendingUp : TrendingDown;
+              return (
+                <div key={alert.id} className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-mono ${border}`}>
+                  <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                  {alert.msg}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* ── Portfolio Tracker ── */}
         {showPortfolio && (
           <div className="mb-6 space-y-3">
-
-            {/* Alerts */}
-            {alerts.length > 0 && (
-              <div className="space-y-1.5">
-                {alerts.map((msg, i) => (
-                  <div key={i} className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-amber-500/40 bg-amber-500/5 text-amber-300 text-xs font-mono">
-                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-amber-400" />
-                    {msg}
-                  </div>
-                ))}
-              </div>
-            )}
 
             {/* Summary */}
             <div className="holo-card rounded-xl border border-cyan-500/20 bg-black/50 p-5">
@@ -690,10 +766,10 @@ export default function MarketsPage() {
                         ) : (
                           <p className="text-[10px] text-green-900 font-mono mb-2">fetching…</p>
                         )}
-                        {/* Owned inputs */}
-                        <div className="flex items-center gap-2">
+                        {/* Owned inputs — row 1: Shares + $ Value */}
+                        <div className="flex items-center gap-2 mb-2">
                           <div className="flex-1">
-                            <p className="text-[9px] text-green-900 font-mono uppercase tracking-widest mb-0.5">Shares owned</p>
+                            <p className="text-[9px] text-green-900 font-mono uppercase tracking-widest mb-0.5">Shares</p>
                             <input
                               type="number" min="0" step="any"
                               value={h.shares}
@@ -704,7 +780,7 @@ export default function MarketsPage() {
                           </div>
                           <div className="flex-1">
                             <p className="text-[9px] text-green-900 font-mono uppercase tracking-widest mb-0.5">
-                              {autoVal != null ? "auto $" : "$ override"}
+                              {autoVal != null ? "$ auto" : "$ value"}
                             </p>
                             <div className="relative">
                               <input
@@ -722,7 +798,39 @@ export default function MarketsPage() {
                             </div>
                           </div>
                         </div>
-                        {/* Computed value row */}
+                        {/* Row 2: Target % + actual % */}
+                        {(() => {
+                          const tgtPct    = parseFloat(targets[asset.symbol]) || 0;
+                          const actualPct = totalValue > 0 ? (val / totalValue) * 100 : 0;
+                          const tgtVal    = tgtPct > 0 ? (tgtPct / 100) * totalValue : 0;
+                          const dev       = tgtVal > 0 ? ((val - tgtVal) / tgtVal) * 100 : 0;
+                          const hasAlert  = tgtPct > 0 && val > 0 && Math.abs(dev) >= 5;
+                          return (
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1">
+                                <p className="text-[9px] text-green-900 font-mono uppercase tracking-widest mb-0.5">Target %</p>
+                                <div className="flex items-center">
+                                  <input
+                                    type="number" min="0" max="100" step="any"
+                                    value={targets[asset.symbol] ?? ""}
+                                    onChange={e => setTarget(asset.symbol, e.target.value)}
+                                    placeholder="0"
+                                    className="w-full text-right bg-transparent border-b border-purple-500/20 focus:border-purple-400/50 text-purple-400 font-mono text-xs focus:outline-none placeholder:text-green-900 py-0.5 transition-colors"
+                                  />
+                                  <span className="text-purple-700 font-mono text-xs ml-0.5">%</span>
+                                </div>
+                              </div>
+                              <div className="flex-1">
+                                <p className="text-[9px] text-green-900 font-mono uppercase tracking-widest mb-0.5">Actual %</p>
+                                <p className={`text-xs font-mono text-right py-0.5 ${hasAlert ? (dev > 0 ? "text-amber-400" : "text-red-400") : "text-green-700"}`}>
+                                  {val > 0 ? `${actualPct.toFixed(1)}%` : "—"}
+                                  {hasAlert && <span className="ml-1">{dev > 0 ? "▲" : "▼"}{Math.abs(dev).toFixed(1)}%</span>}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                        {/* Total value row */}
                         {val > 0 && (
                           <p className="text-[10px] text-right text-cyan-700 font-mono mt-1.5 font-bold">{fmtUSD(val)}</p>
                         )}
