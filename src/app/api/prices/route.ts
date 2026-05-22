@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import yahooFinance from "yahoo-finance2";
+import YahooFinance from "yahoo-finance2";
+
+const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
 // Crypto symbol → CoinGecko ID map
 const COINGECKO_IDS: Record<string, string> = {
