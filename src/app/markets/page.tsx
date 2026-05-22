@@ -144,8 +144,11 @@ function getGroupColor(watchlist: WatchGroup[], category: string): string {
 // ── Portfolio helpers ─────────────────────────────────────────────────────────
 function resolveVal(h: HoldingEntry | undefined, price?: number): number {
   if (!h) return 0;
-  if (h.value.trim()) return Math.max(0, parseFloat(h.value) || 0);
-  const shares = parseFloat(h.shares) || 0;
+  // Only treat as a manual override if user actually entered a positive number.
+  // "0", "", undefined, or NaN all fall through to the shares × price calc.
+  const manualVal = parseFloat((h.value ?? "").trim());
+  if (manualVal > 0) return manualVal;
+  const shares = parseFloat(h.shares ?? "") || 0;
   if (shares > 0 && price != null) return shares * price;
   return 0;
 }
@@ -289,6 +292,7 @@ export default function MarketsPage() {
   const [prices,            setPrices]            = useState<Prices>({});
   const [pricesLoading,     setPricesLoading]     = useState(false);
   const [pricesLastUpdated, setPricesLastUpdated] = useState<Date | null>(null);
+  const [pricesFetched,     setPricesFetched]     = useState(false); // true after first fetch completes
 
   const allSymbols = useMemo(() => watchlist.flatMap(g => g.assets.map(a => a.symbol)), [watchlist]);
 
@@ -298,9 +302,9 @@ export default function MarketsPage() {
     try {
       const res  = await fetch(`/api/prices?symbols=${allSymbols.join(",")}`);
       const data = await res.json();
-      if (data.prices) { setPrices(data.prices); setPricesLastUpdated(new Date()); }
+        if (data.prices) { setPrices(data.prices); setPricesLastUpdated(new Date()); }
     } catch (e) { console.error("Price fetch:", e); }
-    finally { setPricesLoading(false); }
+    finally { setPricesLoading(false); setPricesFetched(true); }
   }, [allSymbols]);
 
   useEffect(() => {
@@ -783,7 +787,9 @@ export default function MarketsPage() {
                         {/* Live price */}
                         {!editMode && (price != null
                           ? <p className="text-[10px] text-green-700 font-mono mb-2">{fmtPrice(price)}<span className="text-green-900 ml-1">live</span></p>
-                          : <p className="text-[10px] text-green-900 font-mono mb-2">fetching…</p>
+                          : pricesFetched
+                            ? <p className="text-[10px] text-red-900 font-mono mb-2">no price — enter $ manually</p>
+                            : <p className="text-[10px] text-green-900 font-mono mb-2">fetching…</p>
                         )}
 
                         {/* Inputs (hidden in edit mode) */}
