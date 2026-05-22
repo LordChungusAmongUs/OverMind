@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import yahooFinance from "yahoo-finance2";
 
 // Crypto symbol → CoinGecko ID map
 const COINGECKO_IDS: Record<string, string> = {
@@ -16,9 +17,6 @@ const COINGECKO_IDS: Record<string, string> = {
 
 // Symbols that are pure crypto (use CoinGecko, not Yahoo Finance)
 const CRYPTO_SYMBOLS = new Set(Object.keys(COINGECKO_IDS));
-
-// Yahoo Finance ticker overrides (when symbol differs from Yahoo's format)
-const YAHOO_OVERRIDES: Record<string, string> = {};
 
 async function fetchCryptoPrices(symbols: string[]): Promise<Record<string, number>> {
   const ids = symbols.map(s => COINGECKO_IDS[s]).filter(Boolean).join(",");
@@ -49,34 +47,33 @@ async function fetchStockPrices(symbols: string[]): Promise<Record<string, numbe
 
   const results: Record<string, number> = {};
 
-  // Fetch in parallel batches of 10
-  const chunks: string[][] = [];
-  for (let i = 0; i < symbols.length; i += 10) chunks.push(symbols.slice(i, i + 10));
+  try {
+    // yahoo-finance2 handles cookies/crumbs automatically — much more reliable than raw fetch
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const quotes = (await yahooFinance.quote(symbols as [string, ...string[]])) as any[];
+    for (const q of quotes) {
+      if (q?.symbol && q?.regularMarketPrice != null) {
+        results[q.symbol] = q.regularMarketPrice;
+      }
+    }
+  } catch (e) {
+    console.error("yahoo-finance2 batch error — falling back to individual fetches:", e);
 
-  await Promise.all(
-    chunks.map(async chunk => {
-      await Promise.all(
-        chunk.map(async sym => {
-          const ticker = YAHOO_OVERRIDES[sym] ?? sym;
-          try {
-            const res = await fetch(
-              `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
-              {
-                headers: { "User-Agent": "Mozilla/5.0" },
-                next: { revalidate: 60 },
-              }
-            );
-            if (!res.ok) return;
-            const data = await res.json();
-            const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-            if (price != null) results[sym] = price;
-          } catch {
-            // skip failed symbols silently
+    // Fallback: try symbols one by one if batch fails
+    await Promise.all(
+      symbols.map(async sym => {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const q = (await yahooFinance.quote(sym)) as any;
+          if (q?.regularMarketPrice != null) {
+            results[sym] = q.regularMarketPrice;
           }
-        })
-      );
-    })
-  );
+        } catch {
+          // skip failed symbols silently
+        }
+      })
+    );
+  }
 
   return results;
 }
