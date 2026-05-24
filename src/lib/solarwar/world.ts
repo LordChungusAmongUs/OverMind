@@ -9,7 +9,7 @@ import {
   RIVAL_BASE_GROWTH,
   SHARE_EASE,
 } from "./data";
-import { computeRates, fmt, militaryPower, type MilitaryPower } from "./engine";
+import { computeRates, currentStage, fmt, militaryPower, type MilitaryPower } from "./engine";
 import type {
   EventKind,
   GameEvent,
@@ -340,12 +340,17 @@ export function worldTick(state: SaveState, dt: number): WorldUpdate {
     r.influence += dt * (r.personality === "influencer" ? 0.9 : 0.3) * crip;
     r.military +=
       dt * (r.personality === "militarist" ? 0.7 : 0.15) * crip * (0.5 + Math.log10(Math.max(10, r.economy)) / 4);
-    r.hostility = clamp(r.hostility + dt * (r.personality === "militarist" ? 0.06 : 0.025), 0, 100);
+    if (r.treaty === "pact") {
+      r.hostility = clamp(r.hostility - dt * 0.5, 0, 100);
+    } else {
+      const relief = state.neutral.vanguard === "owned" ? 0.3 : 1;
+      r.hostility = clamp(r.hostility + dt * (r.personality === "militarist" ? 0.06 : 0.025) * relief, 0, 100);
+    }
   }
 
   // 2. Rival aggression toward the player.
   for (const r of rivals) {
-    if (r.defeated || gameOver.over) continue;
+    if (r.defeated || gameOver.over || r.treaty === "pact") continue;
     const willStrike =
       r.hostility > 55 && r.military > pPow.firepower * 1.25 && Math.random() < (dt / 30) * (r.hostility / 100);
     if (!willStrike) continue;
@@ -391,4 +396,32 @@ export function worldTick(state: SaveState, dt: number): WorldUpdate {
   }
 
   return { resources, fleet, rivals, marketSize, marketShare, regulation, events, eventSeq, worldClock, eventClock, gameOver };
+}
+
+// ── Objectives ─────────────────────────────────────────────────────────────
+
+export interface Objective {
+  id: string;
+  label: string;
+  done: boolean;
+  progress?: number;
+}
+
+export function objectives(state: SaveState): Objective[] {
+  const pm = playerMetrics(state);
+  const stage = currentStage(state);
+  const maxShare = Math.max(...MARKETS.map((m) => state.marketShare[m.id]));
+  const anyNeutral = Object.values(state.neutral).some((v) => v === "leased" || v === "owned");
+  const defeated = state.rivals.some((r) => r.defeated);
+
+  return [
+    { id: "stage3", label: "Become a Global Corporation (Stage 3)", done: stage >= 3, progress: clamp(stage / 3, 0, 1) },
+    { id: "market", label: "Capture 25% of any market", done: maxShare >= 0.25, progress: clamp(maxShare / 0.25, 0, 1) },
+    { id: "neutral", label: "Lease or acquire a neutral company", done: anyNeutral },
+    { id: "agi", label: "Research Distributed AGI", done: state.researched.includes("agi") },
+    { id: "fleet", label: "Field a war fleet (firepower ≥ 200)", done: pm.military >= 200, progress: clamp(pm.military / 200, 0, 1) },
+    { id: "moon", label: "Expand to the Moon", done: state.researched.includes("lunar_logistics") },
+    { id: "rival", label: "Defeat or absorb a rival corporation", done: defeated },
+    { id: "win", label: "Achieve a victory condition", done: state.gameOver.won },
+  ];
 }

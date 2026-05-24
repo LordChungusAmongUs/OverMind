@@ -5,6 +5,8 @@ import {
   Building2,
   Crown,
   FlaskConical,
+  Handshake,
+  Pause,
   Radio,
   RotateCcw,
   Swords,
@@ -19,17 +21,27 @@ import BuildingsPanel from "./_components/BuildingsPanel";
 import ResearchPanel from "./_components/ResearchPanel";
 import MarketsPanel from "./_components/MarketsPanel";
 import MilitaryPanel from "./_components/MilitaryPanel";
+import NeutralPanel from "./_components/NeutralPanel";
 import EventsFeed from "./_components/EventsFeed";
+import ObjectivesStrip from "./_components/ObjectivesStrip";
+import TacticalBattle from "./_components/TacticalBattle";
 
-type Tab = "ops" | "research" | "markets" | "military" | "intel";
+type Tab = "ops" | "research" | "markets" | "partners" | "military" | "intel";
 
 const TABS = [
   { id: "ops", label: "Operations", icon: Building2 },
   { id: "research", label: "Research", icon: FlaskConical },
   { id: "markets", label: "Markets", icon: Crown },
+  { id: "partners", label: "Partners", icon: Handshake },
   { id: "military", label: "Military", icon: Swords },
   { id: "intel", label: "Intel", icon: Radio },
 ] as const;
+
+const SPEEDS = [
+  { label: "1×", v: 1 },
+  { label: "2×", v: 2 },
+  { label: "4×", v: 4 },
+];
 
 const EVENT_TICKER_COLOR: Record<string, string> = {
   info: "text-green-500",
@@ -45,11 +57,15 @@ export default function SolarWarPage() {
   const buildings = useGame((s) => s.buildings);
   const researched = useGame((s) => s.researched);
   const fleet = useGame((s) => s.fleet);
+  const neutral = useGame((s) => s.neutral);
   const marketShare = useGame((s) => s.marketShare);
   const marketSize = useGame((s) => s.marketSize);
   const regulation = useGame((s) => s.regulation);
   const gameOver = useGame((s) => s.gameOver);
   const latest = useGame((s) => s.events[0]);
+  const speed = useGame((s) => s.speed);
+  const battleTarget = useGame((s) => s.battleTarget);
+  const setSpeed = useGame((s) => s.setSpeed);
   const build = useGame((s) => s.build);
   const research = useGame((s) => s.research);
   const reset = useGame((s) => s.reset);
@@ -58,7 +74,10 @@ export default function SolarWarPage() {
 
   useEffect(() => {
     useGame.getState().load();
-    const tickIv = setInterval(() => useGame.getState().tick(TICK_MS / 1000), TICK_MS);
+    const tickIv = setInterval(() => {
+      const g = useGame.getState();
+      if (g.speed > 0) g.tick((TICK_MS / 1000) * g.speed);
+    }, TICK_MS);
     const saveIv = setInterval(() => useGame.getState().save(), 5000);
     const persist = () => useGame.getState().save();
     window.addEventListener("beforeunload", persist);
@@ -71,8 +90,8 @@ export default function SolarWarPage() {
   }, []);
 
   const rates = useMemo(
-    () => computeRates({ buildings, researched, fleet, marketShare, marketSize, regulation }),
-    [buildings, researched, fleet, marketShare, marketSize, regulation]
+    () => computeRates({ buildings, researched, fleet, neutral, marketShare, marketSize, regulation }),
+    [buildings, researched, fleet, neutral, marketShare, marketSize, regulation]
   );
   const stageNum = currentStage({ resources, buildings, researched });
   const stage = stageById(stageNum);
@@ -93,14 +112,39 @@ export default function SolarWarPage() {
                 Build an AI corporation into an interplanetary superpower.
               </p>
             </div>
-            <button
-              onClick={() => {
-                if (window.confirm("Reset Solar War? All progress will be lost.")) reset();
-              }}
-              className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider text-red-400/70 hover:text-red-300 border border-red-500/20 hover:border-red-500/40 rounded-md px-2.5 py-1.5 transition-colors"
-            >
-              <RotateCcw className="w-3 h-3" /> Reset
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Speed */}
+              <div className="flex items-center gap-1 rounded-lg border border-green-500/20 bg-black/40 p-1">
+                <button
+                  onClick={() => setSpeed(0)}
+                  className={`px-2 py-1 rounded text-[11px] font-mono ${
+                    speed === 0 ? "bg-yellow-500/20 text-yellow-300" : "text-green-600 hover:text-green-300"
+                  }`}
+                  title="Pause"
+                >
+                  <Pause className="w-3 h-3" />
+                </button>
+                {SPEEDS.map((sp) => (
+                  <button
+                    key={sp.v}
+                    onClick={() => setSpeed(sp.v)}
+                    className={`px-2 py-1 rounded text-[11px] font-mono font-semibold ${
+                      speed === sp.v ? "bg-green-500/20 text-green-300" : "text-green-600 hover:text-green-300"
+                    }`}
+                  >
+                    {sp.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => {
+                  if (window.confirm("Reset Solar War? All progress will be lost.")) reset();
+                }}
+                className="inline-flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider text-red-400/70 hover:text-red-300 border border-red-500/20 hover:border-red-500/40 rounded-md px-2.5 py-1.5 transition-colors"
+              >
+                <RotateCcw className="w-3 h-3" /> Reset
+              </button>
+            </div>
           </div>
         </div>
 
@@ -128,13 +172,16 @@ export default function SolarWarPage() {
           </div>
         </div>
 
+        {/* Objectives */}
+        <ObjectivesStrip />
+
         {/* Resources */}
         <div className="mb-3">
           <ResourceBar resources={resources} rates={rates} />
           {rates.powerRatio < 1 && (
             <p className="text-[11px] font-mono text-red-400/90 mt-2">
               ⚠ Power deficit — production throttled to {Math.round(rates.powerRatio * 100)}%. Build
-              more energy capacity.
+              more energy capacity, or acquire NovaGrid Energy.
             </p>
           )}
         </div>
@@ -172,24 +219,23 @@ export default function SolarWarPage() {
 
         {/* Panels */}
         {tab === "ops" && (
-          <BuildingsPanel
-            resources={resources}
-            buildings={buildings}
-            researched={researched}
-            onBuild={build}
-          />
+          <BuildingsPanel resources={resources} buildings={buildings} researched={researched} onBuild={build} />
         )}
         {tab === "research" && (
           <ResearchPanel resources={resources} researched={researched} onResearch={research} />
         )}
         {tab === "markets" && <MarketsPanel />}
+        {tab === "partners" && <NeutralPanel />}
         {tab === "military" && <MilitaryPanel />}
         {tab === "intel" && <EventsFeed />}
 
         <p className="text-[11px] text-muted-foreground/40 mt-8 text-center font-mono">
-          Prototype · auto-saves to this browser · v0.2
+          Prototype · auto-saves to this browser · v1.0
         </p>
       </main>
+
+      {/* Tactical battle */}
+      {battleTarget && <TacticalBattle key={battleTarget} />}
 
       {/* Victory / defeat overlay */}
       {gameOver.over && (
@@ -199,14 +245,8 @@ export default function SolarWarPage() {
               gameOver.won ? "border-green-400/40 glow-border" : "border-red-500/50"
             }`}
           >
-            <Trophy
-              className={`w-10 h-10 mx-auto mb-4 ${gameOver.won ? "text-yellow-300" : "text-red-500"}`}
-            />
-            <h2
-              className={`text-2xl font-black font-mono mb-1 ${
-                gameOver.won ? "gradient-text" : "text-red-400"
-              }`}
-            >
+            <Trophy className={`w-10 h-10 mx-auto mb-4 ${gameOver.won ? "text-yellow-300" : "text-red-500"}`} />
+            <h2 className={`text-2xl font-black font-mono mb-1 ${gameOver.won ? "gradient-text" : "text-red-400"}`}>
               {gameOver.won ? "VICTORY" : "DEFEAT"}
             </h2>
             {gameOver.type && (

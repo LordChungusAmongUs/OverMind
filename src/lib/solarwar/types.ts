@@ -114,9 +114,38 @@ export interface Rival {
   /** Seconds of reduced output remaining (from sabotage / combat losses). */
   crippled: number;
   defeated: boolean;
+  treaty: TreatyStatus;
 }
 
 export type EventKind = "info" | "good" | "bad" | "war" | "tech" | "market";
+
+export type NeutralStatus = "none" | "leased" | "owned";
+
+export type TreatyStatus = "none" | "pact";
+
+export interface NeutralCompany {
+  id: string;
+  name: string;
+  sector: string;
+  description: string;
+  /** Per-second flows while leased (energy adds power supply). */
+  leaseProvides: FlowMap;
+  /** Capital/sec rent while leased. */
+  leaseCost: number;
+  /** One-time purchase cost. */
+  acquireCost: StockMap;
+  /** Per-second flows once owned (no rent). */
+  ownedProvides: FlowMap;
+}
+
+export interface BattleResult {
+  outcome: "win" | "pyrrhic" | "loss";
+  text: string;
+  /** Ship id -> number of that ship type lost. */
+  playerLosses: Record<string, number>;
+  rivalMilitaryAfter: number;
+  rivalCrippleAdd: number;
+}
 
 export interface GameEvent {
   id: number;
@@ -137,6 +166,8 @@ export interface SaveState {
   buildings: Record<string, number>;
   researched: string[];
   fleet: Record<string, number>;
+  /** Neutral company id -> relationship. */
+  neutral: Record<string, NeutralStatus>;
   rivals: Rival[];
   /** Player share (0..1) of each market. */
   marketShare: Record<MarketId, number>;

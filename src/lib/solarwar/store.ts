@@ -6,6 +6,7 @@ import { create } from "zustand";
 import {
   BUILDINGS,
   MARKETS,
+  NEUTRAL_COMPANIES,
   OFFLINE_CAP_SECONDS,
   SAVE_KEY,
   SHIPS,
@@ -14,17 +15,36 @@ import {
   freshSave,
 } from "./data";
 import { advance, buildingCost, canAfford, fmt, militaryPower, shipCost } from "./engine";
-import { appendEvent, resolveCombat, worldTick } from "./world";
-import type { GameEvent, MarketId, Rival, SaveState, StockId, StockMap } from "./types";
+import { appendEvent, playerMetrics, worldTick } from "./world";
+import type {
+  BattleResult,
+  GameEvent,
+  MarketId,
+  NeutralStatus,
+  Rival,
+  SaveState,
+  StockId,
+  StockMap,
+} from "./types";
 
 export type EspionageKind = "sabotage" | "steal";
 
 interface GameStore extends SaveState {
+  /** Tick multiplier; 0 = paused. Not persisted. */
+  speed: number;
+  /** Rival id currently being attacked in the tactical view. Not persisted. */
+  battleTarget: string | null;
   tick: (dt: number) => void;
+  setSpeed: (s: number) => void;
   build: (id: string) => boolean;
   research: (id: string) => boolean;
   buildShip: (id: string) => boolean;
-  attackRival: (id: string) => boolean;
+  leaseCompany: (id: string) => boolean;
+  acquireCompany: (id: string) => boolean;
+  proposeTreaty: (id: string) => boolean;
+  requestBattle: (id: string) => boolean;
+  resolveBattle: (id: string, result: BattleResult) => void;
+  cancelBattle: () => void;
   acquireRival: (id: string) => boolean;
   espionage: (id: string, kind: EspionageKind) => boolean;
   lobby: () => boolean;
@@ -43,10 +63,18 @@ function sanitizeCounts(raw: Record<string, unknown>): Record<string, number> {
   return out;
 }
 
-function mergeMarket(
-  raw: unknown,
-  base: Record<MarketId, number>
-): Record<MarketId, number> {
+function sanitizeNeutral(raw: unknown): Record<string, NeutralStatus> {
+  const out: Record<string, NeutralStatus> = {};
+  if (raw && typeof raw === "object") {
+    const r = raw as Record<string, unknown>;
+    for (const c of NEUTRAL_COMPANIES) {
+      if (r[c.id] === "leased" || r[c.id] === "owned") out[c.id] = r[c.id] as NeutralStatus;
+    }
+  }
+  return out;
+}
+
+function mergeMarket(raw: unknown, base: Record<MarketId, number>): Record<MarketId, number> {
   if (!raw || typeof raw !== "object") return { ...base };
   const r = raw as Record<string, unknown>;
   const out = { ...base };
@@ -60,13 +88,24 @@ function mergeMarket(
 function validRivals(raw: unknown): Rival[] | null {
   if (!Array.isArray(raw)) return null;
   const ok = raw.every(
-    (r) =>
-      r &&
-      typeof r.id === "string" &&
-      typeof r.economy === "number" &&
-      typeof r.military === "number"
+    (r) => r && typeof r.id === "string" && typeof r.economy === "number" && typeof r.military === "number"
   );
-  return ok ? (raw as Rival[]) : null;
+  if (!ok) return null;
+  return raw.map((r) => ({
+    id: String(r.id),
+    name: String(r.name ?? r.id),
+    personality: r.personality ?? "industrialist",
+    blurb: String(r.blurb ?? ""),
+    economy: r.economy,
+    techLevel: typeof r.techLevel === "number" ? r.techLevel : 0,
+    influence: typeof r.influence === "number" ? r.influence : 0,
+    military: r.military,
+    growth: typeof r.growth === "number" ? r.growth : 1,
+    hostility: typeof r.hostility === "number" ? r.hostility : 10,
+    crippled: typeof r.crippled === "number" ? r.crippled : 0,
+    defeated: !!r.defeated,
+    treaty: r.treaty === "pact" ? "pact" : "none",
+  }));
 }
 
 function clampSave(raw: unknown): SaveState | null {
@@ -101,9 +140,8 @@ function clampSave(raw: unknown): SaveState | null {
       ? s.researched.filter((x): x is string => typeof x === "string")
       : base.researched,
     fleet:
-      s.fleet && typeof s.fleet === "object"
-        ? sanitizeCounts(s.fleet as Record<string, unknown>)
-        : base.fleet,
+      s.fleet && typeof s.fleet === "object" ? sanitizeCounts(s.fleet as Record<string, unknown>) : base.fleet,
+    neutral: sanitizeNeutral(s.neutral),
     rivals: validRivals(s.rivals) ?? base.rivals,
     marketShare: mergeMarket(s.marketShare, base.marketShare),
     marketSize: mergeMarket(s.marketSize, base.marketSize),
@@ -126,6 +164,10 @@ function spend(resources: Record<StockId, number>, cost: StockMap) {
 
 export const useGame = create<GameStore>((set, get) => ({
   ...freshSave(),
+  speed: 1,
+  battleTarget: null,
+
+  setSpeed: (s) => set({ speed: s }),
 
   tick: (dt) => {
     if (dt <= 0) return;
@@ -152,13 +194,7 @@ export const useGame = create<GameStore>((set, get) => ({
     if (state.researched.includes(id)) return false;
     if (t.requires && !t.requires.every((r) => state.researched.includes(r))) return false;
     if (!canAfford(state.resources, t.cost)) return false;
-    const { events, eventSeq } = appendEvent(
-      state.events,
-      state.eventSeq,
-      state.worldClock,
-      "tech",
-      `Researched ${t.name}.`
-    );
+    const { events, eventSeq } = appendEvent(state.events, state.eventSeq, state.worldClock, "tech", `Researched ${t.name}.`);
     set({ resources: spend(state.resources, t.cost), researched: [...state.researched, id], events, eventSeq });
     return true;
   },
@@ -175,30 +211,90 @@ export const useGame = create<GameStore>((set, get) => ({
     return true;
   },
 
-  attackRival: (id) => {
+  leaseCompany: (id) => {
+    const c = NEUTRAL_COMPANIES.find((x) => x.id === id);
+    if (!c) return false;
+    const state = get();
+    const status = state.neutral[id] ?? "none";
+    if (status === "owned") return false;
+    const next: NeutralStatus = status === "leased" ? "none" : "leased";
+    set({ neutral: { ...state.neutral, [id]: next } });
+    return true;
+  },
+
+  acquireCompany: (id) => {
+    const c = NEUTRAL_COMPANIES.find((x) => x.id === id);
+    if (!c) return false;
+    const state = get();
+    if (state.neutral[id] === "owned") return false;
+    if (!canAfford(state.resources, c.acquireCost)) return false;
+    const { events, eventSeq } = appendEvent(state.events, state.eventSeq, state.worldClock, "good", `Acquired ${c.name} — vertically integrated.`);
+    set({
+      resources: spend(state.resources, c.acquireCost),
+      neutral: { ...state.neutral, [id]: "owned" },
+      events,
+      eventSeq,
+    });
+    return true;
+  },
+
+  proposeTreaty: (id) => {
+    const state = get();
+    const rival = state.rivals.find((r) => r.id === id);
+    if (!rival || rival.defeated || rival.treaty === "pact") return false;
+    if (state.resources.influence < 300) return false;
+    const pm = playerMetrics(state);
+    const pStr = pm.economy + pm.military * 1500 + pm.influence * 20;
+    const rStr = rival.economy + rival.military * 1500 + rival.influence * 20;
+    const accept = rival.hostility < 75 && pStr >= rStr * 0.7 && state.resources.capital >= 8000;
+
+    const resources = { ...state.resources };
+    if (accept) {
+      resources.influence -= 300;
+      resources.capital -= 8000;
+      const rivals = state.rivals.map((r) =>
+        r.id === id ? { ...r, treaty: "pact" as const, hostility: clamp(r.hostility - 30, 0, 100) } : r
+      );
+      const { events, eventSeq } = appendEvent(state.events, state.eventSeq, state.worldClock, "good", `${rival.name} signed a non-aggression pact.`);
+      set({ resources, rivals, events, eventSeq });
+    } else {
+      resources.influence -= 100;
+      const { events, eventSeq } = appendEvent(state.events, state.eventSeq, state.worldClock, "info", `${rival.name} rebuffed your overtures.`);
+      set({ resources, events, eventSeq });
+    }
+    return accept;
+  },
+
+  requestBattle: (id) => {
     const state = get();
     const rival = state.rivals.find((r) => r.id === id);
     if (!rival || rival.defeated) return false;
-    const power = militaryPower(state.fleet);
-    if (power.firepower <= 0) return false;
-    const res = resolveCombat(power, rival);
+    if (militaryPower(state.fleet).firepower <= 0) return false;
+    set({ battleTarget: id });
+    return true;
+  },
+
+  cancelBattle: () => set({ battleTarget: null }),
+
+  resolveBattle: (id, result) => {
+    const state = get();
     const fleet = { ...state.fleet };
-    for (const sid of Object.keys(fleet)) {
-      fleet[sid] = Math.max(0, Math.round(fleet[sid] * (1 - res.playerLossFrac)));
+    for (const [sid, lost] of Object.entries(result.playerLosses)) {
+      fleet[sid] = Math.max(0, (fleet[sid] ?? 0) - lost);
     }
     const rivals = state.rivals.map((r) =>
       r.id === id
         ? {
             ...r,
-            military: res.rivalMilitaryAfter,
-            crippled: r.crippled + res.rivalCrippleAdd,
+            military: result.rivalMilitaryAfter,
+            crippled: r.crippled + result.rivalCrippleAdd,
             hostility: clamp(r.hostility + 25, 0, 100),
+            treaty: "none" as const,
           }
         : r
     );
-    const { events, eventSeq } = appendEvent(state.events, state.eventSeq, state.worldClock, "war", res.text);
-    set({ fleet, rivals, events, eventSeq });
-    return true;
+    const { events, eventSeq } = appendEvent(state.events, state.eventSeq, state.worldClock, "war", result.text);
+    set({ fleet, rivals, events, eventSeq, battleTarget: null });
   },
 
   acquireRival: (id) => {
@@ -214,13 +310,7 @@ export const useGame = create<GameStore>((set, get) => ({
     resources.capital += rival.economy * 0.3 - price;
     resources.influence += rival.influence * 0.5;
     const rivals = state.rivals.map((r) => (r.id === id ? { ...r, defeated: true, military: 0 } : r));
-    const { events, eventSeq } = appendEvent(
-      state.events,
-      state.eventSeq,
-      state.worldClock,
-      "good",
-      `Acquired ${rival.name} for ${fmt(price)} capital — their assets are now yours.`
-    );
+    const { events, eventSeq } = appendEvent(state.events, state.eventSeq, state.worldClock, "good", `Acquired ${rival.name} for ${fmt(price)} capital — their assets are now yours.`);
     set({ resources, rivals, events, eventSeq });
     return true;
   },
@@ -249,9 +339,7 @@ export const useGame = create<GameStore>((set, get) => ({
       resources.compute -= cost;
       const loot = rival.economy * 0.05;
       resources.capital += loot;
-      rivals = state.rivals.map((r) =>
-        r.id === id ? { ...r, hostility: clamp(r.hostility + 12, 0, 100) } : r
-      );
+      rivals = state.rivals.map((r) => (r.id === id ? { ...r, hostility: clamp(r.hostility + 12, 0, 100) } : r));
       text = `Data theft from ${rival.name}: +${fmt(loot)} capital.`;
     }
 
@@ -262,19 +350,11 @@ export const useGame = create<GameStore>((set, get) => ({
 
   lobby: () => {
     const state = get();
-    const costInf = 150;
-    const costCap = 3000;
-    if (state.resources.influence < costInf || state.resources.capital < costCap) return false;
+    if (state.resources.influence < 150 || state.resources.capital < 3000) return false;
     const resources = { ...state.resources };
-    resources.influence -= costInf;
-    resources.capital -= costCap;
-    const { events, eventSeq } = appendEvent(
-      state.events,
-      state.eventSeq,
-      state.worldClock,
-      "good",
-      "Lobbying campaign eased regulatory pressure."
-    );
+    resources.influence -= 150;
+    resources.capital -= 3000;
+    const { events, eventSeq } = appendEvent(state.events, state.eventSeq, state.worldClock, "good", "Lobbying campaign eased regulatory pressure.");
     set({ resources, regulation: clamp(state.regulation - 12, 0, 100), events, eventSeq });
     return true;
   },
@@ -287,6 +367,7 @@ export const useGame = create<GameStore>((set, get) => ({
       buildings: s.buildings,
       researched: s.researched,
       fleet: s.fleet,
+      neutral: s.neutral,
       rivals: s.rivals,
       marketShare: s.marketShare,
       marketSize: s.marketSize,
@@ -322,7 +403,7 @@ export const useGame = create<GameStore>((set, get) => ({
   },
 
   reset: () => {
-    set(freshSave());
+    set({ ...freshSave(), speed: 1, battleTarget: null });
     if (typeof window !== "undefined") {
       try {
         window.localStorage.removeItem(SAVE_KEY);

@@ -5,6 +5,7 @@ import {
   LOCATIONS,
   MARKET_MARGIN,
   MARKETS,
+  NEUTRAL_COMPANIES,
   REG_TAX_MAX,
   SHIPS,
   STAGES,
@@ -61,7 +62,7 @@ export interface Rates {
 
 type RateInput = Pick<
   SaveState,
-  "buildings" | "researched" | "fleet" | "marketShare" | "marketSize" | "regulation"
+  "buildings" | "researched" | "fleet" | "marketShare" | "marketSize" | "regulation" | "neutral"
 >;
 
 export function computeRates(state: RateInput): Rates {
@@ -100,6 +101,24 @@ export function computeRates(state: RateInput): Rates {
     }
   }
 
+  // Neutral companies: external services that bypass tech multipliers and power.
+  const external = zeroStocks();
+  for (const c of NEUTRAL_COMPANIES) {
+    const status = state.neutral[c.id];
+    if (status === "leased") {
+      for (const [res, val] of Object.entries(c.leaseProvides)) {
+        if (res === "energy") energySupply += val;
+        else external[res as StockId] += val;
+      }
+      consume.capital += c.leaseCost;
+    } else if (status === "owned") {
+      for (const [res, val] of Object.entries(c.ownedProvides)) {
+        if (res === "energy") energySupply += val;
+        else external[res as StockId] += val;
+      }
+    }
+  }
+
   const powerRatio = energyDemand > 0 ? Math.min(1, energySupply / energyDemand) : 1;
   const poweredGross = zeroStocks();
   for (const r of STOCKS) poweredGross[r] = gross[r] * mult[r] * powerRatio;
@@ -114,15 +133,15 @@ export function computeRates(state: RateInput): Rates {
     if (m.id === "government") marketInfluence += rev * 0.015;
   }
 
-  const capitalIncome = poweredGross.capital + marketRevenue;
+  const capitalIncome = poweredGross.capital + marketRevenue + external.capital;
   const tax = REG_TAX_MAX * (state.regulation / 100) * capitalIncome;
 
   const net = zeroStocks();
   net.capital = capitalIncome - consume.capital - tax;
-  net.compute = poweredGross.compute - consume.compute;
-  net.talent = poweredGross.talent - consume.talent;
-  net.materials = poweredGross.materials - consume.materials;
-  net.influence = poweredGross.influence + marketInfluence - consume.influence;
+  net.compute = poweredGross.compute + external.compute - consume.compute;
+  net.talent = poweredGross.talent + external.talent - consume.talent;
+  net.materials = poweredGross.materials + external.materials - consume.materials;
+  net.influence = poweredGross.influence + marketInfluence + external.influence - consume.influence;
 
   return { energySupply, energyDemand, powerRatio, net, gross: poweredGross, mult, marketRevenue, tax };
 }

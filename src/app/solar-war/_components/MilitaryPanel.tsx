@@ -1,6 +1,6 @@
 "use client";
 
-import { Crosshair, Lock, Radiation, ShieldAlert, Swords, Wifi } from "lucide-react";
+import { Crosshair, Handshake, Lock, Radiation, ShieldAlert, Swords, Wifi } from "lucide-react";
 import { SHIPS, TECHS } from "@/lib/solarwar/data";
 import { canAfford, fmt, militaryPower, shipCost } from "@/lib/solarwar/engine";
 import { useGame } from "@/lib/solarwar/store";
@@ -25,11 +25,13 @@ function Cost({ cost, resources }: { cost: StockMap; resources: Record<StockId, 
 }
 
 function RivalCard({ rival, playerFirepower }: { rival: Rival; playerFirepower: number }) {
-  const attack = useGame((s) => s.attackRival);
+  const requestBattle = useGame((s) => s.requestBattle);
   const acquire = useGame((s) => s.acquireRival);
   const espionage = useGame((s) => s.espionage);
+  const proposeTreaty = useGame((s) => s.proposeTreaty);
   const capital = useGame((s) => s.resources.capital);
   const compute = useGame((s) => s.resources.compute);
+  const influence = useGame((s) => s.resources.influence);
   const cyber = useGame((s) => s.researched.includes("cyberwarfare"));
 
   if (rival.defeated) {
@@ -45,6 +47,8 @@ function RivalCard({ rival, playerFirepower }: { rival: Rival; playerFirepower: 
   const acquirable = rival.crippled > 0 || rival.military < playerFirepower * 0.25;
   const canAttack = playerFirepower > 0;
   const sabotageCost = 800 + Math.floor(rival.techLevel) * 100;
+  const hasPact = rival.treaty === "pact";
+  const canPact = !hasPact && influence >= 300 && capital >= 8000;
 
   const btn = (enabled: boolean) =>
     `flex-1 rounded px-2 py-1.5 text-[11px] font-mono font-semibold border transition-colors inline-flex items-center justify-center gap-1 ${
@@ -57,7 +61,14 @@ function RivalCard({ rival, playerFirepower }: { rival: Rival; playerFirepower: 
     <div className="holo-card rounded-lg border border-green-500/20 bg-black/40 p-3 flex flex-col gap-2">
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm font-semibold text-green-200">{rival.name}</span>
-        <span className="text-[10px] font-mono text-green-700">{rival.personality}</span>
+        <div className="flex flex-col items-end">
+          <span className="text-[10px] font-mono text-green-700">{rival.personality}</span>
+          {hasPact && (
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 mt-0.5">
+              PACT
+            </span>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-3 gap-1 text-[11px] font-mono">
         <span className="text-orange-400">MIL {fmt(rival.military)}</span>
@@ -81,8 +92,8 @@ function RivalCard({ rival, playerFirepower }: { rival: Rival; playerFirepower: 
       </div>
 
       <div className="flex gap-1.5">
-        <button className={btn(canAttack)} disabled={!canAttack} onClick={() => attack(rival.id)}>
-          <Swords className="w-3 h-3" /> Attack
+        <button className={btn(canAttack)} disabled={!canAttack} onClick={() => requestBattle(rival.id)}>
+          <Swords className="w-3 h-3" /> Engage
         </button>
         <button
           className={btn(cyber && compute >= sabotageCost)}
@@ -113,6 +124,22 @@ function RivalCard({ rival, playerFirepower }: { rival: Rival; playerFirepower: 
       >
         Acquire <span className="text-green-700">({fmt(price)} CAP)</span>
       </button>
+      {hasPact ? (
+        <p className="text-[10px] font-mono text-cyan-400 text-center">Non-aggression pact in effect</p>
+      ) : (
+        <button
+          className={`w-full rounded px-2 py-1.5 text-[11px] font-mono font-semibold border transition-colors inline-flex items-center justify-center gap-1 ${
+            canPact
+              ? "border-cyan-500/40 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20"
+              : "border-green-900/40 bg-black/40 text-green-900 cursor-not-allowed"
+          }`}
+          disabled={!canPact}
+          onClick={() => proposeTreaty(rival.id)}
+          title="Propose a non-aggression pact (300 INF · 8.0K CAP)"
+        >
+          <Handshake className="w-3 h-3" /> Propose Pact
+        </button>
+      )}
     </div>
   );
 }

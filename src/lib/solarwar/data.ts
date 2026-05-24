@@ -4,6 +4,7 @@ import type {
   Building,
   LocationDef,
   MarketId,
+  NeutralCompany,
   ResourceDef,
   RivalSeed,
   SaveState,
@@ -15,7 +16,7 @@ import type {
 
 export const TICK_MS = 200;
 export const OFFLINE_CAP_SECONDS = 8 * 3600; // catch up at most 8h while away
-export const SAVE_KEY = "solarwar.save.v2";
+export const SAVE_KEY = "solarwar.save.v3";
 
 export const STOCKS: StockId[] = [
   "capital",
@@ -588,6 +589,69 @@ export const RIVAL_SEEDS: RivalSeed[] = [
   },
 ];
 
+export const NEUTRAL_COMPANIES: NeutralCompany[] = [
+  {
+    id: "helios_compute",
+    name: "Helios Compute",
+    sector: "Cloud / Compute",
+    description: "Independent hyperscaler. Lease their racks, or buy them outright.",
+    leaseProvides: { compute: 3 },
+    leaseCost: 4,
+    acquireCost: { capital: 40000 },
+    ownedProvides: { compute: 8 },
+  },
+  {
+    id: "aether_launch",
+    name: "Aether Launch",
+    sector: "Rockets / Logistics",
+    description: "Reusable launch provider. Cheap mass to orbit on demand.",
+    leaseProvides: { materials: 2 },
+    leaseCost: 3,
+    acquireCost: { capital: 34000 },
+    ownedProvides: { materials: 5 },
+  },
+  {
+    id: "titan_mining",
+    name: "Titan Mining Guild",
+    sector: "Mining",
+    description: "Veteran asteroid prospectors with their own claims.",
+    leaseProvides: { materials: 3 },
+    leaseCost: 4,
+    acquireCost: { capital: 52000, materials: 120 },
+    ownedProvides: { materials: 9 },
+  },
+  {
+    id: "novagrid",
+    name: "NovaGrid Energy",
+    sector: "Energy",
+    description: "Wholesale power on the grid. Buy them to end your energy worries.",
+    leaseProvides: { energy: 90 },
+    leaseCost: 5,
+    acquireCost: { capital: 46000 },
+    ownedProvides: { energy: 220 },
+  },
+  {
+    id: "mediawave",
+    name: "Mediawave Networks",
+    sector: "Media",
+    description: "Owns the feeds and the recommendation stack. Influence for hire.",
+    leaseProvides: { influence: 0.8 },
+    leaseCost: 4,
+    acquireCost: { capital: 30000 },
+    ownedProvides: { influence: 2.2 },
+  },
+  {
+    id: "vanguard",
+    name: "Vanguard Security",
+    sector: "Security",
+    description: "Private security and PR cover. Owning them keeps rivals wary of you.",
+    leaseProvides: { influence: 0.5, capital: 4 },
+    leaseCost: 3,
+    acquireCost: { capital: 38000 },
+    ownedProvides: { influence: 1.4, capital: 10 },
+  },
+];
+
 // ── World tuning ─────────────────────────────────────────────────────────
 export const MARKET_GROWTH = 0.010; // base market-size growth per second
 export const MARKET_MARGIN = 0.0016; // capital/sec per unit of (size × share)
@@ -603,7 +667,14 @@ export function freshSave(): SaveState {
     buildings: { operations_center: 1, orbital_data_center: 1, comms_satellite: 1 },
     researched: [],
     fleet: {},
-    rivals: RIVAL_SEEDS.map((s) => ({ ...s, hostility: 10, crippled: 0, defeated: false })),
+    neutral: {},
+    rivals: RIVAL_SEEDS.map((s) => ({
+      ...s,
+      hostility: 10,
+      crippled: 0,
+      defeated: false,
+      treaty: "none" as const,
+    })),
     marketShare: { consumer: 0.12, enterprise: 0.1, government: 0.08 },
     marketSize: { consumer: 60000, enterprise: 40000, government: 28000 },
     regulation: 8,
