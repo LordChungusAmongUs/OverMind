@@ -14,38 +14,27 @@
 
 </script>
 <style>
-  :root{ --grn:#39ff14; }
   *{ box-sizing:border-box; }
-  html,body{ margin:0; height:100%; overflow:hidden; background:#02040a; color:#bdf5c4;
-    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  html,body{ margin:0; height:100%; overflow:hidden; background:#02040a; color:#bdf5c4; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
   #scene{ position:fixed; inset:0; z-index:0; display:block; width:100%; height:100%; }
-  #hud{ position:fixed; inset:0; z-index:2; pointer-events:none; }
-  #hud .ui{ pointer-events:auto; }
-  h1{ font-size:20px; margin:0; font-weight:900;
-    background:linear-gradient(90deg,#00ff41,#39ff14,#00cc33,#ff1a1a,#ff6600,#00ff41);
-    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
-  .lbl{ font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:#2f8f43; }
-  .small{ font-size:11px; color:#5f8e68; }
+  #hud{ position:fixed; inset:0; z-index:2; pointer-events:none; } #hud .ui{ pointer-events:auto; }
+  h1{ font-size:20px; margin:0; font-weight:900; background:linear-gradient(90deg,#00ff41,#39ff14,#00cc33,#ff1a1a,#ff6600,#00ff41); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  .lbl{ font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:#2f8f43; } .small{ font-size:11px; color:#5f8e68; }
   .panelglass{ background:rgba(2,10,5,.82); backdrop-filter:blur(7px); border:1px solid rgba(0,255,65,.2); border-radius:12px; }
   #topbar{ position:absolute; top:10px; left:12px; right:12px; display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap; }
   #resbar{ display:flex; gap:6px; flex-wrap:wrap; padding:7px 9px; }
-  .res{ min-width:84px; }
-  .res .v{ font-size:16px; font-weight:900; line-height:1.05; }
-  .res .r{ font-size:10px; }
+  .res{ min-width:84px; } .res .v{ font-size:16px; font-weight:900; line-height:1.05; } .res .r{ font-size:10px; }
   .cap{color:#39ff14}.cmp{color:#33d6ff}.tal{color:#b388ff}.mat{color:#ffc24d}.inf{color:#ff5d8f}.enr{color:#ffe14d}
   .speed button,.tool{ font:inherit; font-size:11px; font-weight:700; border:none; background:none; color:#2f8f43; padding:5px 9px; border-radius:6px; cursor:pointer; }
-  .speed button.on{ background:rgba(0,255,65,.2); color:#9dffb0; }
-  .tool{ border:1px solid rgba(255,60,40,.3); color:#ff8f7d; }
+  .speed button.on{ background:rgba(0,255,65,.2); color:#9dffb0; } .tool{ border:1px solid rgba(0,255,65,.3); color:#9dffb0; }
   #tabbar{ position:absolute; left:12px; top:96px; display:flex; flex-direction:column; gap:6px; }
-  .tab{ pointer-events:auto; border:1px solid rgba(0,255,65,.18); background:rgba(2,10,5,.7); color:#2f8f43; font:inherit; font-weight:700;
-    padding:8px 12px; border-radius:9px; cursor:pointer; display:flex; gap:8px; align-items:center; font-size:13px; min-width:128px; }
-  .tab:hover{ color:#9dffb0; } .tab.on{ border-color:rgba(0,255,65,.45); background:rgba(0,255,65,.12); color:#9dffb0; box-shadow:0 0 14px rgba(0,255,65,.12); }
+  .tab{ pointer-events:auto; border:1px solid rgba(0,255,65,.18); background:rgba(2,10,5,.7); color:#2f8f43; font:inherit; font-weight:700; padding:8px 12px; border-radius:9px; cursor:pointer; display:flex; gap:8px; align-items:center; font-size:13px; min-width:128px; }
+  .tab:hover{ color:#9dffb0; } .tab.on{ border-color:rgba(0,255,65,.45); background:rgba(0,255,65,.12); color:#9dffb0; }
   #stage{ position:absolute; left:12px; bottom:12px; max-width:330px; padding:10px 12px; }
-  #ticker{ position:absolute; bottom:12px; left:50%; transform:translateX(-50%); padding:6px 12px; font-size:12px; max-width:60vw; text-align:center; }
+  #ticker{ position:absolute; bottom:12px; left:50%; transform:translateX(-50%); padding:6px 12px; font-size:12px; max-width:54vw; text-align:center; }
   #drawer{ position:absolute; top:10px; right:12px; width:min(440px,94vw); max-height:calc(100vh - 20px); overflow:auto; padding:14px; transform:translateX(120%); transition:transform .25s ease; }
   #drawer.open{ transform:translateX(0); }
-  .dhead{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
-  .x{ cursor:pointer; color:#5f8e68; font-size:18px; line-height:1; padding:2px 8px; }
+  .dhead{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; } .x{ cursor:pointer; color:#5f8e68; font-size:16px; padding:2px 8px; }
   .grid{ display:grid; gap:9px; } .g2{ grid-template-columns:1fr 1fr; }
   .item{ border:1px solid rgba(0,255,65,.2); background:rgba(0,0,0,.4); border-radius:10px; padding:10px; display:flex; flex-direction:column; gap:6px; }
   .item.lock{ opacity:.55; } .item .nm{ font-size:13px; font-weight:700; color:#cdeccf; line-height:1.15; } .item .ds{ font-size:11px; color:#5f8e68; line-height:1.3; }
@@ -58,17 +47,19 @@
   .btn.org{ border-color:rgba(255,150,40,.4); background:rgba(255,150,40,.12); color:#ffd0a0; }
   .btn.sm{ padding:6px 7px; } .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; } .between{ justify-content:space-between; }
   .bar{ height:6px; border-radius:4px; background:rgba(0,0,0,.55); overflow:hidden; } .bar>i{ display:block; height:100%; background:#39ff14; }
+  .progwrap{ display:flex; gap:6px; align-items:center; margin-top:2px; } .progwrap .bar{ flex:1; } .progwrap .bar>i{ background:#ffc24d; }
   .ev{ display:flex; gap:8px; border:1px solid rgba(0,255,65,.15); background:rgba(0,0,0,.4); border-radius:7px; padding:6px 9px; font-size:12px; margin-bottom:6px; }
   .ev .k{ font-size:9px; text-transform:uppercase; width:42px; opacity:.7; flex:0 0 auto; }
   .k-good{color:#9dffb0}.k-bad{color:#ff7a6b}.k-war{color:#ff9d4d}.k-tech{color:#5fd6ff}.k-market{color:#c89dff}.k-info{color:#4caf6a}
+  .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.82); display:flex; align-items:center; justify-content:center; z-index:50; padding:14px; }
+  .modal{ width:100%; max-width:860px; } .modal.glass{ background:rgba(2,10,5,.97); border:1px solid rgba(0,255,65,.3); border-radius:16px; padding:18px; }
+  #battleCanvas{ width:100%; height:440px; border-radius:10px; border:1px solid rgba(0,255,65,.2); background:#02060a; display:block; cursor:grab; }
+  #hint{ position:absolute; top:54%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#2f8f43; font-size:13px; pointer-events:none; opacity:.8; }
+  .reslabel{ text-align:right; font-size:11px; }
   .gridhdr,.gridrow{ display:grid; grid-template-columns:1.6fr .9fr .5fr .8fr .8fr; gap:6px; padding:7px 8px; font-size:12px; }
   .gridhdr{ font-size:9px; text-transform:uppercase; color:#2f8f43; border-bottom:1px solid rgba(0,255,65,.12); }
   .gridrow{ border-bottom:1px solid rgba(0,255,65,.06); align-items:center; } .gridrow.me{ background:rgba(0,255,65,.1); } .gridrow.dead{ opacity:.4; }
-  .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.85); display:flex; align-items:center; justify-content:center; z-index:50; padding:14px; }
-  .modal{ width:100%; max-width:860px; } .modal.glass{ background:rgba(2,10,5,.96); border:1px solid rgba(0,255,65,.3); border-radius:16px; padding:16px; }
-  #battleCanvas{ width:100%; height:440px; border-radius:10px; border:1px solid rgba(0,255,65,.2); background:#02060a; display:block; cursor:grab; }
-  #hint{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#2f8f43; font-size:13px; pointer-events:none; opacity:.8; }
-  .reslabel{ text-align:right; font-size:11px; }
+  input{ background:rgba(0,0,0,.5); border:1px solid rgba(0,255,65,.25); color:#cdeccf; border-radius:5px; padding:4px 6px; font:inherit; font-size:12px; }
   ::-webkit-scrollbar{ width:7px; } ::-webkit-scrollbar-thumb{ background:rgba(0,255,65,.3); border-radius:4px; }
 </style>
 </head>
@@ -76,6 +67,7 @@
 <canvas id="scene"></canvas>
 <div id="hud"></div>
 <div id="battle"></div>
+<div id="menu"></div>
 <div id="end"></div>
 
 <script>
@@ -155,16 +147,22 @@ var RIVAL_SEEDS=[{id:"cognis",name:"Cognis Labs",pers:"researcher",eco:10000,tec
 var STAGES=[{id:1,name:"AI Startup"},{id:2,name:"Technology Company"},{id:3,name:"Global Corporation"},{id:4,name:"Orbital Conglomerate"},{id:5,name:"Sovereign Space Corporation"},{id:6,name:"Interplanetary Superpower"}];
 var MARKET_GROWTH=0.010,MARKET_MARGIN=0.0016,SHARE_EASE=0.06,RIVAL_GROWTH=0.009,EVENT_INTERVAL=50,REG_TAX_MAX=0.45;
 var AFFINITY={industrialist:{consumer:1,enterprise:1.2,government:1},researcher:{consumer:.9,enterprise:1.8,government:.8},militarist:{consumer:.7,enterprise:.9,government:1.8},influencer:{consumer:2,enterprise:.8,government:1}};
-var SAVE_KEY="solarwar.standalone.v1";
+var SAVE_KEY="solarwar.standalone.v1", SET_KEY="solarwar.settings.v1";
+
+/* ============================================================ SETTINGS */
+function defaultSettings(){ return {startRes:{capital:8000,compute:0,talent:5,materials:60,influence:0},costMult:{build:1,ship:1,tech:1},timeMult:1}; }
+var SETTINGS=defaultSettings();
+function loadSettings(){ try{ var raw=localStorage.getItem(SET_KEY); if(!raw)return; var p=JSON.parse(raw),k; if(p.startRes)for(k in SETTINGS.startRes){ if(typeof p.startRes[k]==="number")SETTINGS.startRes[k]=p.startRes[k]; } if(p.costMult)for(k in SETTINGS.costMult){ if(typeof p.costMult[k]==="number")SETTINGS.costMult[k]=p.costMult[k]; } if(typeof p.timeMult==="number")SETTINGS.timeMult=p.timeMult; }catch(e){} }
+function saveSettings(){ try{ localStorage.setItem(SET_KEY,JSON.stringify(SETTINGS)); }catch(e){} }
 
 /* ============================================================ HELPERS */
 function clamp(n,lo,hi){ return Math.max(lo,Math.min(hi,n)); }
 function zero(){ return {capital:0,compute:0,talent:0,materials:0,influence:0}; }
 function fmt(n){ var a=Math.abs(n); if(a>=1e12)return (n/1e12).toFixed(2)+"T"; if(a>=1e9)return (n/1e9).toFixed(2)+"B"; if(a>=1e6)return (n/1e6).toFixed(2)+"M"; if(a>=1e3)return (n/1e3).toFixed(1)+"K"; if(a>=100)return n.toFixed(0); if(a>=1)return n.toFixed(1); if(a===0)return "0"; return n.toFixed(2); }
 function fmtRate(n){ return (n>0?"+":n<0?"−":"")+fmt(Math.abs(n))+"/s"; }
-function freshState(){ return {
-  resources:{capital:8000,compute:0,talent:5,materials:60,influence:0},
-  buildings:{operations_center:1,orbital_data_center:1,comms_satellite:1}, researched:[], fleet:{}, neutral:{},
+function freshState(){ var sr=SETTINGS.startRes; return {
+  resources:{capital:sr.capital,compute:sr.compute,talent:sr.talent,materials:sr.materials,influence:sr.influence},
+  buildings:{operations_center:1,orbital_data_center:1,comms_satellite:1}, researched:[], fleet:{}, neutral:{}, jobs:[], orbitAround:"earth",
   rivals:RIVAL_SEEDS.map(function(s){return {id:s.id,name:s.name,pers:s.pers,eco:s.eco,tech:s.tech,inf:s.inf,mil:s.mil,gr:s.gr,host:10,crip:0,dead:false,treaty:"none"};}),
   marketShare:{consumer:0.12,enterprise:0.1,government:0.08}, marketSize:{consumer:60000,enterprise:40000,government:28000},
   regulation:8, events:[{id:0,t:0,kind:"info",text:"Incorporation complete. The Solar War begins."}], eventSeq:1, worldClock:0, eventClock:0,
@@ -184,15 +182,23 @@ function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),eS=0,eD=
   net.capital=capInc-con.capital-tax; net.compute=pg.compute+ext.compute-con.compute; net.talent=pg.talent+ext.talent-con.talent; net.materials=pg.materials+ext.materials-con.materials; net.influence=pg.influence+mInf+ext.influence-con.influence;
   return {eS:eS,eD:eD,pr:pr,net:net}; }
 function advance(S,dt){ var r=rates(S),o={}; STOCKS.forEach(function(k){ o[k]=Math.max(0,S.resources[k]+r.net[k]*dt); }); return o; }
-function bcost(b,o){ var c={},g=b.g||1.15; for(var k in b.cost)c[k]=b.cost[k]*Math.pow(g,o); return c; }
-function scost(s,o){ var c={},g=s.g||1.1; for(var k in s.cost)c[k]=s.cost[k]*Math.pow(g,o); return c; }
+function bcost(b,o){ var c={},g=b.g||1.15,m=SETTINGS.costMult.build; for(var k in b.cost)c[k]=b.cost[k]*Math.pow(g,o)*m; return c; }
+function scost(s,o){ var c={},g=s.g||1.1,m=SETTINGS.costMult.ship; for(var k in s.cost)c[k]=s.cost[k]*Math.pow(g,o)*m; return c; }
+function tcost(id){ var t=TECHS[id],c={},m=SETTINGS.costMult.tech; for(var k in t.cost)c[k]=t.cost[k]*m; return c; }
+function cocost(co){ var c={},m=SETTINGS.costMult.build; for(var k in co.acq)c[k]=co.acq[k]*m; return c; }
+function btime(b){ return clamp(Math.sqrt(b.cost.capital||100)/12,2,45)*SETTINGS.timeMult; }
+function stime(s){ return clamp(Math.sqrt(s.cost.capital||100)/12,3,40)*SETTINGS.timeMult; }
+function ttime(t){ return clamp(Math.sqrt(t.cost.compute||(t.cost.capital||100)/10)/4,5,60)*SETTINGS.timeMult; }
+function cotime(co){ return clamp(Math.sqrt(co.acq.capital||100)/10,4,40)*SETTINGS.timeMult; }
 function afford(res,cost){ for(var k in cost)if(res[k]<cost[k])return false; return true; }
+function queued(kind,id){ var n=0; S.jobs.forEach(function(j){ if(j.kind===kind&&j.id===id)n++; }); return n; }
+function jobInfo(kind,id){ var n=0,best=null; S.jobs.forEach(function(j){ if(j.kind===kind&&j.id===id){ n++; if(!best||j.rem<best.rem)best=j; } }); return n?{n:n,rem:best.rem,tot:best.tot}:null; }
 function milPower(f){ var fp=0,hull=0,n=0; for(var id in f){ var c=f[id]; if(!c)continue; var s=SHIPS[id]; if(!s)continue; fp+=s.fp*c; hull+=s.hull*c; n+=c; } return {fp:fp,hull:hull,n:n}; }
 function locUnlocked(loc,r){ var d=LOCATIONS.find(function(l){return l.id===loc;}); if(!d||!d.by)return true; return r.indexOf(d.by)>=0; }
 function bUnlocked(b,r){ if(!locUnlocked(b.loc,r))return false; if(b.req&&r.indexOf(b.req)<0)return false; return true; }
 function techStatus(id,r){ var t=TECHS[id]; if(r.indexOf(id)>=0)return "done"; if(t.req&&!t.req.every(function(x){return r.indexOf(x)>=0;}))return "lock"; return "ok"; }
 function currentStage(S){ var techs=S.researched.length,tb=0; for(var b in S.buildings)tb+=S.buildings[b];
-  var orbit=(S.buildings.orbital_solar_array||0)>0||(S.buildings.ai_cluster||0)>0, moon=S.researched.indexOf("lunar_logistics")>=0, deep=S.researched.indexOf("fusion_propulsion")>=0;
+  var orbit=(S.buildings.orbital_solar_array||0)>0||(S.buildings.ai_cluster||0)>0,moon=S.researched.indexOf("lunar_logistics")>=0,deep=S.researched.indexOf("fusion_propulsion")>=0;
   if(deep&&(S.buildings.sovereign_colony||0)>0)return 6; if(moon&&techs>=8)return 5; if(orbit&&techs>=5)return 4; if(techs>=4||S.resources.capital>=250000)return 3; if(techs>=1||tb>=6)return 2; return 1; }
 
 /* ============================================================ WORLD */
@@ -224,7 +230,7 @@ function checkVictory(S){ var m=playerMetrics(S),al=S.rivals.filter(function(r){
   if(m.eco>=5e6&&m.eco>=te*2)return {type:"economic",text:"Your corporation commands the Solar economy."};
   if(m.inf>=100000&&m.inf>=ti*2)return {type:"influence",text:"Humanity now depends on you. You are indispensable."};
   if((S.buildings.sovereign_colony||0)>=1){ var r=rates(S); if(r.pr>=1&&r.net.materials>0&&r.net.capital>0)return {type:"sovereignty",text:"Your colony is fully self-sufficient."}; } return null; }
-function worldTick(S,dt){ var pp=milPower(S.fleet);
+function worldTick(S,dt){ S.worldClock+=dt; var pp=milPower(S.fleet);
   S.rivals.forEach(function(r){ if(r.dead)return; var crip=r.crip>0?0.4:1; r.crip=Math.max(0,r.crip-dt); r.eco*=1+RIVAL_GROWTH*r.gr*crip*dt; r.tech+=dt*(r.pers==="researcher"?0.02:0.012)*crip; r.inf+=dt*(r.pers==="influencer"?0.9:0.3)*crip; r.mil+=dt*(r.pers==="militarist"?0.7:0.15)*crip*(0.5+Math.log10(Math.max(10,r.eco))/4);
     if(r.treaty==="pact")r.host=clamp(r.host-dt*0.5,0,100); else{ var rel=S.neutral.vanguard==="owned"?0.3:1; r.host=clamp(r.host+dt*(r.pers==="militarist"?0.06:0.025)*rel,0,100); } });
   S.rivals.forEach(function(r){ if(r.dead||S.gameOver.over||r.treaty==="pact")return; if(r.host>55&&r.mil>pp.fp*1.25&&Math.random()<(dt/30)*(r.host/100)){ var dmg=Math.min(S.resources.capital*0.12,r.mil*200); S.resources.capital=Math.max(0,S.resources.capital-dmg); for(var id in S.fleet)S.fleet[id]=Math.max(0,Math.floor(S.fleet[id]*0.75)); S.regulation=clamp(S.regulation+4,0,100); r.host=clamp(r.host-15,0,100); pushEvent(S,"war",r.name+" raided your assets — lost "+fmt(dmg)+" capital."); if(pp.fp===0&&S.resources.capital<r.eco*0.05&&r.mil>60)S.gameOver={over:true,won:false,type:"defeated",text:r.name+" has absorbed your corporation. Game over."}; } });
@@ -235,52 +241,61 @@ function worldTick(S,dt){ var pp=milPower(S.fleet);
 function objectives(S){ var pm=playerMetrics(S),st=currentStage(S),ms=Math.max(S.marketShare.consumer,S.marketShare.enterprise,S.marketShare.government),anyN=Object.keys(S.neutral).some(function(k){return S.neutral[k]==="leased"||S.neutral[k]==="owned";}),def=S.rivals.some(function(r){return r.dead;});
   return [{l:"Reach Stage 3",d:st>=3,p:clamp(st/3,0,1)},{l:"Capture 25% of a market",d:ms>=0.25,p:clamp(ms/0.25,0,1)},{l:"Use a neutral company",d:anyN},{l:"Research AGI",d:S.researched.indexOf("agi")>=0},{l:"War fleet (FP ≥ 200)",d:pm.mil>=200,p:clamp(pm.mil/200,0,1)},{l:"Expand to the Moon",d:S.researched.indexOf("lunar_logistics")>=0},{l:"Defeat a rival",d:def},{l:"Win the game",d:S.gameOver.won}]; }
 
-/* ============================================================ STATE + ACTIONS */
+/* ============================================================ STATE + ACTIONS + JOBS */
 var S=freshState();
 function spend(c){ for(var k in c)S.resources[k]-=c[k]; }
+function completeJob(j){ if(j.kind==="build")S.buildings[j.id]=(S.buildings[j.id]||0)+1;
+  else if(j.kind==="ship")S.fleet[j.id]=(S.fleet[j.id]||0)+1;
+  else if(j.kind==="tech"){ if(S.researched.indexOf(j.id)<0){ S.researched.push(j.id); pushEvent(S,"tech","Completed research: "+TECHS[j.id].name+"."); } }
+  else if(j.kind==="acqco"){ S.neutral[j.id]="owned"; var co=NEUTRAL.find(function(x){return x.id===j.id;}); pushEvent(S,"good","Acquired "+(co?co.name:j.id)+"."); } }
+function processJobs(dt){ if(!S.jobs.length)return false; var done=[],i; for(i=0;i<S.jobs.length;i++){ S.jobs[i].rem-=dt; if(S.jobs[i].rem<=0)done.push(i); }
+  for(i=done.length-1;i>=0;i--){ var j=S.jobs[done[i]]; S.jobs.splice(done[i],1); completeJob(j); } return done.length>0; }
 function save(){ try{ S.lastSaved=Date.now(); localStorage.setItem(SAVE_KEY,JSON.stringify(S)); }catch(e){} }
-function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; if(!p.neutral)p.neutral={}; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ S.resources=advance(S,Math.min(el,28800)); worldTick(S,Math.min(el,28800)); } } }catch(e){} }
+function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
 var A={
-  build:function(id){ var b=BUILDINGS[id]; if(!b)return; var o=S.buildings[id]||0,c=bcost(b,o); if(!afford(S.resources,c))return; spend(c); S.buildings[id]=o+1; },
-  research:function(id){ var t=TECHS[id]; if(!t||S.researched.indexOf(id)>=0)return; if(t.req&&!t.req.every(function(r){return S.researched.indexOf(r)>=0;}))return; if(!afford(S.resources,t.cost))return; spend(t.cost); S.researched.push(id); pushEvent(S,"tech","Researched "+t.name+"."); },
-  ship:function(id){ var s=SHIPS[id]; if(!s)return; if(s.req&&S.researched.indexOf(s.req)<0)return; var o=S.fleet[id]||0,c=scost(s,o); if(!afford(S.resources,c))return; spend(c); S.fleet[id]=o+1; },
-  lease:function(id){ var st=S.neutral[id]||"none"; if(st==="owned")return; S.neutral[id]=st==="leased"?"none":"leased"; },
-  acqco:function(id){ var co=NEUTRAL.find(function(x){return x.id===id;}); if(!co||S.neutral[id]==="owned")return; if(!afford(S.resources,co.acq))return; spend(co.acq); S.neutral[id]="owned"; pushEvent(S,"good","Acquired "+co.name+"."); },
+  build:function(id){ var b=BUILDINGS[id]; if(!b)return; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); },
+  ship:function(id){ var s=SHIPS[id]; if(!s)return; if(s.req&&S.researched.indexOf(s.req)<0)return; var o=(S.fleet[id]||0)+queued("ship",id),c=scost(s,o); if(!afford(S.resources,c))return; spend(c); var t=stime(s); S.jobs.push({kind:"ship",id:id,rem:t,tot:t}); },
+  research:function(id){ var t=TECHS[id]; if(!t||S.researched.indexOf(id)>=0||queued("tech",id)>0)return; if(t.req&&!t.req.every(function(r){return S.researched.indexOf(r)>=0;}))return; var c=tcost(id); if(!afford(S.resources,c))return; spend(c); var tm=ttime(t); S.jobs.push({kind:"tech",id:id,rem:tm,tot:tm}); pushEvent(S,"tech","Started research: "+t.name+"."); },
+  lease:function(id){ var st=S.neutral[id]||"none"; if(st==="owned"||queued("acqco",id)>0)return; S.neutral[id]=st==="leased"?"none":"leased"; },
+  acqco:function(id){ var co=NEUTRAL.find(function(x){return x.id===id;}); if(!co||S.neutral[id]==="owned"||queued("acqco",id)>0)return; var c=cocost(co); if(!afford(S.resources,c))return; spend(c); var t=cotime(co); S.jobs.push({kind:"acqco",id:id,rem:t,tot:t}); },
   pact:function(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r||r.dead||r.treaty==="pact")return; if(S.resources.influence<300)return; var pm=playerMetrics(S),pS=pm.eco+pm.mil*1500+pm.inf*20,rS=r.eco+r.mil*1500+r.inf*20,ok=r.host<75&&pS>=rS*0.7&&S.resources.capital>=8000; if(ok){ S.resources.influence-=300; S.resources.capital-=8000; r.treaty="pact"; r.host=clamp(r.host-30,0,100); pushEvent(S,"good",r.name+" signed a non-aggression pact."); } else{ S.resources.influence-=100; pushEvent(S,"info",r.name+" rebuffed your overtures."); } },
   sabotage:function(id){ if(S.researched.indexOf("cyberwarfare")<0)return; var r=S.rivals.find(function(x){return x.id===id;}); if(!r||r.dead)return; var c=800+Math.floor(r.tech)*100; if(S.resources.compute<c)return; S.resources.compute-=c; r.crip+=45; r.host=clamp(r.host+18,0,100); pushEvent(S,"war","Sabotage — "+r.name+" disrupted."); },
   steal:function(id){ if(S.researched.indexOf("cyberwarfare")<0)return; var r=S.rivals.find(function(x){return x.id===id;}); if(!r||r.dead)return; if(S.resources.compute<600)return; S.resources.compute-=600; var loot=r.eco*0.05; S.resources.capital+=loot; r.host=clamp(r.host+12,0,100); pushEvent(S,"war","Data theft from "+r.name+": +"+fmt(loot)+" capital."); },
   acqrival:function(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r||r.dead)return; var p=milPower(S.fleet); if(!(r.crip>0||r.mil<p.fp*0.25))return; var price=r.eco*0.6; if(S.resources.capital<price)return; S.resources.capital+=r.eco*0.3-price; S.resources.influence+=r.inf*0.5; r.dead=true; r.mil=0; pushEvent(S,"good","Acquired "+r.name+" for "+fmt(price)+" capital."); },
   lobby:function(){ if(S.resources.influence<150||S.resources.capital<3000)return; S.resources.influence-=150; S.resources.capital-=3000; S.regulation=clamp(S.regulation-12,0,100); pushEvent(S,"good","Lobbying eased regulation."); },
+  orbitwhere:function(){ S.orbitAround=S.orbitAround==="moon"?"earth":"moon"; },
   engage:function(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r||r.dead)return; if(milPower(S.fleet).fp<=0)return; S.battleTarget=id; openBattle(); },
   resolveBattle:function(id,res){ for(var sid in res.losses)S.fleet[sid]=Math.max(0,(S.fleet[sid]||0)-res.losses[sid]); var r=S.rivals.find(function(x){return x.id===id;}); if(r){ r.mil=res.milAfter; r.crip+=res.crip; r.host=clamp(r.host+25,0,100); r.treaty="none"; } pushEvent(S,"war",res.text); S.battleTarget=null; },
-  setSpeed:function(v){ S.speed=v; },
-  reset:function(){ if(!confirm("Reset Solar War? All progress will be lost."))return; try{localStorage.removeItem(SAVE_KEY);}catch(e){} S=freshState(); UI.tab="ops"; UI.open=false; UI.sel=null; syncScene(); render(); }
+  setSpeed:function(v){ S.speed=v; }
 };
+function doNewGame(){ S=freshState(); UI.menu=null; UI.open=false; UI.sel=null; save(); }
 
 /* ============================================================ HUD / UI */
-var UI={ tab:"ops", open:false, sel:null };
+var UI={ tab:"ops", open:false, sel:null, menu:null, dirty:false };
 function el(id){ return document.getElementById(id); }
 function cost$(c,res){ var h=""; for(var k in c){ var ok=res[k]>=c[k]; h+='<span style="color:'+(ok?"#2f8f43":"#ff5d8f")+'">'+fmt(c[k])+" "+CODE[k]+"</span> "; } return h; }
 function flow$(map,sign){ var h=""; for(var k in map)h+='<span class="chip '+FCLS[k]+'">'+sign+fmt(map[k])+" "+CODE[k]+"</span> "; return h; }
+function prog$(kind,id){ var info=jobInfo(kind,id); if(!info)return ""; return '<div data-prog="'+kind+':'+id+'" class="progwrap"><div class="bar"><i style="width:'+((1-info.rem/info.tot)*100)+'%"></i></div><span class="small" data-rem>'+Math.ceil(info.rem)+'s'+(info.n>1?" ×"+info.n:"")+'</span></div>'; }
 function resBar(){ var r=rates(S),h='<div class="panelglass ui" id="resbar">';
   STOCKS.forEach(function(k){ var d=RES[k],nv=r.net[k]; h+='<div class="res"><div class="lbl '+d.cls+'">'+d.name+'</div><div class="v '+d.cls+'" id="res-'+k+'">'+fmt(S.resources[k])+'</div><div class="r" id="rate-'+k+'" style="color:'+(nv>0?"#2f8f43":nv<0?"#ff5d8f":"#456")+'">'+fmtRate(nv)+'</div></div>'; });
   var pw=r.pr>=1; h+='<div class="res"><div class="lbl enr">Energy</div><div class="v enr" id="res-energy">'+fmt(r.eS)+'<span style="color:#456;font-size:11px">/'+fmt(r.eD)+'</span></div><div class="r" id="rate-energy" style="color:'+(pw?"#2f8f43":"#ff5d8f")+'">'+(pw?"powered":Math.round(r.pr*100)+"% deficit")+'</div></div>';
   return h+'</div>'; }
 var TABS=[["ops","⚙","Operations"],["research","🧪","Research"],["markets","👑","Markets"],["partners","🤝","Partners"],["military","⚔","Military"],["intel","📡","Intel"]];
-function opsPanel(){ var sel=UI.sel, h="";
+function opsPanel(){ var sel=UI.sel,h="";
   if(sel)h+='<div class="small" style="margin-bottom:8px"><span class="ui" data-act="ops_all" style="cursor:pointer;color:#39ff14">‹ all locations</span></div>';
-  LOCATIONS.forEach(function(loc){ if(sel&&loc.id!==sel)return; var unlocked=locUnlocked(loc.id,S.researched), list=Object.keys(BUILDINGS).filter(function(id){return BUILDINGS[id].loc===loc.id;});
+  LOCATIONS.forEach(function(loc){ if(sel&&loc.id!==sel)return; var unlocked=locUnlocked(loc.id,S.researched),list=Object.keys(BUILDINGS).filter(function(id){return BUILDINGS[id].loc===loc.id;});
     h+='<div style="margin-top:10px"><div class="row" style="gap:8px;align-items:baseline"><b style="color:#9dffb0;text-transform:uppercase;letter-spacing:.12em;font-size:13px">'+loc.name+'</b><span class="small">'+loc.tag+'</span></div>';
+    if(loc.id==="orbit"&&unlocked)h+='<div class="small" style="margin-top:5px">Station orbit: <b style="color:#39ff14">'+(S.orbitAround==="moon"?"Moon":"Earth")+'</b> <button class="btn ui sm" style="width:auto;display:inline-block;margin-left:6px" data-act="orbitwhere">↔ Switch to '+(S.orbitAround==="moon"?"Earth":"Moon")+'</button></div>';
     if(!unlocked){ h+='<div class="item small" style="margin-top:8px">🔒 Research <b style="color:#39ff14">'+(TECHS[loc.by]?TECHS[loc.by].name:"")+'</b> to open '+loc.name+'.</div></div>'; return; }
     h+='<div class="grid g2" style="margin-top:8px">';
     list.forEach(function(id){ var b=BUILDINGS[id],owned=S.buildings[id]||0; if(!bUnlocked(b,S.researched)){ h+='<div class="item lock"><div class="nm">🔒 '+b.name+'</div><div class="ds">Needs '+(TECHS[b.req]?TECHS[b.req].name:"—")+'</div></div>'; return; }
-      var c=bcost(b,owned),ok=afford(S.resources,c); h+='<div class="item"><div class="row between"><span class="nm">'+b.name+'</span><span class="badge">×'+owned+'</span></div><div class="ds">'+b.ds+'</div><div class="row" style="gap:7px">'+(b.prod?flow$(b.prod,"+"):"")+(b.con?flow$(b.con,"−"):"")+'</div><button class="btn ui'+(ok?"":" dis")+'" data-act="build" data-id="'+id+'" data-cost=\''+JSON.stringify(c)+'\'>BUILD '+cost$(c,S.resources)+'</button></div>'; });
+      var c=bcost(b,owned+queued("build",id)),ok=afford(S.resources,c); h+='<div class="item"><div class="row between"><span class="nm">'+b.name+'</span><span class="badge">×'+owned+'</span></div><div class="ds">'+b.ds+'</div><div class="row" style="gap:7px">'+(b.prod?flow$(b.prod,"+"):"")+(b.con?flow$(b.con,"−"):"")+'</div><button class="btn ui'+(ok?"":" dis")+'" data-act="build" data-id="'+id+'" data-cost=\''+JSON.stringify(c)+'\'>BUILD '+cost$(c,S.resources)+' <span class="small">· '+Math.ceil(btime(b))+'s</span></button>'+prog$("build",id)+'</div>'; });
     h+='</div></div>'; });
   return h; }
 function researchPanel(){ var brs=[]; Object.keys(TECHS).forEach(function(id){ if(brs.indexOf(TECHS[id].br)<0)brs.push(TECHS[id].br); }); var h="";
   brs.forEach(function(br){ h+='<div style="margin-top:10px"><b style="color:#9dffb0;text-transform:uppercase;letter-spacing:.12em;font-size:13px">🧪 '+br+'</b><div class="grid" style="margin-top:8px">';
-    Object.keys(TECHS).filter(function(id){return TECHS[id].br===br;}).forEach(function(id){ var t=TECHS[id],st=techStatus(id,S.researched),ok=afford(S.resources,t.cost),bd=st==="done"?"border-color:rgba(0,255,65,.4);background:rgba(0,255,65,.05)":st==="lock"?"opacity:.6":"";
-      h+='<div class="item" style="'+bd+'"><div class="row between"><span class="nm">'+t.name+'</span>'+(st==="done"?'<span style="color:#39ff14">✓</span>':st==="lock"?'<span style="color:#1c5a2b">🔒</span>':"")+'</div><div class="ds">'+t.ds+'</div>'+(st==="lock"&&t.req?'<div class="small" style="color:#ff7a6b">Needs: '+t.req.map(function(r){return TECHS[r].name;}).join(", ")+'</div>':"")+(st==="done"?'<div class="small" style="color:#2f8f43">RESEARCHED</div>':st==="ok"?'<button class="btn cyan ui'+(ok?"":" dis")+'" data-act="research" data-id="'+id+'" data-cost=\''+JSON.stringify(t.cost)+'\'>RESEARCH '+cost$(t.cost,S.resources)+'</button>':'<div class="small">'+cost$(t.cost,S.resources)+'</div>')+'</div>'; });
+    Object.keys(TECHS).filter(function(id){return TECHS[id].br===br;}).forEach(function(id){ var t=TECHS[id],st=techStatus(id,S.researched),inProg=jobInfo("tech",id),c=tcost(id),ok=afford(S.resources,c),bd=st==="done"?"border-color:rgba(0,255,65,.4);background:rgba(0,255,65,.05)":st==="lock"?"opacity:.6":"";
+      h+='<div class="item" style="'+bd+'"><div class="row between"><span class="nm">'+t.name+'</span>'+(st==="done"?'<span style="color:#39ff14">✓</span>':st==="lock"?'<span style="color:#1c5a2b">🔒</span>':"")+'</div><div class="ds">'+t.ds+'</div>'+(st==="lock"&&t.req?'<div class="small" style="color:#ff7a6b">Needs: '+t.req.map(function(r){return TECHS[r].name;}).join(", ")+'</div>':"")+(st==="done"?'<div class="small" style="color:#2f8f43">RESEARCHED</div>':inProg?'<div class="small" style="color:#ffc24d">RESEARCHING</div>'+prog$("tech",id):st==="ok"?'<button class="btn cyan ui'+(ok?"":" dis")+'" data-act="research" data-id="'+id+'" data-cost=\''+JSON.stringify(c)+'\'>RESEARCH '+cost$(c,S.resources)+' <span class="small">· '+Math.ceil(ttime(t))+'s</span></button>':'<div class="small">'+cost$(c,S.resources)+'</div>')+'</div>'; });
     h+='</div></div>'; }); return h; }
 function marketsPanel(){ var b=standings(S),mp=Math.max.apply(null,b.map(function(r){return r.pow;}).concat([1]));
   var h='<b style="color:#9dffb0;text-transform:uppercase;letter-spacing:.12em;font-size:13px">👑 Standings</b><div class="panelglass" style="margin-top:8px"><div class="gridhdr"><span>Corp</span><span style="text-align:right">Val</span><span style="text-align:right">Tech</span><span style="text-align:right">Infl</span><span style="text-align:right">Mil</span></div>';
@@ -290,15 +305,15 @@ function marketsPanel(){ var b=standings(S),mp=Math.max.apply(null,b.map(functio
   h+='</div></div>'; var tax=REG_TAX_MAX*(S.regulation/100)*100,cl=S.regulation>60?"#ff7a6b":S.regulation>30?"#ffe14d":"#39ff14";
   h+='<div style="margin-top:10px"><b style="color:#9dffb0;text-transform:uppercase;letter-spacing:.12em;font-size:13px">🏛 Government</b><div class="item" style="margin-top:8px"><div class="row between"><span class="lbl">Regulation</span><b style="color:'+cl+'">'+Math.round(S.regulation)+'%</b></div><div class="bar"><i style="width:'+S.regulation+'%;background:'+cl+'"></i></div><div class="small">Taxing '+tax.toFixed(0)+'% of capital income.</div><button class="btn ui'+(S.resources.influence>=150&&S.resources.capital>=3000?"":" dis")+'" data-act="lobby">Lobby (−12% · 150 INF · 3K CAP)</button></div></div>'; return h; }
 function partnersPanel(){ var h='<div class="small" style="margin-bottom:8px">Lease for speed (rent), or acquire to own the output forever.</div><div class="grid">';
-  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none",owned=st==="owned",leased=st==="leased",ok=afford(S.resources,co.acq);
-    h+='<div class="item"><div class="row between"><div><span class="nm">'+co.name+'</span><div class="small">'+co.sec+'</div></div>'+(owned?'<span class="badge" style="border-color:rgba(160,90,255,.3);background:rgba(160,90,255,.1);color:#cbb3ff">Owned</span>':leased?'<span class="badge">Leased</span>':"")+'</div><div class="ds">'+co.ds+'</div>'+(owned?'<div class="row" style="gap:7px">'+flow$(co.own,"+")+'</div>':'<div class="row" style="gap:7px">'+flow$(co.lease,"+")+'<span class="chip" style="color:#ff5d8f">−'+fmt(co.rent)+' CAP/s</span></div>')+(owned?"":'<div class="row" style="gap:6px"><button class="btn ui sm'+(leased?" org":"")+'" style="flex:1" data-act="lease" data-id="'+co.id+'">'+(leased?"End Lease":"Lease")+'</button><button class="btn vio ui sm'+(ok?"":" dis")+'" style="flex:1" data-act="acqco" data-id="'+co.id+'">Acquire '+cost$(co.acq,S.resources)+'</button></div>')+'</div>'; });
+  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none",owned=st==="owned",leased=st==="leased",inProg=jobInfo("acqco",co.id),c=cocost(co),ok=afford(S.resources,c);
+    h+='<div class="item"><div class="row between"><div><span class="nm">'+co.name+'</span><div class="small">'+co.sec+'</div></div>'+(owned?'<span class="badge" style="border-color:rgba(160,90,255,.3);background:rgba(160,90,255,.1);color:#cbb3ff">Owned</span>':leased?'<span class="badge">Leased</span>':"")+'</div><div class="ds">'+co.ds+'</div>'+(owned?'<div class="row" style="gap:7px">'+flow$(co.own,"+")+'</div>':'<div class="row" style="gap:7px">'+flow$(co.lease,"+")+'<span class="chip" style="color:#ff5d8f">−'+fmt(co.rent)+' CAP/s</span></div>')+(owned?"":inProg?'<div class="small" style="color:#ffc24d">ACQUIRING</div>'+prog$("acqco",co.id):'<div class="row" style="gap:6px"><button class="btn ui sm'+(leased?" org":"")+'" style="flex:1" data-act="lease" data-id="'+co.id+'">'+(leased?"End Lease":"Lease")+'</button><button class="btn vio ui sm'+(ok?"":" dis")+'" style="flex:1" data-act="acqco" data-id="'+co.id+'">Acquire '+cost$(c,S.resources)+' <span class="small">·'+Math.ceil(cotime(co))+'s</span></button></div>')+'</div>'; });
   return h+'</div>'; }
 function militaryPanel(){ var p=milPower(S.fleet),noMil=S.researched.indexOf("security_forces")<0;
   var h='<div class="row" style="gap:8px"><div class="item" style="flex:1"><div class="lbl">Firepower</div><div style="font-size:18px;font-weight:900;color:#ffb14d">'+fmt(p.fp)+'</div></div><div class="item" style="flex:1"><div class="lbl">Hull</div><div style="font-size:18px;font-weight:900;color:#33d6ff">'+fmt(p.hull)+'</div></div><div class="item" style="flex:1"><div class="lbl">Ships</div><div style="font-size:18px;font-weight:900;color:#39ff14">'+fmt(p.n)+'</div></div></div>';
   if(noMil)h+='<div class="small" style="margin-top:8px;color:#ffe14d">Research Cyberwarfare → Security Forces (Defense) to build warships.</div>';
   h+='<div style="margin-top:10px"><b style="color:#9dffb0;text-transform:uppercase;letter-spacing:.12em;font-size:13px">Shipyard</b><div class="grid g2" style="margin-top:8px">';
-  Object.keys(SHIPS).forEach(function(id){ var s=SHIPS[id],owned=S.fleet[id]||0,un=!s.req||S.researched.indexOf(s.req)>=0; if(!un){ h+='<div class="item lock"><div class="nm">🔒 '+s.name+'</div><div class="ds">Needs '+(TECHS[s.req]?TECHS[s.req].name:"")+'</div></div>'; return; } var c=scost(s,owned),ok=afford(S.resources,c);
-    h+='<div class="item"><div class="row between"><div><span class="nm">'+s.name+'</span><div class="small">'+s.cls+'</div></div><span class="badge">×'+owned+'</span></div><div class="row" style="gap:7px"><span class="chip" style="color:#ffb14d">FP '+s.fp+'</span><span class="chip cmp">HP '+s.hull+'</span></div><button class="btn org ui'+(ok?"":" dis")+'" data-act="ship" data-id="'+id+'">BUILD '+cost$(c,S.resources)+'</button></div>'; });
+  Object.keys(SHIPS).forEach(function(id){ var s=SHIPS[id],owned=S.fleet[id]||0,un=!s.req||S.researched.indexOf(s.req)>=0; if(!un){ h+='<div class="item lock"><div class="nm">🔒 '+s.name+'</div><div class="ds">Needs '+(TECHS[s.req]?TECHS[s.req].name:"")+'</div></div>'; return; } var c=scost(s,owned+queued("ship",id)),ok=afford(S.resources,c);
+    h+='<div class="item"><div class="row between"><div><span class="nm">'+s.name+'</span><div class="small">'+s.cls+'</div></div><span class="badge">×'+owned+'</span></div><div class="row" style="gap:7px"><span class="chip" style="color:#ffb14d">FP '+s.fp+'</span><span class="chip cmp">HP '+s.hull+'</span></div><button class="btn org ui'+(ok?"":" dis")+'" data-act="ship" data-id="'+id+'">BUILD '+cost$(c,S.resources)+' <span class="small">·'+Math.ceil(stime(s))+'s</span></button>'+prog$("ship",id)+'</div>'; });
   h+='</div></div><div style="margin-top:10px"><b style="color:#9dffb0;text-transform:uppercase;letter-spacing:.12em;font-size:13px">🎯 Rivals</b><div class="grid" style="margin-top:8px">';
   S.rivals.forEach(function(r){ if(r.dead){ h+='<div class="item lock"><span class="nm" style="text-decoration:line-through">'+r.name+'</span><div class="small" style="color:#ff7a6b">Defeated</div></div>'; return; }
     var price=r.eco*0.6,acq=(r.crip>0||r.mil<p.fp*0.25),canA=p.fp>0,sc=800+Math.floor(r.tech)*100,cyber=S.researched.indexOf("cyberwarfare")>=0,pact=r.treaty==="pact";
@@ -309,100 +324,121 @@ function ageStr(t){ var d=Math.max(0,Math.floor(S.worldClock-t)); return d<60?d+
 function panelHtml(){ return UI.tab==="ops"?opsPanel():UI.tab==="research"?researchPanel():UI.tab==="markets"?marketsPanel():UI.tab==="partners"?partnersPanel():UI.tab==="military"?militaryPanel():intelPanel(); }
 function tabTitle(){ var t=TABS.find(function(x){return x[0]===UI.tab;}); return t?t[1]+" "+t[2]:""; }
 function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(function(o){return o.d;}).length;
-  var h='<div id="topbar">'+resBar()+
-    '<div class="panelglass ui" style="padding:5px"><div class="speed" style="display:flex;align-items:center"><span class="lbl" style="margin:0 6px">SPD</span>'+
+  var h='<div id="topbar">'+resBar()+'<div class="panelglass ui" style="padding:5px"><div class="speed" style="display:flex;align-items:center"><span class="lbl" style="margin:0 6px">SPD</span>'+
     [["0","⏸"],["1","1×"],["2","2×"],["4","4×"]].map(function(s){return '<button data-act="speed" data-arg="'+s[0]+'" class="'+(S.speed==s[0]?"on":"")+'">'+s[1]+'</button>';}).join("")+
-    '<button class="tool" data-act="reset" style="margin-left:6px">↺</button></div></div></div>';
+    '<button class="tool" data-act="menu_open" style="margin-left:6px">☰ Menu</button></div></div></div>';
   h+='<div id="tabbar">'+TABS.map(function(t){ return '<button class="tab ui'+(UI.open&&UI.tab===t[0]?" on":"")+'" data-act="tab" data-arg="'+t[0]+'">'+t[1]+' '+t[2]+(t[0]==="research"?' <span class="small">'+S.researched.length+'/'+Object.keys(TECHS).length+'</span>':"")+'</button>'; }).join("")+'</div>';
-  h+='<div id="stage" class="panelglass ui"><div class="lbl">Stage '+st+'/6 · '+done+'/'+objs.length+' objectives</div><div style="font-size:15px;font-weight:900;color:#9dffb0">'+STAGES[st-1].name+'</div><div class="row" style="gap:4px;margin-top:6px">'+STAGES.map(function(s){return '<div class="bar" style="flex:1"><i style="width:100%;background:'+(s.id<=st?"#39ff14":"transparent")+'"></i></div>';}).join("")+'</div></div>';
+  h+='<div id="stage" class="panelglass ui"><div class="lbl">Stage '+st+'/6 · '+done+'/'+objs.length+' objectives'+(S.jobs.length?' · '+S.jobs.length+' building':"")+'</div><div style="font-size:15px;font-weight:900;color:#9dffb0">'+STAGES[st-1].name+'</div><div class="row" style="gap:4px;margin-top:6px">'+STAGES.map(function(s){return '<div class="bar" style="flex:1"><i style="width:100%;background:'+(s.id<=st?"#39ff14":"transparent")+'"></i></div>';}).join("")+'</div></div>';
   h+='<div id="ticker" class="panelglass ui"><span class="lbl">intel</span> <span class="k-'+(S.events[0]?S.events[0].kind:"info")+'">'+(S.events[0]?S.events[0].text:"")+'</span></div>';
   h+='<div id="drawer" class="panelglass ui'+(UI.open?" open":"")+'"><div class="dhead"><b style="color:#9dffb0">'+tabTitle()+'</b><span class="x" data-act="closepanel">✕</span></div><div id="paneltext">'+(UI.open?panelHtml():"")+'</div></div>';
-  if(!UI.open)h+='<div id="hint">⟲ drag to orbit · scroll to zoom · click a planet or a tab</div>';
+  if(!UI.open)h+='<div id="hint">⟲ drag to orbit · scroll to zoom · click Earth, its stations, or the Moon · P to pause</div>';
   el("hud").innerHTML=h;
 }
 function patch(){ var r=rates(S); STOCKS.forEach(function(k){ var v=el("res-"+k); if(v)v.textContent=fmt(S.resources[k]); var rt=el("rate-"+k); if(rt){ rt.textContent=fmtRate(r.net[k]); rt.style.color=r.net[k]>0?"#2f8f43":r.net[k]<0?"#ff5d8f":"#456"; } });
   var e=el("res-energy"); if(e)e.innerHTML=fmt(r.eS)+'<span style="color:#456;font-size:11px">/'+fmt(r.eD)+'</span>'; var er=el("rate-energy"); if(er){ er.textContent=r.pr>=1?"powered":Math.round(r.pr*100)+"% deficit"; er.style.color=r.pr>=1?"#2f8f43":"#ff5d8f"; }
   document.querySelectorAll("[data-cost]").forEach(function(b){ try{ if(afford(S.resources,JSON.parse(b.getAttribute("data-cost"))))b.classList.remove("dis"); else b.classList.add("dis"); }catch(e){} });
+  document.querySelectorAll("[data-prog]").forEach(function(elp){ var pk=elp.getAttribute("data-prog").split(":"),info=jobInfo(pk[0],pk[1]); if(info){ var bar=elp.querySelector("i"); if(bar)bar.style.width=((1-info.rem/info.tot)*100)+"%"; var tx=elp.querySelector("[data-rem]"); if(tx)tx.textContent=Math.ceil(info.rem)+"s"+(info.n>1?" ×"+info.n:""); } });
   var tk=el("ticker"); if(tk&&S.events[0])tk.innerHTML='<span class="lbl">intel</span> <span class="k-'+S.events[0].kind+'">'+S.events[0].text+'</span>'; }
-function openTab(t){ if(UI.open&&UI.tab===t){ UI.open=false; } else { UI.tab=t; UI.open=true; if(t!=="ops")UI.sel=null; } render(); }
+function openTab(t){ if(UI.open&&UI.tab===t)UI.open=false; else{ UI.tab=t; UI.open=true; if(t!=="ops")UI.sel=null; } render(); }
+
+/* ---- pause / settings / main menu ---- */
+function menuBtn(act,label,cls){ return '<button class="btn ui '+(cls||"")+'" data-act="'+act+'" style="margin:6px 0">'+label+'</button>'; }
+function settingsHtml(){ var s=SETTINGS,h='<div class="modal glass" style="max-width:470px"><div class="dhead"><b style="color:#9dffb0">⚙ Settings</b><span class="x" data-act="menu_back">‹ back</span></div>';
+  h+='<div class="lbl" style="margin-top:6px">Starting resources <span class="small" style="text-transform:none">(applies on Restart / New Game)</span></div><div class="grid g2" style="margin-top:6px">';
+  STOCKS.forEach(function(k){ h+='<label class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+RES[k].name+'<input type="number" min="0" step="100" value="'+s.startRes[k]+'" data-set="start.'+k+'" style="width:120px"></label>'; });
+  h+='</div><div class="lbl" style="margin-top:14px">Cost multipliers <span class="small" style="text-transform:none">(live)</span></div><div class="grid g2" style="margin-top:6px">';
+  [["build","Structures"],["ship","Units"],["tech","Research"]].forEach(function(p){ h+='<label class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+p[1]+' ×<input type="number" min="0" step="0.1" value="'+s.costMult[p[0]]+'" data-set="cost.'+p[0]+'" style="width:120px"></label>'; });
+  h+='</div><div class="lbl" style="margin-top:14px">Build time</div><div class="grid g2" style="margin-top:6px"><label class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px">Time ×<input type="number" min="0.01" step="0.1" value="'+s.timeMult+'" data-set="time" style="width:120px"></label></div>';
+  h+='<button class="btn ui" data-act="settings_default" style="margin-top:16px">Reset settings to defaults</button></div>'; return h; }
+function renderMenu(){ var m=el("menu"); if(!UI.menu){ m.innerHTML=""; return; } var h='<div class="overlay" style="z-index:70">';
+  if(UI.menu==="settings")h+=settingsHtml();
+  else if(UI.menu==="main")h+='<div class="modal glass" style="max-width:340px;text-align:center"><h1 style="font-size:26px">SOLAR WAR 2040</h1><div class="small" style="margin:6px 0 16px">main menu</div>'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_new","✦ New Game")+menuBtn("menu_settings","⚙ Settings")+'</div>';
+  else h+='<div class="modal glass" style="max-width:320px;text-align:center"><h1 style="font-size:24px">PAUSED</h1><div style="margin-top:14px">'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_settings","⚙ Settings")+menuBtn("menu_restart","↺ Restart")+menuBtn("menu_quit","⏏ Quit to Menu","red")+'</div>';
+  m.innerHTML=h+'</div>'; }
+
 document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-act]"); if(!b)return; var act=b.getAttribute("data-act"),id=b.getAttribute("data-id"),arg=b.getAttribute("data-arg");
   if(act==="tab"){ openTab(arg); return; } if(act==="closepanel"){ UI.open=false; render(); return; } if(act==="ops_all"){ UI.sel=null; render(); return; }
-  if(act==="speed"){ A.setSpeed(parseInt(arg,10)); render(); return; } if(act==="reset"){ A.reset(); return; }
+  if(act==="speed"){ A.setSpeed(parseInt(arg,10)); render(); return; }
+  if(act==="menu_open"){ UI.menu="pause"; renderMenu(); return; }
+  if(act==="menu_continue"){ UI.menu=null; renderMenu(); render(); return; }
+  if(act==="menu_settings"){ UI.menu="settings"; renderMenu(); return; }
+  if(act==="menu_back"){ UI.menu="pause"; renderMenu(); return; }
+  if(act==="menu_quit"){ UI.menu="main"; renderMenu(); return; }
+  if(act==="settings_default"){ SETTINGS=defaultSettings(); saveSettings(); renderMenu(); return; }
+  if(act==="menu_restart"||act==="menu_new"){ if(confirm("Start a new game? Current progress is lost.")){ doNewGame(); syncScene(); renderMenu(); render(); } return; }
+  if(act==="reset"){ if(confirm("Reset? All progress lost.")){ try{localStorage.removeItem(SAVE_KEY);}catch(e){} doNewGame(); syncScene(); renderMenu(); render(); } return; }
   if(A[act]){ A[act](id); save(); syncScene(); render(); } });
+document.addEventListener("input",function(e){ var t=e.target,k=t.getAttribute&&t.getAttribute("data-set"); if(!k)return; var v=parseFloat(t.value); if(isNaN(v))return; var p=k.split("."); if(p[0]==="start")SETTINGS.startRes[p[1]]=Math.max(0,v); else if(p[0]==="cost")SETTINGS.costMult[p[1]]=Math.max(0,v); else if(p[0]==="time")SETTINGS.timeMult=Math.max(0.01,v); saveSettings(); });
+document.addEventListener("keydown",function(e){ if(e.target&&e.target.tagName==="INPUT")return; if(e.key==="p"||e.key==="P"){ UI.menu=UI.menu?null:"pause"; renderMenu(); render(); } else if(e.key==="Escape"&&UI.menu){ UI.menu=null; renderMenu(); render(); } });
 
-/* ============================================================ 3D SOLAR SYSTEM */
+/* ============================================================ 3D SOLAR SYSTEM (Earth-centred) */
 var SC=null;
-function makeLabel(text,color){ var c=document.createElement("canvas"); c.width=256; c.height=64; var x=c.getContext("2d"); x.font="bold 30px monospace"; x.fillStyle=color; x.textAlign="center"; x.fillText(text,128,42); var t=new THREE.CanvasTexture(c); var sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthTest:false})); sp.scale.set(46,11.5,1); return sp; }
-var BODY=[
-  {id:"earth",r:11,col:0x2f7fff,pos:[95,0,0]},
-  {id:"orbit",r:0,col:0x39ff14,pos:[95,0,0],ring:true},
-  {id:"moon",r:3.4,col:0x9aa,pos:[95,0,26]},
-  {id:"asteroids",r:6,col:0xb08a5a,pos:[165,0,-40],belt:true},
-  {id:"deep_space",r:7,col:0xb07bff,pos:[250,0,60]}
+var AU=180, SUN_R=26, MOON_DIST=22, MOON_R=1.6, EARTH_R=6, STATION_R=12;
+/* realistic relative orbit distances (AU) and planet-size ratios; the Sun and Moon-distance
+   are compressed because a literal 1:1 scale would make planets invisible specks. */
+var PLANETS=[
+  {id:"mercury",au:0.39,r:2.3,col:0x9a8478,spd:0.083,deco:true},
+  {id:"venus",au:0.72,r:5.7,col:0xd9b38c,spd:0.034,deco:true},
+  {id:"earth",au:1.0,r:EARTH_R,col:0x2f7fff,spd:0.02},
+  {id:"mars",au:1.52,r:3.2,col:0xc1440e,spd:0.0106,deco:true}
 ];
-function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene");
-  var renderer; try{ renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true}); }catch(e){ return; }
+function makeLabel(text,color,sx,sy){ var c=document.createElement("canvas"); c.width=256; c.height=64; var x=c.getContext("2d"); x.font="bold 30px monospace"; x.fillStyle=color; x.textAlign="center"; x.fillText(text,128,42); var t=new THREE.CanvasTexture(c); var sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthTest:false})); sp.scale.set(sx||46,sy||11.5,1); return sp; }
+function ringLine(scene,rad,col){ var pts=[]; for(var a=0;a<=90;a++){ var an=a/90*Math.PI*2; pts.push(new THREE.Vector3(Math.cos(an)*rad,0,Math.sin(an)*rad)); } scene.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.5}))); }
+function addHit(parent,r,loc,pick){ var m=new THREE.Mesh(new THREE.SphereGeometry(r,10,10),new THREE.MeshBasicMaterial({visible:false})); m.userData.loc=loc; parent.add(m); pick.push(m); return m; }
+function smallBox(col){ return new THREE.Mesh(new THREE.BoxGeometry(1.4,1.4,1.4),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.5})); }
+function ringMarks(group,n,rad,col){ group.clear(); n=Math.min(n,12); for(var i=0;i<n;i++){ var an=i/Math.max(1,n)*Math.PI*2,mk=smallBox(col); mk.position.set(Math.cos(an)*rad,(i%3-1)*1.6,Math.sin(an)*rad); group.add(mk); } }
+function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene"),renderer; try{ renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true}); }catch(e){ return; }
   renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1)); renderer.setSize(window.innerWidth,window.innerHeight,false); renderer.setClearColor(0x02040a,1);
-  var scene=new THREE.Scene(), cam=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,0.1,6000);
-  scene.add(new THREE.AmbientLight(0x99bbff,0.5)); var sun=new THREE.PointLight(0xffffff,2.4,2000); scene.add(sun);
-  // starfield
-  var sg=new THREE.BufferGeometry(),sp=[]; for(var i=0;i<1400;i++){ var R=600+Math.random()*1800,th=Math.random()*Math.PI*2,ph=Math.acos(Math.random()*2-1); sp.push(R*Math.sin(ph)*Math.cos(th),R*Math.cos(ph)*0.5,R*Math.sin(ph)*Math.sin(th)); }
-  sg.setAttribute("position",new THREE.Float32BufferAttribute(sp,3)); scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0x6fffa0,size:1.6,transparent:true,opacity:0.55})));
-  // sun
-  var sunMesh=new THREE.Mesh(new THREE.SphereGeometry(20,32,32),new THREE.MeshBasicMaterial({color:0xffcc44})); scene.add(sunMesh);
-  var glow=new THREE.Mesh(new THREE.SphereGeometry(30,32,32),new THREE.MeshBasicMaterial({color:0xff8822,transparent:true,opacity:0.18})); scene.add(glow);
-  // orbit guide rings around sun
-  for(var oi=0;oi<3;oi++){ var rr=[95,165,250][oi]; var pts=[]; for(var a=0;a<=64;a++){ var an=a/64*Math.PI*2; pts.push(new THREE.Vector3(Math.cos(an)*rr,0,Math.sin(an)*rr)); } var og=new THREE.BufferGeometry().setFromPoints(pts); scene.add(new THREE.LineLoop(og,new THREE.LineBasicMaterial({color:0x0c3a18}))); }
-  var bodies={}, pick=[];
-  BODY.forEach(function(bd){ var grp=new THREE.Group(); grp.position.set(bd.pos[0],bd.pos[1],bd.pos[2]); scene.add(grp);
-    var mesh;
-    if(bd.ring){ mesh=new THREE.Mesh(new THREE.TorusGeometry(16,0.7,8,48),new THREE.MeshStandardMaterial({color:bd.col,emissive:bd.col,emissiveIntensity:0.4,metalness:0.6,roughness:0.4})); mesh.rotation.x=Math.PI/2.3; }
-    else if(bd.belt){ mesh=new THREE.Group(); for(var i=0;i<26;i++){ var rk=new THREE.Mesh(new THREE.DodecahedronGeometry(1.1+Math.random()*1.6),new THREE.MeshStandardMaterial({color:bd.col,roughness:0.9})); var an=Math.random()*Math.PI*2,rad=10+Math.random()*8; rk.position.set(Math.cos(an)*rad,(Math.random()*2-1)*3,Math.sin(an)*rad); mesh.add(rk); } }
-    else{ mesh=new THREE.Mesh(new THREE.SphereGeometry(bd.r,28,28),new THREE.MeshStandardMaterial({color:bd.col,emissive:bd.col,emissiveIntensity:0.18,roughness:0.7,metalness:0.2})); }
-    grp.add(mesh);
-    var hit=new THREE.Mesh(new THREE.SphereGeometry(Math.max(bd.r,14),12,12),new THREE.MeshBasicMaterial({visible:false})); hit.userData.loc=bd.id; grp.add(hit); pick.push(hit);
-    var lab=makeLabel(LOCATIONS.find(function(l){return l.id===bd.id;}).name,"#9dffb0"); lab.position.set(0,(bd.r||16)+9,0); grp.add(lab);
-    var sel=new THREE.Mesh(new THREE.TorusGeometry((bd.r||16)+5,0.5,8,40),new THREE.MeshBasicMaterial({color:0x39ff14,transparent:true,opacity:0.9})); sel.rotation.x=Math.PI/2; sel.visible=false; grp.add(sel);
-    bodies[bd.id]={grp:grp,mesh:mesh,sel:sel,dev:new THREE.Group(),lab:lab}; grp.add(bodies[bd.id].dev); });
-  var fleetGrp=new THREE.Group(); bodies.earth.grp.add(fleetGrp);
+  var scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,0.1,9000);
+  scene.add(new THREE.AmbientLight(0x8899bb,0.45)); var sunlight=new THREE.PointLight(0xffffff,2.6,6000); scene.add(sunlight);
+  var sg=new THREE.BufferGeometry(),sp=[]; for(var i=0;i<1500;i++){ var R=900+Math.random()*3000,th=Math.random()*Math.PI*2,ph=Math.acos(Math.random()*2-1); sp.push(R*Math.sin(ph)*Math.cos(th),R*Math.cos(ph)*0.6,R*Math.sin(ph)*Math.sin(th)); } sg.setAttribute("position",new THREE.Float32BufferAttribute(sp,3)); scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0x6fffa0,size:1.7,transparent:true,opacity:0.55})));
+  var sunMesh=new THREE.Mesh(new THREE.SphereGeometry(SUN_R,32,32),new THREE.MeshBasicMaterial({color:0xffcc44})); scene.add(sunMesh);
+  var glow=new THREE.Mesh(new THREE.SphereGeometry(SUN_R*1.4,32,32),new THREE.MeshBasicMaterial({color:0xff8822,transparent:true,opacity:0.16})); scene.add(glow);
+  scene.add(makeLabel("Sun","#ffcc66",40,10).translateY(SUN_R+10));
+  PLANETS.forEach(function(p){ ringLine(scene,p.au*AU,0x0c3a18); });
+  ringLine(scene,2.7*AU,0x3a2a12); ringLine(scene,3.6*AU,0x281240);
+  var pick=[],pivots=[],focusObj={},earthGroup,moonPivot,moonMesh;
+  PLANETS.forEach(function(p){ var piv=new THREE.Group(); piv.rotation.y=Math.random()*6.28; scene.add(piv);
+    var g=new THREE.Group(); g.position.set(p.au*AU,0,0); piv.add(g);
+    var mesh=new THREE.Mesh(new THREE.SphereGeometry(p.r,28,28),new THREE.MeshStandardMaterial({color:p.col,emissive:p.col,emissiveIntensity:0.15,roughness:0.75,metalness:0.15})); g.add(mesh);
+    g.add(makeLabel(p.id.charAt(0).toUpperCase()+p.id.slice(1),"#cdeccf",p.r>4?40:30,10).translateY(p.r+5));
+    pivots.push({piv:piv,spd:p.spd,mesh:mesh}); focusObj[p.id]=g;
+    addHit(g,p.r+2,p.id,pick);
+    if(p.id==="earth"){ earthGroup=g; focusObj.orbit=g;
+      moonPivot=new THREE.Group(); moonPivot.rotation.y=Math.random()*6.28; g.add(moonPivot);
+      moonMesh=new THREE.Mesh(new THREE.SphereGeometry(MOON_R,20,20),new THREE.MeshStandardMaterial({color:0xb9bcc4,emissive:0x222428,roughness:0.9})); moonMesh.position.set(MOON_DIST,0,0); moonPivot.add(moonMesh);
+      moonMesh.add(makeLabel("Moon","#cdd","30",9).translateY(MOON_R+3)); focusObj.moon=moonMesh;
+      addHit(moonMesh,MOON_R+2,"moon",pick);
+      var oring=new THREE.Mesh(new THREE.TorusGeometry(STATION_R,0.45,8,48),new THREE.MeshBasicMaterial({color:0x39ff14,transparent:true,opacity:0.3})); oring.rotation.x=Math.PI/2; g.add(oring); oring.userData.loc="orbit"; pick.push(oring);
+    } });
+  var ast=new THREE.Group(); ast.position.set(2.7*AU*Math.cos(0.6),0,2.7*AU*Math.sin(0.6)); scene.add(ast); for(var i=0;i<30;i++){ var rk=new THREE.Mesh(new THREE.DodecahedronGeometry(1+Math.random()*1.8),new THREE.MeshStandardMaterial({color:0xb08a5a,roughness:0.95})); var an=Math.random()*6.28,rad=6+Math.random()*7; rk.position.set(Math.cos(an)*rad,(Math.random()*2-1)*3,Math.sin(an)*rad); ast.add(rk); } ast.add(makeLabel("Asteroids","#d8b27a",50,11).translateY(12)); addHit(ast,9,"asteroids",pick); focusObj.asteroids=ast;
+  var deep=new THREE.Group(); deep.position.set(3.6*AU*Math.cos(2.2),0,3.6*AU*Math.sin(2.2)); scene.add(deep); deep.add(new THREE.Mesh(new THREE.IcosahedronGeometry(6),new THREE.MeshStandardMaterial({color:0xb07bff,emissive:0xb07bff,emissiveIntensity:0.3}))); deep.add(makeLabel("Deep Space","#c79bff",54,12).translateY(11)); addHit(deep,8,"deep_space",pick); focusObj.deep_space=deep;
+  var fleetGrp=new THREE.Group(); earthGroup.add(fleetGrp);
+  var dev={earth:new THREE.Group(),moon:new THREE.Group(),asteroids:new THREE.Group(),deep:new THREE.Group(),orbit:new THREE.Group()};
+  earthGroup.add(dev.earth); moonMesh.add(dev.moon); ast.add(dev.asteroids); deep.add(dev.deep); earthGroup.add(dev.orbit);
   var rivalGrp=new THREE.Group(); scene.add(rivalGrp);
-  var cam0={r:330,theta:0.7,phi:1.05,tx:60,ty:0,tz:0};
-  SC={renderer:renderer,scene:scene,cam:cam,sun:sunMesh,glow:glow,bodies:bodies,pick:pick,fleetGrp:fleetGrp,rivalGrp:rivalGrp,cam0:cam0,ray:new THREE.Raycaster(),t:0};
+  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonMesh:moonMesh,earthGroup:earthGroup,ast:ast,deep:deep,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),focus:"earth",cam0:{r:60,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0};
   attachControls(canvas); window.addEventListener("resize",onResize); syncScene(); loopScene();
 }
 function onResize(){ if(!SC)return; SC.renderer.setSize(window.innerWidth,window.innerHeight,false); SC.cam.aspect=window.innerWidth/window.innerHeight; SC.cam.updateProjectionMatrix(); }
-function attachControls(canvas){ var c=SC.cam0,drag=false,moved=false,px=0,py=0;
-  canvas.addEventListener("pointerdown",function(e){ drag=true; moved=false; px=e.clientX; py=e.clientY; canvas.style.cursor="grabbing"; });
-  window.addEventListener("pointerup",function(e){ canvas.style.cursor="grab"; if(drag&&!moved)pickAt(e); drag=false; });
-  window.addEventListener("pointermove",function(e){ if(!drag)return; if(Math.abs(e.clientX-px)+Math.abs(e.clientY-py)>4)moved=true; c.theta-=(e.clientX-px)*0.006; c.phi=clamp(c.phi-(e.clientY-py)*0.006,0.25,Math.PI-0.25); px=e.clientX; py=e.clientY; });
-  canvas.addEventListener("wheel",function(e){ e.preventDefault(); c.r=clamp(c.r+e.deltaY*0.35,90,1400); },{passive:false}); }
-function pickAt(e){ if(!SC)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false);
-  if(hit.length){ var loc=hit[0].object.userData.loc; if(!locUnlocked(loc,S.researched)){ UI.tab="ops"; UI.sel=null; UI.open=true; render(); return; } UI.tab="ops"; UI.sel=loc; UI.open=true; var b=BODY.find(function(x){return x.id===loc;}); if(b){ SC.cam0.tx=b.pos[0]; SC.cam0.ty=b.pos[1]; SC.cam0.tz=b.pos[2]; SC.cam0.r=Math.max(70,SC.cam0.r*0.7); } render(); } }
-function smallBox(col){ return new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,1.5),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.5})); }
-function syncScene(){ if(!SC)return;
-  // development markers per location
-  ["earth","orbit","moon","asteroids","deep_space"].forEach(function(loc){ var bx=SC.bodies[loc]; if(!bx)return; bx.dev.clear();
-    var cnt=0; for(var id in S.buildings)if(BUILDINGS[id]&&BUILDINGS[id].loc===loc)cnt+=S.buildings[id]; var bd=BODY.find(function(x){return x.id===loc;});
-    var rad=(bd.ring?20:(bd.r||8)+5), show=Math.min(cnt,12);
-    for(var i=0;i<show;i++){ var an=i/Math.max(1,show)*Math.PI*2,m=smallBox(0x39ff14); m.position.set(Math.cos(an)*rad,(i%3-1)*2,Math.sin(an)*rad); bx.dev.add(m); }
-    var unlocked=locUnlocked(loc,S.researched); bx.mesh.traverse?bx.mesh.traverse(function(o){if(o.material&&o.material.opacity!==undefined){}}):0;
-    if(bx.mesh.material){ bx.mesh.material.opacity=unlocked?1:0.25; bx.mesh.material.transparent=!unlocked; }
-    bx.sel.visible=(UI.open&&UI.tab==="ops"&&UI.sel===loc); });
-  // fleet
-  SC.fleetGrp.clear(); var fn=Math.min(milPower(S.fleet).n,18); for(var i=0;i<fn;i++){ var g=new THREE.ConeGeometry(1.1,3,5); g.rotateX(Math.PI/2); var m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x39ff14,emissive:0x39ff14,emissiveIntensity:0.6})); var an=i/Math.max(1,fn)*Math.PI*2; m.position.set(Math.cos(an)*20,6,Math.sin(an)*20); SC.fleetGrp.add(m); }
-  // rivals
-  SC.rivalGrp.clear(); var alive=standings(S); S.rivals.forEach(function(r,i){ if(r.dead)return; var an=(i/S.rivals.length)*Math.PI*2+0.4, rad=205; var pow=corpPower({eco:r.eco,tech:r.tech,inf:r.inf,mil:r.mil}); var sz=clamp(pow/9,3,12);
-    var col=r.pers==="militarist"?0xff3030:r.pers==="researcher"?0x33d6ff:0xff5d8f;
-    var grp=new THREE.Group(); grp.position.set(Math.cos(an)*rad,0,Math.sin(an)*rad);
-    var m=new THREE.Mesh(new THREE.OctahedronGeometry(sz),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.45,metalness:0.5,roughness:0.4})); grp.add(m);
-    var lab=makeLabel(r.name+(r.treaty==="pact"?" ⚖":""),"#"+col.toString(16).padStart(6,"0")); lab.position.set(0,sz+8,0); lab.scale.set(60,15,1); grp.add(lab); SC.rivalGrp.add(grp); }); }
+function attachControls(canvas){ var c=SC.cam0,px=0,py=0,moved=false;
+  canvas.addEventListener("pointerdown",function(e){ SC.drag=true; moved=false; px=e.clientX; py=e.clientY; canvas.style.cursor="grabbing"; });
+  window.addEventListener("pointerup",function(e){ canvas.style.cursor="grab"; if(SC.drag&&!moved)pickAt(e); SC.drag=false; });
+  window.addEventListener("pointermove",function(e){ if(!SC.drag)return; if(Math.abs(e.clientX-px)+Math.abs(e.clientY-py)>4)moved=true; c.theta-=(e.clientX-px)*0.006; c.phi=clamp(c.phi-(e.clientY-py)*0.006,0.2,Math.PI-0.2); px=e.clientX; py=e.clientY; });
+  canvas.addEventListener("wheel",function(e){ e.preventDefault(); c.r=clamp(c.r+e.deltaY*0.4,18,2400); },{passive:false}); }
+function pickAt(e){ if(!SC||UI.menu)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false); if(!hit.length)return; var loc=hit[0].object.userData.loc,gameplay=["earth","orbit","moon","asteroids","deep_space"];
+  if(gameplay.indexOf(loc)>=0){ UI.tab="ops"; UI.open=true; UI.sel=locUnlocked(loc,S.researched)?loc:null; SC.focus=(loc==="orbit"?"earth":loc); SC.cam0.r=(loc==="asteroids"||loc==="deep_space")?90:(loc==="moon"?22:55); render(); }
+  else { SC.focus=loc; SC.cam0.r=40; } }
+function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S.buildings)if(BUILDINGS[id]&&BUILDINGS[id].loc===loc)c+=S.buildings[id]; return c; }
+  ringMarks(SC.dev.earth,cnt("earth"),EARTH_R+3,0x39ff14); ringMarks(SC.dev.moon,cnt("moon"),MOON_R+2.2,0x39ff14); ringMarks(SC.dev.asteroids,cnt("asteroids"),10,0x39ff14); ringMarks(SC.dev.deep,cnt("deep_space"),9,0x39ff14);
+  var op=S.orbitAround==="moon"?SC.moonMesh:SC.earthGroup; if(SC.dev.orbit.parent!==op){ if(SC.dev.orbit.parent)SC.dev.orbit.parent.remove(SC.dev.orbit); op.add(SC.dev.orbit); } ringMarks(SC.dev.orbit,cnt("orbit"),S.orbitAround==="moon"?4:STATION_R,0x33d6ff);
+  SC.fleetGrp.clear(); var fn=Math.min(milPower(S.fleet).n,18); for(var i=0;i<fn;i++){ var g=new THREE.ConeGeometry(1.1,3,5); g.rotateX(Math.PI/2); var mk=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:0x39ff14,emissive:0x39ff14,emissiveIntensity:0.6})); var an=i/Math.max(1,fn)*Math.PI*2; mk.position.set(Math.cos(an)*16,3,Math.sin(an)*16); SC.fleetGrp.add(mk); }
+  SC.rivalGrp.clear(); S.rivals.forEach(function(r,i){ if(r.dead)return; var an=i*2.1+1,rad=(1.3+i*0.3)*AU,pow=corpPower({eco:r.eco,tech:r.tech,inf:r.inf,mil:r.mil}),sz=clamp(pow/9,3,12),col=r.pers==="militarist"?0xff3030:r.pers==="researcher"?0x33d6ff:0xff5d8f;
+    var grp=new THREE.Group(); grp.position.set(Math.cos(an)*rad,0,Math.sin(an)*rad); grp.add(new THREE.Mesh(new THREE.OctahedronGeometry(sz),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.45,metalness:0.5,roughness:0.4}))); var lab=makeLabel(r.name+(r.treaty==="pact"?" ⚖":""),"#"+col.toString(16),64,15); lab.position.set(0,sz+8,0); grp.add(lab); SC.rivalGrp.add(grp); }); }
 function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene); var c=SC.cam0; SC.t+=0.016;
-  // gentle planet spins
-  for(var k in SC.bodies){ if(SC.bodies[k].mesh&&SC.bodies[k].mesh.rotation)SC.bodies[k].mesh.rotation.y+=0.003; }
-  SC.fleetGrp.rotation.y+=0.01; SC.glow.material.opacity=0.16+Math.sin(SC.t*2)*0.04;
-  if(!SC._dragging)c.theta+=0.0006;
-  SC.cam.position.set(c.tx+Math.sin(c.phi)*Math.cos(c.theta)*c.r, c.ty+Math.cos(c.phi)*c.r, c.tz+Math.sin(c.phi)*Math.sin(c.theta)*c.r);
-  SC.cam.lookAt(c.tx,c.ty,c.tz); SC.renderer.render(SC.scene,SC.cam); }
+  SC.pivots.forEach(function(p){ p.piv.rotation.y+=p.spd*0.016; p.mesh.rotation.y+=0.004; }); if(SC.moonPivot)SC.moonPivot.rotation.y+=0.05; SC.fleetGrp.rotation.y+=0.012; if(SC.glow)SC.glow.material.opacity=0.14+Math.sin(SC.t*2)*0.04;
+  var obj=SC.focusObj[SC.focus]||SC.earthGroup; obj.getWorldPosition(SC.tmp); c.tx=SC.tmp.x; c.ty=SC.tmp.y; c.tz=SC.tmp.z;
+  SC.cam.position.set(c.tx+Math.sin(c.phi)*Math.cos(c.theta)*c.r,c.ty+Math.cos(c.phi)*c.r,c.tz+Math.sin(c.phi)*Math.sin(c.theta)*c.r); SC.cam.lookAt(c.tx,c.ty,c.tz); SC.renderer.render(SC.scene,SC.cam); }
 
 /* ============================================================ 3D BATTLE */
 var BT=null;
@@ -441,9 +477,11 @@ function closeBattle(){ cleanupBattle(); S.battleTarget=null; render(); }
 function cleanupBattle(){ if(BT){ if(BT.raf)cancelAnimationFrame(BT.raf); if(BT.three&&BT.three.renderer){ try{BT.three.renderer.dispose();}catch(e){} } BT=null; } el("battle").innerHTML=""; }
 
 /* ============================================================ BOOT */
-load(); initScene(); render();
-setInterval(function(){ if(S.speed>0&&!S.battleTarget){ var dt=0.2*S.speed; S.resources=advance(S,dt); worldTick(S,dt); } patch(); if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); },200);
-setInterval(function(){ if(UI.open&&(UI.tab==="markets"||UI.tab==="military"||UI.tab==="intel")){ var pt=el("paneltext"); if(pt&&!S.battleTarget)pt.innerHTML=panelHtml(); } syncScene(); save(); },900);
+loadSettings(); load(); initScene(); render(); renderMenu();
+setInterval(function(){ if(S.speed>0&&!S.battleTarget&&!UI.menu){ var dt=0.2*S.speed; S.resources=advance(S,dt); if(processJobs(dt))UI.dirty=true; worldTick(S,dt); } patch();
+  if(UI.dirty&&UI.open&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); UI.dirty=false; }
+  if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); },200);
+setInterval(function(){ if(UI.open&&(UI.tab==="markets"||UI.tab==="military"||UI.tab==="intel")&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); } syncScene(); save(); },900);
 function showEnd(){ var g=S.gameOver; el("end").innerHTML='<div class="overlay" style="z-index:60"><div class="modal glass" style="max-width:440px;text-align:center;border-color:'+(g.won?"rgba(0,255,65,.4)":"rgba(255,40,40,.5)")+'"><div style="font-size:40px">🏆</div><h1 style="font-size:24px">'+(g.won?"VICTORY":"DEFEAT")+'</h1>'+(g.type?'<div class="lbl">'+g.type+(g.won?" victory":"")+'</div>':"")+'<p style="color:#9dffb0;font-size:14px;line-height:1.6;margin:14px 0">'+g.text+'</p><button class="btn sm" style="width:auto;margin:0 auto" data-act="reset">↺ New Game</button></div></div>'; }
 window.addEventListener("beforeunload",save);
 </script>
