@@ -3,6 +3,10 @@
 import {
   BUILDINGS,
   LOCATIONS,
+  MARKET_MARGIN,
+  MARKETS,
+  REG_TAX_MAX,
+  SHIPS,
   STAGES,
   STOCKS,
   TECHS,
@@ -11,6 +15,7 @@ import type {
   Building,
   LocationId,
   SaveState,
+  Ship,
   StockId,
   StockMap,
   Tech,
@@ -48,9 +53,18 @@ export interface Rates {
   /** Gross (powered) production, before operating-cost consumption. */
   gross: Record<StockId, number>;
   mult: Record<StockId, number>;
+  /** Capital/sec earned from market share. */
+  marketRevenue: number;
+  /** Capital/sec lost to government taxation. */
+  tax: number;
 }
 
-export function computeRates(state: Pick<SaveState, "buildings" | "researched">): Rates {
+type RateInput = Pick<
+  SaveState,
+  "buildings" | "researched" | "fleet" | "marketShare" | "marketSize" | "regulation"
+>;
+
+export function computeRates(state: RateInput): Rates {
   const mult = techMultipliers(state.researched);
   const gross = zeroStocks();
   const consume = zeroStocks();
@@ -75,15 +89,72 @@ export function computeRates(state: Pick<SaveState, "buildings" | "researched">)
     }
   }
 
-  const powerRatio = energyDemand > 0 ? Math.min(1, energySupply / energyDemand) : 1;
-  const net = zeroStocks();
-  const poweredGross = zeroStocks();
-  for (const r of STOCKS) {
-    poweredGross[r] = gross[r] * mult[r] * powerRatio;
-    net[r] = poweredGross[r] - consume[r];
+  // Fleet upkeep: energy adds to power demand, everything else is an operating cost.
+  for (const [id, count] of Object.entries(state.fleet)) {
+    if (!count) continue;
+    const ship = SHIPS[id];
+    if (!ship?.upkeep) continue;
+    for (const [res, val] of Object.entries(ship.upkeep)) {
+      if (res === "energy") energyDemand += val * count;
+      else consume[res as StockId] += val * count;
+    }
   }
 
-  return { energySupply, energyDemand, powerRatio, net, gross: poweredGross, mult };
+  const powerRatio = energyDemand > 0 ? Math.min(1, energySupply / energyDemand) : 1;
+  const poweredGross = zeroStocks();
+  for (const r of STOCKS) poweredGross[r] = gross[r] * mult[r] * powerRatio;
+
+  // Market revenue from share of each market.
+  let marketRevenue = 0;
+  let marketInfluence = 0;
+  for (const m of MARKETS) {
+    const rev = state.marketSize[m.id] * state.marketShare[m.id] * MARKET_MARGIN;
+    marketRevenue += rev;
+    if (m.id === "consumer") marketInfluence += rev * 0.02;
+    if (m.id === "government") marketInfluence += rev * 0.015;
+  }
+
+  const capitalIncome = poweredGross.capital + marketRevenue;
+  const tax = REG_TAX_MAX * (state.regulation / 100) * capitalIncome;
+
+  const net = zeroStocks();
+  net.capital = capitalIncome - consume.capital - tax;
+  net.compute = poweredGross.compute - consume.compute;
+  net.talent = poweredGross.talent - consume.talent;
+  net.materials = poweredGross.materials - consume.materials;
+  net.influence = poweredGross.influence + marketInfluence - consume.influence;
+
+  return { energySupply, energyDemand, powerRatio, net, gross: poweredGross, mult, marketRevenue, tax };
+}
+
+export function shipCost(s: Ship, owned: number): StockMap {
+  const cost: StockMap = {};
+  const growth = s.costGrowth ?? 1.1;
+  for (const [res, val] of Object.entries(s.cost)) {
+    cost[res as StockId] = (val as number) * Math.pow(growth, owned);
+  }
+  return cost;
+}
+
+export interface MilitaryPower {
+  firepower: number;
+  hull: number;
+  ships: number;
+}
+
+export function militaryPower(fleet: Record<string, number>): MilitaryPower {
+  let firepower = 0;
+  let hull = 0;
+  let ships = 0;
+  for (const [id, count] of Object.entries(fleet)) {
+    if (!count) continue;
+    const s = SHIPS[id];
+    if (!s) continue;
+    firepower += s.firepower * count;
+    hull += s.hull * count;
+    ships += count;
+  }
+  return { firepower, hull, ships };
 }
 
 /** Advance accumulated stocks by dt seconds. Stocks never go below zero. */
@@ -134,7 +205,9 @@ export function techStatus(t: Tech, researched: string[]): TechStatus {
   return "available";
 }
 
-export function currentStage(state: SaveState): number {
+export function currentStage(
+  state: Pick<SaveState, "resources" | "buildings" | "researched">
+): number {
   const techs = state.researched.length;
   const totalBuildings = Object.values(state.buildings).reduce((a, b) => a + b, 0);
   const orbitInfra =

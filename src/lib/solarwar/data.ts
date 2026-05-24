@@ -3,8 +3,11 @@
 import type {
   Building,
   LocationDef,
+  MarketId,
   ResourceDef,
+  RivalSeed,
   SaveState,
+  Ship,
   Stage,
   StockId,
   Tech,
@@ -12,7 +15,7 @@ import type {
 
 export const TICK_MS = 200;
 export const OFFLINE_CAP_SECONDS = 8 * 3600; // catch up at most 8h while away
-export const SAVE_KEY = "solarwar.save.v1";
+export const SAVE_KEY = "solarwar.save.v2";
 
 export const STOCKS: StockId[] = [
   "capital",
@@ -112,12 +115,34 @@ export const BUILDINGS: Record<string, Building> = {
     id: "consumer_division",
     name: "Consumer AI Products",
     location: "earth",
-    description: "Personal AI sold to a mass market. High revenue and strong influence.",
+    description: "Personal AI sold to a mass market. Drives consumer market share and influence.",
     baseCost: { capital: 4500 },
     costGrowth: 1.17,
     produces: { capital: 22, influence: 0.5 },
     consumes: { energy: 12 },
     requiresTech: "personal_ai",
+  },
+  enterprise_division: {
+    id: "enterprise_division",
+    name: "Enterprise AI Division",
+    location: "earth",
+    description: "Automation and logistics sold to corporations. High margins, big contracts.",
+    baseCost: { capital: 6000 },
+    costGrowth: 1.17,
+    produces: { capital: 34 },
+    consumes: { energy: 14, compute: 0.4 },
+    requiresTech: "enterprise_ai",
+  },
+  gov_relations: {
+    id: "gov_relations",
+    name: "Government Affairs Office",
+    location: "earth",
+    description: "Defense and infrastructure contracts. Stable income, influence, and political cover.",
+    baseCost: { capital: 5000 },
+    costGrowth: 1.18,
+    produces: { capital: 18, influence: 0.8 },
+    consumes: { energy: 8 },
+    requiresTech: "gov_contracts",
   },
   fusion_reactor: {
     id: "fusion_reactor",
@@ -251,6 +276,15 @@ export const TECHS: Record<string, Tech> = {
     mult: { compute: 1.5 },
     globalMult: 1.2,
   },
+  singularity: {
+    id: "singularity",
+    name: "Technological Singularity",
+    branch: "Compute",
+    description: "The capstone. Researching it wins a Technological Victory outright.",
+    cost: { compute: 60000, capital: 500000, materials: 8000 },
+    requires: ["agi", "fusion_propulsion"],
+    globalMult: 1.5,
+  },
 
   // ── ENERGY ───────────────────────────────────────────────────────────
   fusion: {
@@ -306,10 +340,28 @@ export const TECHS: Record<string, Tech> = {
     id: "personal_ai",
     name: "Personal AI",
     branch: "Consumer",
-    description: "+20% influence. Unlocks Consumer AI Products for the mass market.",
+    description: "+20% influence. Unlocks Consumer AI Products and the consumer market.",
     cost: { compute: 250 },
     mult: { influence: 1.2 },
     unlocks: ["consumer_division"],
+  },
+  enterprise_ai: {
+    id: "enterprise_ai",
+    name: "Enterprise AI",
+    branch: "Enterprise",
+    description: "+25% capital. Unlocks the Enterprise AI Division and B2B market.",
+    cost: { compute: 600, capital: 4000 },
+    mult: { capital: 1.25 },
+    unlocks: ["enterprise_division"],
+  },
+  gov_contracts: {
+    id: "gov_contracts",
+    name: "Government Contracts",
+    branch: "Government",
+    description: "+25% influence. Unlocks the Government Affairs Office and public market.",
+    cost: { compute: 700, capital: 5000 },
+    mult: { influence: 1.25 },
+    unlocks: ["gov_relations"],
   },
   recommendation_engines: {
     id: "recommendation_engines",
@@ -368,15 +420,108 @@ export const TECHS: Record<string, Tech> = {
   },
 
   // ── DEFENSE ──────────────────────────────────────────────────────────
+  cyberwarfare: {
+    id: "cyberwarfare",
+    name: "Cyberwarfare",
+    branch: "Defense",
+    description: "Enables espionage against rivals (sabotage, data theft) and cyber-defense.",
+    cost: { compute: 600, capital: 3000 },
+  },
+  security_forces: {
+    id: "security_forces",
+    name: "Corporate Security Forces",
+    branch: "Defense",
+    description: "Unlocks Corvettes — your first armed escorts.",
+    cost: { compute: 1200, capital: 8000, materials: 120 },
+    requires: ["cyberwarfare"],
+    unlocks: ["corvette"],
+  },
+  corporate_military: {
+    id: "corporate_military",
+    name: "Corporate Military",
+    branch: "Defense",
+    description: "Unlocks Frigates. You can now wage real war on rival corporations.",
+    cost: { compute: 2600, capital: 24000, materials: 400 },
+    requires: ["security_forces"],
+    unlocks: ["frigate"],
+  },
   autonomous_fleets: {
     id: "autonomous_fleets",
     name: "Autonomous Fleets",
     branch: "Defense",
-    description: "+30% influence and +10% to ALL output. Project power across the system.",
+    description: "+10% to ALL output. Self-commanding warships need no crews.",
     cost: { compute: 4200, capital: 42000, materials: 520 },
-    requires: ["humanoid_robots"],
-    mult: { influence: 1.3 },
+    requires: ["corporate_military"],
     globalMult: 1.1,
+  },
+  directed_energy: {
+    id: "directed_energy",
+    name: "Directed-Energy Weapons",
+    branch: "Defense",
+    description: "Unlocks Cruisers. Lasers and railguns outrange conventional arms.",
+    cost: { compute: 5000, capital: 60000, materials: 900 },
+    requires: ["autonomous_fleets"],
+    unlocks: ["cruiser"],
+  },
+  orbital_warfare: {
+    id: "orbital_warfare",
+    name: "Orbital Warfare",
+    branch: "Defense",
+    description: "Unlocks Dreadnoughts — capital ships that can break a planetary defense.",
+    cost: { compute: 9000, capital: 140000, materials: 2400 },
+    requires: ["directed_energy"],
+    unlocks: ["dreadnought"],
+  },
+};
+
+export const SHIPS: Record<string, Ship> = {
+  corvette: {
+    id: "corvette",
+    name: "Corvette",
+    shipClass: "Escort",
+    description: "Cheap, fast escort. Numbers matter.",
+    cost: { capital: 3000, materials: 40 },
+    costGrowth: 1.08,
+    firepower: 10,
+    hull: 25,
+    upkeep: { energy: 4, capital: 0.5 },
+    requiresTech: "security_forces",
+  },
+  frigate: {
+    id: "frigate",
+    name: "Frigate",
+    shipClass: "Line",
+    description: "Workhorse warship with balanced guns and armor.",
+    cost: { capital: 9000, materials: 130, compute: 100 },
+    costGrowth: 1.09,
+    firepower: 32,
+    hull: 70,
+    upkeep: { energy: 11, capital: 1.4 },
+    requiresTech: "corporate_military",
+  },
+  cruiser: {
+    id: "cruiser",
+    name: "Cruiser",
+    shipClass: "Heavy",
+    description: "Directed-energy main battery. Anchors a battle line.",
+    cost: { capital: 28000, materials: 420, compute: 400 },
+    costGrowth: 1.1,
+    firepower: 95,
+    hull: 190,
+    upkeep: { energy: 28, capital: 4 },
+    requiresTech: "directed_energy",
+  },
+  dreadnought: {
+    id: "dreadnought",
+    name: "Dreadnought",
+    shipClass: "Capital",
+    description: "A mobile fortress. Few corporations can field even one.",
+    cost: { capital: 95000, materials: 1600, compute: 1500 },
+    costGrowth: 1.12,
+    firepower: 320,
+    hull: 650,
+    upkeep: { energy: 75, capital: 12 },
+    requiresTech: "orbital_warfare",
   },
 };
 
@@ -389,12 +534,86 @@ export const STAGES: Stage[] = [
   { id: 6, name: "Interplanetary Superpower", blurb: "You rival nations across the Solar System." },
 ];
 
+export const MARKETS: { id: MarketId; name: string; description: string }[] = [
+  {
+    id: "consumer",
+    name: "Consumer",
+    description: "Personal AI, entertainment and devices. Vast user base and influence.",
+  },
+  {
+    id: "enterprise",
+    name: "Enterprise",
+    description: "Corporate AI, automation and logistics. High margins, fast growth.",
+  },
+  {
+    id: "government",
+    name: "Government",
+    description: "Defense, infrastructure and intelligence. Stability and political cover.",
+  },
+];
+
+export const RIVAL_SEEDS: RivalSeed[] = [
+  {
+    id: "cognis",
+    name: "Cognis Labs",
+    personality: "researcher",
+    blurb: "A secretive research house racing for the singularity.",
+    economy: 10000,
+    techLevel: 1,
+    influence: 6,
+    military: 0,
+    growth: 1.0,
+  },
+  {
+    id: "praetor",
+    name: "Praetor Systems",
+    personality: "militarist",
+    blurb: "Defense contractor turned warlord. Builds fleets first, asks later.",
+    economy: 9000,
+    techLevel: 0,
+    influence: 4,
+    military: 12,
+    growth: 0.95,
+  },
+  {
+    id: "lumen",
+    name: "Lumen Collective",
+    personality: "influencer",
+    blurb: "Owns the feeds, the recommendations, and the public mood.",
+    economy: 11000,
+    techLevel: 1,
+    influence: 14,
+    military: 0,
+    growth: 1.0,
+  },
+];
+
+// ── World tuning ─────────────────────────────────────────────────────────
+export const MARKET_GROWTH = 0.010; // base market-size growth per second
+export const MARKET_MARGIN = 0.0016; // capital/sec per unit of (size × share)
+export const SHARE_EASE = 0.06; // per-second convergence of share toward target
+export const RIVAL_BASE_GROWTH = 0.009; // baseline rival economy growth per second
+export const EVENT_INTERVAL = 50; // mean seconds between random world events
+export const REG_TAX_MAX = 0.45; // capital-income tax fraction at regulation = 100
+
 export function freshSave(): SaveState {
   const now = Date.now();
   return {
     resources: { capital: 8000, compute: 0, talent: 5, materials: 0, influence: 0 },
     buildings: { operations_center: 1, orbital_data_center: 1, comms_satellite: 1 },
     researched: [],
+    fleet: {},
+    rivals: RIVAL_SEEDS.map((s) => ({ ...s, hostility: 10, crippled: 0, defeated: false })),
+    marketShare: { consumer: 0.12, enterprise: 0.1, government: 0.08 },
+    marketSize: { consumer: 60000, enterprise: 40000, government: 28000 },
+    regulation: 8,
+    events: [
+      { id: 0, t: now, kind: "info", text: "Incorporation complete. The Solar War begins." },
+    ],
+    eventSeq: 1,
+    worldClock: 0,
+    eventClock: 0,
+    gameOver: { over: false, won: false, text: "" },
     startedAt: now,
     lastSaved: now,
   };

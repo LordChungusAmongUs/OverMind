@@ -63,10 +63,93 @@ export interface Stage {
   blurb: string;
 }
 
+export type MarketId = "consumer" | "enterprise" | "government";
+
+export type RivalPersonality = "industrialist" | "researcher" | "militarist" | "influencer";
+
+export type VictoryType =
+  | "economic"
+  | "technological"
+  | "military"
+  | "influence"
+  | "sovereignty";
+
+export interface Ship {
+  id: string;
+  name: string;
+  shipClass: string;
+  description: string;
+  cost: StockMap;
+  costGrowth?: number;
+  firepower: number;
+  hull: number;
+  /** Per-ship ongoing draw (energy adds to power demand, capital is upkeep). */
+  upkeep?: FlowMap;
+  requiresTech?: string;
+}
+
+export interface RivalSeed {
+  id: string;
+  name: string;
+  personality: RivalPersonality;
+  blurb: string;
+  economy: number;
+  techLevel: number;
+  influence: number;
+  military: number;
+  growth: number;
+}
+
+export interface Rival {
+  id: string;
+  name: string;
+  personality: RivalPersonality;
+  blurb: string;
+  economy: number;
+  techLevel: number;
+  influence: number;
+  military: number;
+  growth: number;
+  hostility: number;
+  /** Seconds of reduced output remaining (from sabotage / combat losses). */
+  crippled: number;
+  defeated: boolean;
+}
+
+export type EventKind = "info" | "good" | "bad" | "war" | "tech" | "market";
+
+export interface GameEvent {
+  id: number;
+  t: number;
+  kind: EventKind;
+  text: string;
+}
+
+export interface GameOver {
+  over: boolean;
+  won: boolean;
+  type?: VictoryType | "defeated";
+  text: string;
+}
+
 export interface SaveState {
   resources: Record<StockId, number>;
   buildings: Record<string, number>;
   researched: string[];
+  fleet: Record<string, number>;
+  rivals: Rival[];
+  /** Player share (0..1) of each market. */
+  marketShare: Record<MarketId, number>;
+  /** Total addressable value of each market. */
+  marketSize: Record<MarketId, number>;
+  /** Earth government regulatory pressure, 0..100. */
+  regulation: number;
+  events: GameEvent[];
+  eventSeq: number;
+  worldClock: number;
+  eventClock: number;
+  gameOver: GameOver;
   startedAt: number;
   lastSaved: number;
 }
+
