@@ -129,6 +129,7 @@ export default function InventoryPage() {
   const [addingLoc, setAddingLoc] = useState(false);
   const [editingLocId, setEditingLocId] = useState<string | null>(null);
   const [editLocName, setEditLocName] = useState("");
+  const [locError, setLocError] = useState<string | null>(null);
 
   // History
   const [historyView, setHistoryView] = useState<HistoryView>("counts");
@@ -306,8 +307,18 @@ export default function InventoryPage() {
 
   const addLocation = async () => {
     if (!newLocName.trim()) return;
+    setLocError(null);
     const maxOrder = storageLocations.length > 0 ? Math.max(...storageLocations.map(l => l.sort_order)) : -1;
-    const { data } = await supabase.from("storage_locations").insert({ name: newLocName.trim(), sort_order: maxOrder + 1 }).select().single();
+    const { data, error } = await supabase
+      .from("storage_locations")
+      .insert({ name: newLocName.trim(), sort_order: maxOrder + 1 })
+      .select()
+      .single();
+    if (error) {
+      console.error("addLocation error:", error);
+      setLocError(error.message);
+      return; // keep the form open so user sees the error
+    }
     if (data) setStorageLocations(prev => [...prev, data].sort((a, b) => a.sort_order - b.sort_order));
     setNewLocName("");
     setAddingLoc(false);
@@ -467,6 +478,19 @@ export default function InventoryPage() {
                   <p className="text-xs text-muted-foreground">Order these top-to-bottom to define your walk-route. Items in Count Entry will follow this order.</p>
                 </CardHeader>
                 <CardContent className="space-y-2">
+                  {locError && (
+                    <div className="flex items-start gap-2 p-3 rounded-lg border border-red-500/30 bg-red-500/5 text-red-400 text-xs font-mono">
+                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-semibold mb-0.5">Failed to save location</p>
+                        <p className="text-red-300/80">{locError}</p>
+                        {locError.includes("does not exist") || locError.includes("relation") ? (
+                          <p className="mt-1 text-red-300/60">The <code>storage_locations</code> table hasn&apos;t been created yet. Run the SQL migration in your Supabase dashboard → SQL Editor.</p>
+                        ) : null}
+                      </div>
+                      <button onClick={() => setLocError(null)} className="ml-auto flex-shrink-0 text-red-400/60 hover:text-red-300"><X className="w-3.5 h-3.5" /></button>
+                    </div>
+                  )}
                   {addingLoc && (
                     <div className="flex items-center gap-2 p-3 rounded-lg border border-primary/30 bg-primary/5">
                       <input value={newLocName} onChange={e => setNewLocName(e.target.value)}
