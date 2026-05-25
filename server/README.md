@@ -102,11 +102,16 @@ terminate TLS at the platform's load balancer.
    offensive actions relay to the real target: sabotage/steal/raid (`attack`)
    hit the actual company. Colliding AI duplicates are suppressed; live players
    are tagged. ✅
-4b. **One authoritative world** — today each company still runs its own AI
-   backdrop locally (AI may differ per host) and human elimination/conquest
-   isn't synced. Next: a single authoritative world where the AI population and
-   shared markets/combat resolution are computed once. 🔜
-5. **Server-authoritative tick** — port `rates/advance/worldTick` into `./engine`
-   and run the sim here for cheat-resistance, delta snapshots, and headless/AI matches.
+4b. **One authoritative world** — the MATCH HOST is the world authority: it runs
+   the single canonical AI population, assembles the full roster (AI + every human
+   company via their reports), and broadcasts it (`worldroster`) so all players
+   share an identical world. Combat against AI routes to the world host; human
+   defeat is detected and reported; conquest **victory is computed authoritatively**
+   and broadcast (`victory`). Per-company economies still run locally (each player
+   simulates only their own books). ✅
+5. **Server-authoritative tick** — optional hardening: move the world host's
+   roster/AI/victory logic into `./engine` so the server (not a player's browser)
+   is the authority, enabling cheat-resistance, delta snapshots, reconnection, and
+   fully headless / AI-only matches. 🔜
 6. **Persistence & verified auth** — durable matches + accounts (e.g. Supabase,
    already a repo dependency) for reconnection, Google-token verification, and ranked play.

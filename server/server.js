@@ -211,11 +211,24 @@ wss.on("connection", (ws) => {
         toMatch(match, { t: "report", company: co.index, pub: m.pub }, client.id);
         break;
       }
-      case "attack": {                                       // route an offensive action to the target company's host
+      case "attack": {                                       // route to the target company's host, or to the world (match) host if the target is AI
         const match = client.match; if (!match) break;
         const me = memberCompany(match, client.id);
         const target = [...match.companies.values()].find((c) => c.index === (m.target | 0));
-        if (target) { const th = target.members.find((x) => x.id === target.hostId); if (th) send(th.ws, { t: "attack", from: me ? me.index : -1, kind: m.kind, mag: m.mag }); }
+        let destId = target ? target.hostId : match.hostId;        // AI targets resolve to the world host
+        let destWs = null;
+        for (const c of match.companies.values()) { const h = c.members.find((x) => x.id === destId); if (h) { destWs = h.ws; break; } }
+        if (destWs) send(destWs, { t: "attack", from: me ? me.index : -1, target: m.target | 0, kind: m.kind, mag: m.mag });
+        break;
+      }
+      case "worldroster": {                                   // authoritative world roster (match host -> everyone else)
+        const match = client.match; if (!match || match.hostId !== client.id) break;
+        toMatch(match, { t: "worldroster", roster: m.roster }, client.id);
+        break;
+      }
+      case "victory": {                                        // authoritative match result (match host -> everyone else)
+        const match = client.match; if (!match || match.hostId !== client.id) break;
+        toMatch(match, { t: "victory", index: m.index }, client.id);
         break;
       }
       case "leave": leaveMatch(client); break;
