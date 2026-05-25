@@ -614,9 +614,10 @@ function setupHtml(){ var nR=clamp(SETTINGS.rivalCount,0,MAX_COMPANIES-1),nN=cla
 function renderMenu(){ var m=el("menu"); if(!UI.menu){ m.innerHTML=""; return; } var h='<div class="overlay" style="z-index:70">';
   if(UI.menu==="setup")h+=setupHtml();
   else if(UI.menu==="settings")h+=settingsHtml();
-  else if(UI.menu==="main")h+='<div class="modal glass" style="max-width:340px;text-align:center"><h1 style="font-size:26px">SOLAR WAR 2040</h1><div class="small" style="margin:6px 0 16px">main menu</div>'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_new","✦ New Game")+menuBtn("menu_mp","🌐 Multiplayer (Beta)","cyan")+menuBtn("menu_settings","⚙ Settings")+'</div>';
+  else if(UI.menu==="main")h+='<div class="modal glass" style="max-width:340px;text-align:center"><h1 style="font-size:26px">SOLAR WAR 2040</h1><div class="small" style="margin:6px 0 16px">main menu</div>'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_new","✦ New Game")+menuBtn("menu_mp","🌐 Multiplayer (Beta)","cyan")+menuBtn("menu_multimon","🖥 Multi-Monitor")+menuBtn("menu_settings","⚙ Settings")+'</div>';
   else if(UI.menu==="mp")h+=multiplayerHtml();
-  else h+='<div class="modal glass" style="max-width:320px;text-align:center"><h1 style="font-size:24px">PAUSED</h1><div style="margin-top:14px">'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_settings","⚙ Settings")+menuBtn("menu_restart","↺ Restart")+menuBtn("menu_quit","⏏ Quit to Menu","red")+'</div>';
+  else if(UI.menu==="multimon")h+=multiMonitorHtml();
+  else h+='<div class="modal glass" style="max-width:320px;text-align:center"><h1 style="font-size:24px">PAUSED</h1><div style="margin-top:14px">'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_multimon","🖥 Multi-Monitor")+menuBtn("menu_settings","⚙ Settings")+menuBtn("menu_restart","↺ Restart")+menuBtn("menu_quit","⏏ Quit to Menu","red")+'</div>';
   m.innerHTML=h+'</div>'; }
 
 document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-act]"); if(!b)return; var act=b.getAttribute("data-act"),id=b.getAttribute("data-id"),arg=b.getAttribute("data-arg");
@@ -651,6 +652,11 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="mp_chat_send"){ var tx=(UI.mp.chat_text||"").trim(); if(tx){ Net.chat(UI.mp.chan||"match",tx); UI.mp.chat_text=""; renderMenu(); } return; }
   if(act==="mp_start"){ Net.start(); return; }
   if(act==="mp_leave"){ Net.leave(); renderMenu(); return; }
+  if(act==="menu_multimon"){ UI.mmBack=UI.menu||"pause"; UI.menu="multimon"; renderMenu(); return; }
+  if(act==="mm_back"){ UI.menu=UI.mmBack||"pause"; renderMenu(); return; }
+  if(act==="mm_open"){ try{ window.open(location.pathname+location.search+"#mm="+(arg||"system"),"_blank"); }catch(e){} return; }
+  if(act==="mm_setview"){ MM.setView(arg||""); renderMenu(); return; }
+  if(act==="mm_disable"){ MM.disable(); renderMenu(); return; }
   if(act==="reset"){ if(confirm("Reset? All progress lost.")){ try{localStorage.removeItem(SAVE_KEY);}catch(e){} doNewGame(); syncScene(); renderMenu(); render(); } return; }
   if(act==="build"){ var bb=BUILDINGS[id]; if(bb&&(bb.loc==="earth"||bb.loc==="moon")&&locUnlocked(bb.loc,S.researched)){ if(!EM||EM.loc!==bb.loc){ if(EM)closeEarthMap(); openEarthMap(bb.loc); } if(EM)EM.tool=id; render(); return; } if(bb&&bb.loc==="orbit"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; } A.build(id); save(); syncScene(); render(); return; }
   if(act==="ship"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; }
@@ -1008,7 +1014,7 @@ var Net=(function(){
   };
 })();
 /* route whitelisted player actions to my company host while mirroring its world */
-(function(){ var NETACT={research:1,trade:1,launchCrypto:1,sellCrypto:1,sabotage:1,steal:1,acqrival:1,pact:1,setSpeed:1,build:1,ship:1,placeRect:1,placeOrbit:1},raw={}; Object.keys(NETACT).forEach(function(k){ if(typeof A[k]==="function"){ raw[k]=A[k]; A[k]=function(){ if(Net.isMirror()){ Net.action({fn:k,args:Array.prototype.slice.call(arguments)}); return; } return raw[k].apply(A,arguments); }; } }); Net._apply=function(a){ if(a&&raw[a.fn])raw[a.fn].apply(A,a.args||[]); }; })();
+(function(){ var NETACT={research:1,trade:1,launchCrypto:1,sellCrypto:1,sabotage:1,steal:1,acqrival:1,pact:1,setSpeed:1,build:1,ship:1,placeRect:1,placeOrbit:1},raw={}; Object.keys(NETACT).forEach(function(k){ if(typeof A[k]==="function"){ raw[k]=A[k]; A[k]=function(){ var args=Array.prototype.slice.call(arguments); if(Net.isMirror()){ Net.action({fn:k,args:args}); return; } if(MM.isViewer()){ MM.sendAction({fn:k,args:args}); return; } return raw[k].apply(A,arguments); }; } }); Net._apply=function(a){ if(a&&raw[a.fn])raw[a.fn].apply(A,a.args||[]); }; })();
 /* identity helpers */
 function mpSetAccount(acc){ if(!UI.mp)return; UI.mp.account=acc; UI.mp.name=acc.name; UI.mp.error=""; UI.mp.status="idle"; try{ localStorage.setItem("solarwar.mp.account",JSON.stringify(acc)); }catch(e){} renderMenu(); }
 function mpDecodeJwt(tok){ try{ var p=tok.split(".")[1].replace(/-/g,"+").replace(/_/g,"/"); return JSON.parse(decodeURIComponent(escape(atob(p)))); }catch(e){ return null; } }
@@ -1017,12 +1023,58 @@ function mpGoogleSignIn(){ var cid=window.MP_GOOGLE_CLIENT_ID||(function(){try{r
   if(window.google&&google.accounts&&google.accounts.id){ go(); return; }
   var s=document.createElement("script"); s.src="https://accounts.google.com/gsi/client"; s.async=true; s.onload=go; s.onerror=function(){ UI.mp.error="Could not load Google Identity Services."; renderMenu(); }; document.head.appendChild(s); }
 
+/* ============================================================ MULTI-MONITOR (local multi-window)
+   One player opens the game once per monitor; each window LOCKS to a view (system/earth/orbit/moon)
+   and shares one live game over BroadcastChannel. The leader runs the sim and broadcasts state;
+   viewers mirror it and relay their actions back (same mirror pattern as Net, but same-origin/local). */
+var MM=(function(){
+  var bc=null,id=Math.random().toString(36).slice(2,9),active=false,view=null,peers={},leader=false,prio=1,lastBoss=0,rx={beat:0,state:0,act:0},txerr="";
+  function now(){ return Date.now(); }
+  function send(m){ if(!bc)return; m.id=id; m.ts=now(); try{ bc.postMessage(m); }catch(e){ txerr=String(e&&e.message||e); } }
+  /* Leader = the active window with the best (prio desc, id asc) standing. Hysteresis: only claim
+     leadership after ~1.5s with no higher-ranked peer, so a single dropped beat never flips roles. */
+  function recompute(){ var t=now(),pid; for(pid in peers)if(t-peers[pid].ts>3000)delete peers[pid];
+    for(pid in peers){ var p=peers[pid]; if(t-p.ts>1000)continue; if(p.prio>prio||(p.prio===prio&&pid<id))lastBoss=t; }
+    leader=active&&(Object.keys(peers).length===0||t-lastBoss>1200); }
+  function applyState(s){ if(!s)return; S=s; if(!S.gameOver)S.gameOver={over:false,won:false,type:"",text:""}; UI.dirty=true; try{ syncScene(); }catch(e){} lockView(); if(EM)drawEarthMap(); if(OM)drawOrbitMap(); render(); patch(); }
+  function lockView(){ if(!active||!view)return;          // open assigned view if nothing is open (re-locks if user closes it)
+    if(view==="system"){ if(EM)closeEarthMap(); if(OM)closeOrbitMap(); }
+    else if(view==="earth"){ if(!EM&&!OM)openEarthMap("earth"); }
+    else if(view==="moon"){ if(!EM&&!OM)openEarthMap("moon"); }
+    else if(view==="orbit"){ if(!EM&&!OM)openOrbitMap(); } }
+  function switchView(v){ view=v||null; prio=view?0:1; lastBoss=prio<1?now():0; if(EM)closeEarthMap(); if(OM)closeOrbitMap(); setTimeout(function(){ lockView(); render(); },330); }
+  function onmsg(e){ var m=e.data; if(!m||m.id===id)return; rx[m.t]=(rx[m.t]||0)+1; if(!active)setActive(true); peers[m.id]={prio:m.prio||0,ts:now()}; recompute();
+    if(m.t==="state"){ if(!leader)applyState(m.s); }
+    else if(m.t==="act"){ if(leader&&Net._apply){ Net._apply(m.a); save(); if(EM)drawEarthMap(); if(OM)drawOrbitMap(); render(); send({t:"state",s:S}); } } }
+  function setActive(a){ active=a; if(a){ lastBoss=prio<1?now():0; send({t:"beat",prio:prio}); } recompute(); }
+  function init(v){ if(!("BroadcastChannel" in window)||bc)return; try{ bc=new BroadcastChannel("solarwar.mm"); }catch(e){ return; } bc.onmessage=onmsg; if(v){ view=v; prio=0; UI.menu=null; setActive(true); lockView(); } }
+  return { _init:init,
+    isActive:function(){ return active; }, isLeader:function(){ return active&&leader; }, isViewer:function(){ return active&&!leader; },
+    view:function(){ return view; }, role:function(){ return !active?"off":(leader?"leader":"viewer"); }, peerCount:function(){ return Object.keys(peers).length; },
+    stats:function(){ return {role:!active?"off":(leader?"leader":"viewer"),peers:Object.keys(peers).length,rx:rx,txerr:txerr}; },
+    enable:function(v){ if(!bc)init(v||null); if(v!==undefined){ view=v; prio=view?0:1; } setActive(true); lockView(); render(); },
+    setView:function(v){ if(!active)setActive(true); switchView(v); send({t:"beat",prio:prio}); },
+    disable:function(){ active=false; view=null; leader=false; peers={}; if(bc){ try{ bc.close(); }catch(e){} bc=null; } render(); },
+    sendAction:function(a){ send({t:"act",a:a}); },
+    broadcastState:function(){ if(active&&leader)send({t:"state",s:S}); },
+    tick:function(){ if(active){ send({t:"beat",prio:prio}); recompute(); lockView(); } }
+  };
+})();
+var MM_VIEWS=[["system","🪐 System"],["earth","🌍 Earth"],["orbit","🛰 Earth Orbit"],["moon","🌑 Moon"]];
+function multiMonitorHtml(){ var v=MM.view(); return '<div class="modal glass" style="max-width:440px;text-align:left"><div class="row between" style="align-items:center"><h1 style="font-size:22px">🖥 Multi-Monitor</h1><button class="btn ui sm" style="width:auto" data-act="mm_back">↩ Back</button></div>'+
+  '<div class="small" style="margin:8px 0">Run one window per monitor — each locked to a view, all sharing one live game (same browser). The window you play in runs the simulation; the others mirror it and can still issue commands.</div>'+
+  '<div class="item"><div class="lbl">Open a view on another monitor</div><div class="small" style="opacity:.7;margin:2px 0 6px">Opens a new window; drag it to the target monitor (allow pop-ups).</div><div class="row" style="gap:6px;flex-wrap:wrap">'+MM_VIEWS.map(function(x){ return '<button class="btn ui sm" style="width:auto" data-act="mm_open" data-arg="'+x[0]+'">'+x[1]+'</button>'; }).join("")+'</div></div>'+
+  '<div class="item" style="margin-top:8px"><div class="lbl">Lock THIS window to</div><div class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">'+MM_VIEWS.map(function(x){ return '<button class="btn ui sm" style="width:auto;'+(v===x[0]?"background:rgba(0,255,65,.28);border-color:rgba(0,255,65,.6)":"")+'" data-act="mm_setview" data-arg="'+x[0]+'">'+x[1]+'</button>'; }).join("")+'<button class="btn ui sm" style="width:auto;'+(!v?"background:rgba(0,255,65,.28)":"")+'" data-act="mm_setview" data-arg="">Free</button></div></div>'+
+  '<div class="small" style="margin-top:8px">Status: <b style="color:#9dffb0">'+MM.role()+'</b>'+(MM.isActive()?' · '+(MM.peerCount()+1)+' window(s)':"")+(v?' · this window: '+v:"")+'</div>'+
+  (MM.isActive()?'<div style="margin-top:6px">'+menuBtn("mm_disable","Disable multi-monitor","red")+'</div>':"")+'</div>'; }
+
 /* ============================================================ BOOT */
 loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); UI.menu=hadSave?"main":"setup"; initScene(); render(); renderMenu();
-setInterval(function(){ if(S.speed>0&&!UI.menu&&!Net.isMirror()){ var dt=0.2*S.speed; if(S.freeBuild>0)S.freeBuild=Math.max(0,S.freeBuild-0.2); S.resources=advance(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); } patch();
+(function(){ var mv=(location.hash.match(/mm=(system|earth|orbit|moon)/)||[])[1]; MM._init(mv); if(mv){ UI.menu=null; renderMenu(); render(); } })();
+setInterval(function(){ if(S.speed>0&&!UI.menu&&!Net.isMirror()&&!MM.isViewer()){ var dt=0.2*S.speed; if(S.freeBuild>0)S.freeBuild=Math.max(0,S.freeBuild-0.2); S.resources=advance(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); } patch();
   if(UI.dirty&&UI.open&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); UI.dirty=false; }
-  if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); updateMpBadge(); },200);
-setInterval(function(){ if(UI.open&&!S.battleTarget){ var t=UI.tab; if(t==="markets"||t==="military"||t==="intel"||t==="industry"||t==="trade"||(t==="digital"&&S.crypto.launched)){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); } } syncScene(); if(!Net.isMirror())save(); if(Net.inMatch()&&Net.isHost())Net.publishState(S); },900);
+  if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); updateMpBadge(); MM.tick(); },200);
+setInterval(function(){ if(UI.open&&!S.battleTarget){ var t=UI.tab; if(t==="markets"||t==="military"||t==="intel"||t==="industry"||t==="trade"||(t==="digital"&&S.crypto.launched)){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); } } syncScene(); if(!Net.isMirror()&&!MM.isViewer())save(); if(Net.inMatch()&&Net.isHost())Net.publishState(S); MM.broadcastState(); },900);
 function showEnd(){ var g=S.gameOver; el("end").innerHTML='<div class="overlay" style="z-index:60"><div class="modal glass" style="max-width:440px;text-align:center;border-color:'+(g.won?"rgba(0,255,65,.4)":"rgba(255,40,40,.5)")+'"><div style="font-size:40px">🏆</div><h1 style="font-size:24px">'+(g.won?"VICTORY":"DEFEAT")+'</h1>'+(g.type?'<div class="lbl">'+g.type+(g.won?" victory":"")+'</div>':"")+'<p style="color:#9dffb0;font-size:14px;line-height:1.6;margin:14px 0">'+g.text+'</p><button class="btn sm" style="width:auto;margin:0 auto" data-act="reset">↺ New Game</button></div></div>'; }
 function updateMpBadge(){ var b=el("mpbadge"); if(Net.inMatch()){ if(!b){ b=document.createElement("div"); b.id="mpbadge"; b.className="panelglass ui"; b.style.cssText="position:fixed;bottom:8px;right:12px;z-index:40;padding:4px 9px;font-size:12px;display:flex;gap:8px;align-items:center"; document.body.appendChild(b); } var co=Net.company(),cn=co?companyName(co.index):"company",lbl=(Net.isHost()?"Hosting ":"Team · ")+cn; if(b.getAttribute("data-l")!==lbl){ b.setAttribute("data-l",lbl); b.innerHTML='<span style="color:#8fd6ff">🌐 '+esc(lbl)+'</span><button class="btn ui sm" style="width:auto;padding:2px 8px" data-act="menu_mp">Lobby</button><button class="btn ui sm red" style="width:auto;padding:2px 8px" data-act="mp_leave">Leave</button>'; } } else if(b){ b.remove(); } }
 window.addEventListener("beforeunload",save);
