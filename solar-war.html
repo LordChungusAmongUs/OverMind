@@ -416,6 +416,8 @@ function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; va
 var A={
   build:function(id){ var b=BUILDINGS[id]; if(!b)return; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); },
   placeEarth:function(id,lon,lat){ var b=BUILDINGS[id]; if(!b||(b.loc!=="earth"&&b.loc!=="moon"))return false; if(b.loc==="earth"&&!terrOK(b,Math.round(lon/GRID_STEP),Math.round(lat/GRID_STEP)))return false; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return false; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); S.earthPlacements.push({id:id,lon:lon,lat:lat}); return true; },
+  placeRect:function(loc,id,gx0,gy0,w,h){ var b=BUILDINGS[id]; if(!b||(b.loc!=="earth"&&b.loc!=="moon")||b.loc!==loc)return 0; w=clamp(w,1,80); h=clamp(h,1,80); var occ=occupiedSet(loc),free=[],gx,gy; for(gx=gx0;gx<gx0+w;gx++)for(gy=gy0;gy<gy0+h;gy++){ if(Math.abs(gy*GRID_STEP)>85)continue; if(occ[gx+","+gy])continue; if(loc==="earth"&&!terrOK(b,gx,gy))continue; free.push([gx,gy]); } var n=free.length; if(!n)return 0; var owned=(S.buildings[id]||0)+queued("build",id),uc=bcost(b,owned),cost={},k; for(k in uc)cost[k]=uc[k]*n; if(!afford(S.resources,cost))return 0; spend(cost); free.forEach(function(g){ S.earthPlacements.push({id:id,gx:g[0],gy:g[1],w:1,h:1,lon:g[0]*GRID_STEP,lat:g[1]*GRID_STEP}); }); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t,qty:n}); return n; },
+  placeOrbit:function(id,sfx,sfy){ var b=BUILDINGS[id]; if(!b||b.loc!=="orbit")return 0; if((S.earthPlacements||[]).some(function(p){ return p.orbit&&Math.abs(fxd(p.fx,sfx))<0.012&&Math.abs(p.fy-sfy)<0.03; }))return 0; var o=(S.buildings[id]||0)+queued("build",id),cc=bcost(b,o); if(!afford(S.resources,cc))return 0; spend(cc); S.jobs.push({kind:"build",id:id,rem:btime(b),tot:btime(b)}); S.earthPlacements.push({id:id,orbit:true,fx:sfx,fy:sfy,lon:0,lat:0}); return 1; },
   ship:function(id){ var s=SHIPS[id]; if(!s)return; if(s.req&&S.researched.indexOf(s.req)<0)return; var o=(S.fleet[id]||0)+queued("ship",id),c=scost(s,o); if(!afford(S.resources,c))return; spend(c); var t=stime(s); S.jobs.push({kind:"ship",id:id,rem:t,tot:t}); },
   research:function(id){ var t=TECHS[id]; if(!t||S.researched.indexOf(id)>=0||queued("tech",id)>0)return; if(t.req&&!t.req.every(function(r){return S.researched.indexOf(r)>=0;}))return; var c=tcost(id); if(!afford(S.resources,c))return; spend(c); var tm=ttime(t); S.jobs.push({kind:"tech",id:id,rem:tm,tot:tm}); pushEvent(S,"tech","Started research: "+t.name+"."); },
   lease:function(id){ var st=S.neutral[id]||"none"; if(st==="owned"||queued("acqco",id)>0)return; S.neutral[id]=st==="leased"?"none":"leased"; },
@@ -831,11 +833,7 @@ function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=c
 function emCell(sx,sy){ var cv=EM.canvas,worldW=cv.width*EM.bw*EM.zoom,worldH=cv.height*EM.bh*EM.zoom,lon=((((sx+EM.camX)%worldW)+worldW)%worldW)/worldW*360-180,lat=90-((sy-EM.camY)/worldH)*180; return {gx:Math.round(lon/GRID_STEP),gy:Math.round(lat/GRID_STEP)}; }
 function emCellOf(pl){ return pl.gx!==undefined?{gx:pl.gx,gy:pl.gy}:{gx:Math.round(pl.lon/GRID_STEP),gy:Math.round(pl.lat/GRID_STEP)}; }
 function occupiedSet(loc){ var s={}; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit)return; var b=BUILDINGS[pl.id]; if(!b||b.loc!==loc)return; var c=emCellOf(pl); s[c.gx+","+c.gy]=1; }); return s; }
-function placeRect(gx0,gy0,w,h){ if(!EM||!EM.tool)return; var b=BUILDINGS[EM.tool]; if(!b||b.loc!==EM.loc)return; var loc=EM.loc,occ=occupiedSet(loc),free=[],gx,gy;
-  w=clamp(w,1,80); h=clamp(h,1,80);
-  for(gx=gx0;gx<gx0+w;gx++)for(gy=gy0;gy<gy0+h;gy++){ if(Math.abs(gy*GRID_STEP)>85)continue; if(occ[gx+","+gy])continue; if(loc==="earth"&&!terrOK(b,gx,gy))continue; free.push([gx,gy]); }
-  var n=free.length; if(!n)return; var owned=(S.buildings[EM.tool]||0)+queued("build",EM.tool),uc=bcost(b,owned),cost={},k; for(k in uc)cost[k]=uc[k]*n; if(!afford(S.resources,cost))return;
-  spend(cost); free.forEach(function(g){ S.earthPlacements.push({id:EM.tool,gx:g[0],gy:g[1],w:1,h:1,lon:g[0]*GRID_STEP,lat:g[1]*GRID_STEP}); }); var t=btime(b); S.jobs.push({kind:"build",id:EM.tool,rem:t,tot:t,qty:n}); save(); drawEarthMap(); render(); }
+function placeRect(gx0,gy0,w,h){ if(!EM||!EM.tool)return; var b=BUILDINGS[EM.tool]; if(!b||b.loc!==EM.loc)return; A.placeRect(EM.loc,EM.tool,gx0,gy0,w,h); if(!Net.isMirror())save(); drawEarthMap(); render(); }
 function placeAtScreen(sx,sy){ if(!EM||!EM.tool)return; var c=emCell(sx,sy); placeRect(c.gx,c.gy,1,1); }
 var GRID_KEYS=["q","w","e","r","t","a","s","d","f","g","z","x","c","v","b"];
 function shortName(n){ return n.replace(/\(.*\)/,"").replace(/Communications/,"Comms").replace(/Manufacturing/,"Mfg").replace(/Headquarters/,"HQ").trim(); }
@@ -899,8 +897,8 @@ function omPy(f){ return OM.camY+OM.canvas.height*1.5*OM.zoom*f; }
 function screenToFrac(sx,sy){ var bw=OM.canvas.width*3*OM.zoom,bh=OM.canvas.height*1.5*OM.zoom; return {fx:((((sx+OM.camX)%bw)+bw)%bw)/bw, fy:clamp((sy-OM.camY)/bh,0.04,0.96)}; }
 function placeAtScreenOrbit(sx,sy){ if(!OM||!OM.tool)return; var f=screenToFrac(sx,sy),id=OM.tool;
   if(SHIPS[id]){ var s=SHIPS[id]; if(s.req&&S.researched.indexOf(s.req)<0)return; var o=(S.fleet[id]||0)+S.units.filter(function(u){return u.type===id&&u.side==="p";}).length,c=scost(s,o); if(!afford(S.resources,c))return; spend(c); S.units.push(spawnUnit(id,f.fx,f.fy,"p",PCOLORS[0],stime(s))); }
-  else { var b=BUILDINGS[id]; if(!b||b.loc!=="orbit")return; var sfx=Math.round(f.fx*48)/48,sfy=clamp(Math.round(f.fy*16)/16,0.06,0.94); if((S.earthPlacements||[]).some(function(p){ return p.orbit&&Math.abs(fxd(p.fx,sfx))<0.012&&Math.abs(p.fy-sfy)<0.03; }))return; var o=(S.buildings[id]||0)+queued("build",id),cc=bcost(b,o); if(!afford(S.resources,cc))return; spend(cc); S.jobs.push({kind:"build",id:id,rem:btime(b),tot:btime(b)}); S.earthPlacements.push({id:id,orbit:true,fx:sfx,fy:sfy,lon:0,lat:0}); }
-  save(); render(); }
+  else { var b=BUILDINGS[id]; if(!b||b.loc!=="orbit")return; var sfx=Math.round(f.fx*48)/48,sfy=clamp(Math.round(f.fy*16)/16,0.06,0.94); A.placeOrbit(id,sfx,sfy); }
+  if(!Net.isMirror())save(); render(); }
 function clickSelect(sx,sy,shift){ var hit=null; S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<15&&Math.abs(omPy(u.fy)-sy)<15)hit=u; }); if(!shift)OM.sel=[]; if(hit&&OM.sel.indexOf(hit.uid)<0)OM.sel.push(hit.uid); render(); }
 function boxSelect(b,shift){ if(!shift)OM.sel=[]; var x0=Math.min(b.x0,b.x1),x1=Math.max(b.x0,b.x1),y0=Math.min(b.y0,b.y1),y1=Math.max(b.y0,b.y1); S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; var x=omScreenC(u),y=omPy(u.fy); if(x>=x0&&x<=x1&&y>=y0&&y<=y1&&OM.sel.indexOf(u.uid)<0)OM.sel.push(u.uid); }); render(); }
 function commandSel(sx,sy){ if(!OM.sel||!OM.sel.length)return; var f=screenToFrac(sx,sy),en=null; (OM.en||[]).forEach(function(u){ if(u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<17&&Math.abs(omPy(u.fy)-sy)<17)en=u; });
@@ -982,7 +980,7 @@ var Net=(function(){
     else if(m.t==="host"){ if(m.scope==="match"&&self.match)self.match.hostId=m.hostId; else if(m.scope==="team"&&self.company&&self.company.index===m.companyIndex)self.company.hostId=m.hostId; }
     else if(m.t==="chat"){ if(UI.mp){ UI.mp.chat.push({channel:m.channel,from:m.from,text:m.text}); if(UI.mp.chat.length>80)UI.mp.chat.shift(); } }
     else if(m.t==="start"){ self.match=m.match||self.match; if(self.match){ self.match.started=true; var mc2=findMine(self.match); if(mc2)self.company=mc2; } if(UI.mp)UI.mp.match=self.match; begin(self.match); return; }
-    else if(m.t==="action"){ if(isCompanyHost()&&Net._apply){ Net._apply(m.action); save(); } }
+    else if(m.t==="action"){ if(isCompanyHost()&&Net._apply){ Net._apply(m.action); save(); if(typeof EM!=="undefined"&&EM)drawEarthMap(); render(); } }
     else if(m.t==="state"){ if(!isCompanyHost())applySnapshot(m.snapshot); return; }
     else if(m.t==="error"){ if(UI.mp)UI.mp.error=m.msg; }
     refresh();
@@ -1010,7 +1008,7 @@ var Net=(function(){
   };
 })();
 /* route whitelisted player actions to my company host while mirroring its world */
-(function(){ var NETACT={research:1,trade:1,launchCrypto:1,sellCrypto:1,sabotage:1,steal:1,acqrival:1,pact:1,setSpeed:1,build:1,ship:1},raw={}; Object.keys(NETACT).forEach(function(k){ if(typeof A[k]==="function"){ raw[k]=A[k]; A[k]=function(){ if(Net.isMirror()){ Net.action({fn:k,args:Array.prototype.slice.call(arguments)}); return; } return raw[k].apply(A,arguments); }; } }); Net._apply=function(a){ if(a&&raw[a.fn])raw[a.fn].apply(A,a.args||[]); }; })();
+(function(){ var NETACT={research:1,trade:1,launchCrypto:1,sellCrypto:1,sabotage:1,steal:1,acqrival:1,pact:1,setSpeed:1,build:1,ship:1,placeRect:1,placeOrbit:1},raw={}; Object.keys(NETACT).forEach(function(k){ if(typeof A[k]==="function"){ raw[k]=A[k]; A[k]=function(){ if(Net.isMirror()){ Net.action({fn:k,args:Array.prototype.slice.call(arguments)}); return; } return raw[k].apply(A,arguments); }; } }); Net._apply=function(a){ if(a&&raw[a.fn])raw[a.fn].apply(A,a.args||[]); }; })();
 /* identity helpers */
 function mpSetAccount(acc){ if(!UI.mp)return; UI.mp.account=acc; UI.mp.name=acc.name; UI.mp.error=""; UI.mp.status="idle"; try{ localStorage.setItem("solarwar.mp.account",JSON.stringify(acc)); }catch(e){} renderMenu(); }
 function mpDecodeJwt(tok){ try{ var p=tok.split(".")[1].replace(/-/g,"+").replace(/_/g,"/"); return JSON.parse(decodeURIComponent(escape(atob(p)))); }catch(e){ return null; } }

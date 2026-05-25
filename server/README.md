@@ -92,8 +92,10 @@ terminate TLS at the platform's load balancer.
    crypto, sabotage/steal/acquire, pact, set-speed, space builds). ✅
 3. **Accounts + company teams** — sign-in identity; same account = same company;
    many devices per company; team vs match chat; per-company state/action
-   scoping. ✅ Map-placed earth/orbit builds are still company-host-side —
-   networking placement (send the chosen cell) is the immediate follow-up.
+   scoping. ✅
+3b. **Networked map placement** — teammates' earth/moon (`placeRect`) and orbit
+   (`placeOrbit`) builds relay to the company host by cell, get built there, and
+   mirror back. ✅ (orbit ship/unit spawning is part of the combat-networking milestone)
 4. **Cross-company shared world** — today each company team co-runs its own
    instance (others appear as AI). Next: one authoritative world where all 64
    companies are real entities competing in shared markets and combat. 🔜
