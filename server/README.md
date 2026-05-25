@@ -1,11 +1,7 @@
-# Solar War 2040 — Multiplayer Backend (scaffold)
+# Solar War 2040 — Multiplayer Backend
 
-A small WebSocket server that provides **lobbies + action relay** so multiple
-players can share one of the game's 64 companies in the same match.
-
-This is the first scaffold of the long-term online-multiplayer goal. It runs the
-lobby authoritatively and relays gameplay; the match simulation itself is
-**host-authoritative** for now (see model below).
+A WebSocket server modelling **MATCH ▸ COMPANIES (teams) ▸ MEMBERS (devices)**, so
+that signed-in accounts own companies and many devices co-manage them.
 
 ## Run locally
 
@@ -16,32 +12,39 @@ npm start          # listens on :8090 (override with PORT)
 ```
 
 Then in the game (`solar-war.html`) open **Multiplayer (Beta)** from the main
-menu and connect to `ws://localhost:8090`.
+menu, sign in, and connect to `ws://localhost:8090`.
 
-## Model: host-authoritative relay
+## Model: accounts → company teams → devices
 
 ```
-            ┌─────────── ws ───────────┐
-  Player B ─┤                          ├─ Player C
-            │        SERVER            │
-  (action)──┼──▶ relays to HOST ◀──────┼──(action)
-            │                          │
-            └────────── HOST (A) ──────┘
-                         │
-                runs the authoritative sim,
-                broadcasts {t:"state"} snapshots
+  ACCOUNT (alice@gmail) ───────────┐        ACCOUNT (bob@gmail)
+   device A1 (host) ─┐             │          device B1 (host)
+   device A2 ────────┤  COMPANY 1  │          COMPANY 2
+   …up to 64 devices ┘  (team)     │          (team)
+        ▲ co-manage one company    │             ▲
+        └─ company-host runs the sim, streams {state} to teammates,
+           teammates relay {action} back.   …up to 64 companies / match
 ```
 
-- The server is authoritative for **lobby state**: room membership, the 4-letter
-  join code, company claims (each player picks one of 64 companies), chat, match
-  start, and host hand-off if the host disconnects.
-- One player is the **host**. The host runs the existing client-side simulation
-  and publishes `{t:"state", snapshot}` messages; the server fans them out to the
-  other players. Non-host players send `{t:"action", action}`; the server relays
-  them to the host, which applies and rebroadcasts.
+- A device **authenticates** with an account identity (Google `sub`/email in
+  production; a dev email locally). **Same account = same company team.**
+- Inside a match, every device on an account shares one **company** and
+  co-manages it (up to 64 devices). Each device keeps its own POV (camera, tab,
+  map) — only game state is shared.
+- Different accounts get different companies — up to **64 companies per match**.
+- **Authority (per company):** each team has a **company host** (first device in)
+  that runs that company's sim and publishes `{t:"state"}` snapshots; the server
+  fans them out to that company's other devices. Teammates send `{t:"action"}`
+  which the server relays to the company host. One device is the **match host**
+  (creator) and controls start/settings. Hosts hand off on disconnect.
 
-This keeps the (large, already-working) client engine as the single source of
-truth while we iterate, with a clear path to a fully server-authoritative tick.
+### Auth
+
+The scaffold **trusts the client-supplied identity** so it runs with zero
+secrets. For production, verify the Google ID token in `verifyAccount()` (a
+documented pass-through hook) before trusting `account.id` — and on the client
+set `window.MP_GOOGLE_CLIENT_ID` to enable the real Google Identity Services
+button (email sign-in works out of the box for dev/LAN play).
 
 ## Wire protocol (JSON over WebSocket)
 
@@ -49,48 +52,52 @@ Client → Server:
 
 | message | fields | who | meaning |
 |---|---|---|---|
-| `hello` | `name` | any | set display name |
-| `create` | `settings{rivalCount,neutralCount}` | any | create a room, become host |
-| `join` | `code`, (`name`) | any | join a room by code |
-| `claim` | `company` (0–63) | any | claim a company slot |
-| `chat` | `text` | in-room | lobby/in-game chat |
-| `start` | — | host | begin the match |
-| `action` | `action` | in-room | gameplay action (relayed to host) |
-| `state` | `snapshot` | host | authoritative state snapshot (fanned out) |
-| `leave` | — | in-room | leave the room |
+| `auth` | `account{id,email,name,provider}` | any | authenticate (required first) |
+| `create` | `settings{rivalCount,neutralCount}`, (`company`) | authed | create a match, become match host |
+| `join` | `code`, (`company`) | authed | join a match (placed on your account's company) |
+| `claim` | `company` (0–63) | company host | set your company's slot (pre-start) |
+| `chat` | `channel`("team"\|"match"), `text` | in-match | team or match chat |
+| `start` | — | match host | begin the match |
+| `action` | `action` | in-match | gameplay action (relayed to your company host) |
+| `state` | `snapshot` | company host | your company's snapshot (fanned to teammates) |
+| `leave` | — | in-match | leave the match |
 
 Server → Client:
 
 | message | fields | meaning |
 |---|---|---|
-| `welcome` | `id` | your assigned player id |
-| `joined` | `code`, `you` | you joined/created a room |
-| `room` | `room{code,hostId,started,settings,players[]}` | full room state |
-| `host` | `hostId` | host changed (hand-off) |
-| `chat` | `from`, `fromId`, `text` | chat line |
-| `action` | `from`, `action` | a player's action (host only) |
-| `state` | `snapshot` | latest authoritative snapshot |
-| `start` | `room` | match started |
+| `welcome` | `id` | your device id |
+| `authed` | `account{id,name,provider}` | identity accepted |
+| `joined` | `code`, `you`, `company` | you joined; your company index |
+| `match` | `match{code,hostId,started,settings,companies[]}` | full match roster |
+| `team` | `company{index,name,accountId,hostId,members[]}` | your company/team detail |
+| `host` | `scope`("match"\|"team"), `companyIndex?`, `hostId` | host hand-off |
+| `chat` | `channel`, `from`, `fromCompany`, `text` | chat line |
+| `start` | `match` | match started |
+| `action` | `from`, `action` | a teammate's action (company host only) |
+| `state` | `companyIndex`, `snapshot` | latest snapshot (teammates only) |
 | `error` | `msg` | human-readable error |
 
 ## Deploy
 
 Any Node host works. Set `PORT` from the platform env. `GET /health` returns
-`{ok,rooms,ts}` for health checks. Use a `wss://` (TLS) URL in production —
+`{ok,matches,ts}` for health checks. Use a `wss://` (TLS) URL in production —
 terminate TLS at the platform's load balancer.
 
 ## Roadmap
 
-1. **Lobby** — rooms, codes, company claims, chat, host hand-off. ✅
-2. **Relay match** — host broadcasts full-state snapshots (~1 Hz); guests mirror
-   them live and relay their whitelisted economy actions (research, trade, crypto,
-   sabotage/steal/acquire, pact, set-speed, space builds) back to the host, which
-   applies them. ✅ Map-placed earth/orbit builds are still host-side — networking
-   placement (send the chosen cell, not the mutation) is the immediate follow-up.
-3. **Per-player companies** — today a room co-operatively drives the host's
-   company. Next: give each claimed company its own detailed economy so players
-   compete head-to-head across the 64 slots. 🔜
-4. **Server-authoritative tick** — port `rates/advance/worldTick` into `./engine`
+1. **Lobby** — matches, codes, chat, host hand-off. ✅
+2. **Relay match (co-op)** — company host streams full-state snapshots (~1 Hz);
+   teammates mirror live and relay whitelisted economy actions (research, trade,
+   crypto, sabotage/steal/acquire, pact, set-speed, space builds). ✅
+3. **Accounts + company teams** — sign-in identity; same account = same company;
+   many devices per company; team vs match chat; per-company state/action
+   scoping. ✅ Map-placed earth/orbit builds are still company-host-side —
+   networking placement (send the chosen cell) is the immediate follow-up.
+4. **Cross-company shared world** — today each company team co-runs its own
+   instance (others appear as AI). Next: one authoritative world where all 64
+   companies are real entities competing in shared markets and combat. 🔜
+5. **Server-authoritative tick** — port `rates/advance/worldTick` into `./engine`
    and run the sim here for cheat-resistance, delta snapshots, and headless/AI matches.
-5. **Persistence & auth** — durable rooms + accounts (e.g. Supabase, already a
-   repo dependency) for reconnection and ranked play.
+6. **Persistence & verified auth** — durable matches + accounts (e.g. Supabase,
+   already a repo dependency) for reconnection, Google-token verification, and ranked play.

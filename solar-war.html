@@ -567,24 +567,31 @@ function openTab(t){ if(UI.open&&UI.tab===t)UI.open=false; else{ UI.tab=t; UI.op
 /* ---- pause / settings / main menu ---- */
 function menuBtn(act,label,cls){ return '<button class="btn ui '+(cls||"")+'" data-act="'+act+'" style="margin:6px 0">'+label+'</button>'; }
 function multiplayerHtml(){ var mp=UI.mp,st=mp.status,err=mp.error?'<div class="small" style="color:#ff7a6b;margin:6px 0">'+mp.error+'</div>':"";
-  var head='<div class="modal glass" style="max-width:440px;text-align:left"><div class="row between" style="align-items:center"><h1 style="font-size:22px">🌐 Multiplayer <span class="small" style="color:#8fd6ff">Beta</span></h1><button class="btn ui sm" style="width:auto" data-act="mp_back">↩ Menu</button></div>';
-  if(st==="idle"||st==="connecting"){ return head+'<div class="small" style="margin:8px 0">Run the server in <code>/server</code> (<code>npm start</code>), then connect. See server/README.md.</div>'+err+
-    '<label class="lbl">Server URL</label><input type="text" data-set="mp.url" value="'+esc(mp.url)+'" style="width:100%;margin:3px 0 8px" placeholder="ws://localhost:8090">'+
-    '<label class="lbl">Your name</label><input type="text" data-set="mp.name" value="'+esc(mp.name)+'" style="width:100%;margin:3px 0 12px" maxlength="24">'+
+  var head='<div class="modal glass" style="max-width:480px;text-align:left"><div class="row between" style="align-items:center"><h1 style="font-size:22px">🌐 Multiplayer <span class="small" style="color:#8fd6ff">Beta</span></h1><button class="btn ui sm" style="width:auto" data-act="mp_back">↩ Menu</button></div>';
+  // 1) SIGN IN
+  if(!mp.account){ return head+'<div class="small" style="margin:8px 0">Sign in to control a company. Every device signed into the <b>same account</b> co-manages the <b>same company</b> (up to 64 devices); each account is one of up to 64 competing companies.</div>'+err+
+    '<label class="lbl">Display name</label><input type="text" data-set="mp.name" value="'+esc(mp.name)+'" style="width:100%;margin:3px 0 8px" maxlength="24">'+
+    '<label class="lbl">Account email</label><input type="text" data-set="mp.email" value="'+esc(mp.email||"")+'" style="width:100%;margin:3px 0 4px" placeholder="you@gmail.com"><div class="small" style="opacity:.6;margin-bottom:10px">Same email on any device = same company team.</div>'+
+    menuBtn("mp_signin","Continue")+'<button class="btn ui" style="width:100%;margin:6px 0" data-act="mp_google">Sign in with Google</button></div>'; }
+  // 2) SIGNED IN, NOT CONNECTED
+  if(st==="idle"||st==="connecting"){ return head+'<div class="small" style="margin:8px 0">Signed in as <b style="color:#9dffb0">'+esc(mp.account.name)+'</b> <span class="chip" style="color:#8fd6ff">'+mp.account.provider+'</span> <button class="btn ui sm" style="width:auto;padding:1px 7px" data-act="mp_signout">sign out</button></div><div class="small" style="opacity:.7;margin-bottom:6px">Run the server in <code>/server</code> (<code>npm start</code>), then connect. See server/README.md.</div>'+err+
+    '<label class="lbl">Server URL</label><input type="text" data-set="mp.url" value="'+esc(mp.url)+'" style="width:100%;margin:3px 0 10px" placeholder="ws://localhost:8090">'+
     menuBtn("mp_connect",st==="connecting"?"Connecting…":"Connect")+'</div>'; }
-  if(st==="connected"){ return head+'<div class="small" style="color:#9dffb0;margin:8px 0">Connected as <b>'+esc(mp.name)+'</b>.</div>'+err+
-    '<div class="item"><div class="lbl">Create a match</div><div class="small" style="margin:4px 0">Uses your New Game counts: '+SETTINGS.rivalCount+' rivals · '+SETTINGS.neutralCount+' neutral.</div>'+menuBtn("mp_create","✦ Create Room")+'</div>'+
+  // 3) CONNECTED, NOT IN A MATCH
+  if(st==="connected"){ return head+'<div class="small" style="color:#9dffb0;margin:8px 0">Connected as <b>'+esc(mp.account.name)+'</b>.</div>'+err+
+    '<div class="item"><div class="lbl">Create a match</div><div class="small" style="margin:4px 0">World size from your New Game counts: '+SETTINGS.rivalCount+' AI rivals · '+SETTINGS.neutralCount+' neutral.</div>'+menuBtn("mp_create","✦ Create Match")+'</div>'+
     '<div class="item" style="margin-top:8px"><div class="lbl">Join a match</div><div class="row" style="gap:6px;margin-top:4px"><input type="text" data-set="mp.code" value="'+esc(mp.code)+'" maxlength="4" placeholder="CODE" style="flex:1;text-transform:uppercase"><button class="btn ui" style="width:auto" data-act="mp_join">Join</button></div></div>'+
     '<div style="margin-top:8px">'+menuBtn("mp_disconnect","Disconnect","red")+'</div></div>'; }
-  // in a room
-  var r=mp.room||{players:[],settings:{}},host=Net.isHost(),me=Net.id;
-  var roster=r.players.map(function(p){ return '<div class="row between" style="padding:2px 0"><span>'+(p.host?"👑 ":"")+'<b style="color:'+(p.id===me?"#9dffb0":"#cdeccf")+'">'+esc(p.name)+'</b>'+(p.id===me?" (you)":"")+'</span><span class="chip" style="color:#8fd6ff">'+companyName(p.company)+'</span></div>'; }).join("");
-  var chat=mp.chat.map(function(c){ return '<div class="small"><b style="color:#8fd6ff">'+esc(c.from)+':</b> '+esc(c.text)+'</div>'; }).join("");
-  return head+'<div class="row between"><div class="small">Room <b style="color:#ffe14d;font-size:15px;letter-spacing:.2em">'+esc(r.code||mp.code)+'</b> · '+r.players.length+' player(s)</div><button class="btn ui sm red" style="width:auto" data-act="mp_leave">Leave</button></div>'+err+
-    '<div class="item" style="margin-top:6px"><div class="lbl">Players</div>'+roster+'</div>'+
-    '<div class="item" style="margin-top:6px"><div class="row between"><span class="lbl">Your company</span><div class="row" style="gap:5px"><input type="number" min="0" max="63" data-set="mp.company" value="'+esc(mp.company)+'" style="width:64px"><button class="btn ui sm" style="width:auto" data-act="mp_claim">Claim</button></div></div></div>'+
-    '<div class="item" style="margin-top:6px"><div class="lbl">Chat</div><div style="max-height:120px;overflow:auto;margin:4px 0">'+(chat||'<div class="small" style="opacity:.5">No messages yet.</div>')+'</div><div class="row" style="gap:6px"><input type="text" data-set="mp.chat_text" value="'+esc(mp.chat_text||"")+'" placeholder="message…" style="flex:1" maxlength="280"><button class="btn ui sm" style="width:auto" data-act="mp_chat_send">Send</button></div></div>'+
-    (r.started?'<div class="small" style="color:#9dffb0;margin-top:8px">Match live — '+(host?"you are the host; your world is authoritative and streamed to guests.":"mirroring the host's world in real time. Your economy actions are sent to the host.")+'</div>':(host?'<div style="margin-top:8px">'+menuBtn("mp_start","▶ Start Match (host)")+'</div><div class="small" style="opacity:.7">The host runs the authoritative match; guests mirror it live and can act. Map-placed builds are host-side for now.</div>':'<div class="small" style="margin-top:8px;opacity:.7">Waiting for the host to start…</div>'))+'</div>'; }
+  // 4) IN A MATCH
+  var mt=mp.match||{companies:[],settings:{}},me=Net.id,myco=Net.company(),host=Net.isHost(),chan=mp.chan||"match";
+  var companies=mt.companies.slice().sort(function(a,b){return a.index-b.index;}).map(function(co){ var mine=myco&&co.index===myco.index; return '<div class="item" style="margin:4px 0;padding:6px'+(mine?";border-color:rgba(57,255,20,.4)":"")+'"><div class="row between"><b style="color:'+(mine?"#9dffb0":"#cdeccf")+'"><span style="color:'+hexCol(coColor(co.index+1))+'">●</span> '+companyName(co.index)+'</b><span class="chip" style="color:#8fd6ff">'+co.members.length+' device'+(co.members.length===1?"":"s")+'</span></div>'+(mine?'<div class="small" style="margin-top:3px">'+co.members.map(function(d){return (d.id===co.hostId?"👑 ":"")+'<span style="color:'+(d.id===me?"#9dffb0":"#cdeccf")+'">'+esc(d.name)+(d.id===me?" (you)":"")+'</span>';}).join(" · ")+'</div>':"")+'</div>'; }).join("");
+  var chat=mp.chat.slice(-40).map(function(c){ return '<div class="small"><span style="color:'+(c.channel==="team"?"#9dffb0":"#8fd6ff")+'">['+(c.channel==="team"?"team":"all")+']</span> <b>'+esc(c.from)+':</b> '+esc(c.text)+'</div>'; }).join("");
+  return head+'<div class="row between"><div class="small">Match <b style="color:#ffe14d;font-size:15px;letter-spacing:.2em">'+esc(mt.code||mp.code)+'</b> · '+mt.companies.length+' / '+MAX_COMPANIES+' companies</div><button class="btn ui sm red" style="width:auto" data-act="mp_leave">Leave</button></div>'+err+
+    '<div class="small" style="margin:4px 0">Your company: <b style="color:#9dffb0">'+(myco?companyName(myco.index):"—")+'</b>'+(host?' · you host this company\'s world':' · teammate (mirroring host)')+'</div>'+
+    '<div style="max-height:170px;overflow:auto;margin:4px 0">'+companies+'</div>'+
+    (!mt.started&&host?'<div class="item" style="margin:4px 0"><div class="row between"><span class="lbl">Company slot</span><div class="row" style="gap:5px"><input type="number" min="0" max="63" data-set="mp.company" value="'+esc(mp.company)+'" style="width:64px"><button class="btn ui sm" style="width:auto" data-act="mp_claim">Set</button></div></div></div>':"")+
+    '<div class="item" style="margin-top:4px"><div class="row between"><span class="lbl">Chat</span><div class="row" style="gap:4px"><button class="btn ui sm" style="width:auto;padding:1px 8px;'+(chan==="match"?"background:rgba(60,200,255,.25)":"")+'" data-act="mp_chan" data-arg="match">All</button><button class="btn ui sm" style="width:auto;padding:1px 8px;'+(chan==="team"?"background:rgba(0,255,65,.25)":"")+'" data-act="mp_chan" data-arg="team">Team</button></div></div><div style="max-height:110px;overflow:auto;margin:4px 0">'+(chat||'<div class="small" style="opacity:.5">No messages yet.</div>')+'</div><div class="row" style="gap:6px"><input type="text" data-set="mp.chat_text" value="'+esc(mp.chat_text||"")+'" placeholder="message '+chan+'…" style="flex:1" maxlength="280"><button class="btn ui sm" style="width:auto" data-act="mp_chat_send">Send</button></div></div>'+
+    (mt.started?'<div class="small" style="color:#9dffb0;margin-top:8px">Match live — '+(host?"your company\'s world is authoritative and streams to your teammates.":"mirroring your company host in real time; your actions are sent to them.")+'</div>':(Net.isMatchHost()?'<div style="margin-top:8px">'+menuBtn("mp_start","▶ Start Match")+'</div><div class="small" style="opacity:.7">Each company is co-run by its team; cross-company shared-world competition is the next milestone.</div>':'<div class="small" style="margin-top:8px;opacity:.7">Waiting for the match host to start…</div>'))+'</div>'; }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
 function settingsHtml(){ var s=SETTINGS,h='<div class="modal glass" style="max-width:470px"><div class="dhead"><b style="color:#9dffb0">⚙ Settings</b><span class="x" data-act="menu_back">‹ back</span></div>';
   h+='<div class="lbl" style="margin-top:6px">Starting resources <span class="small" style="text-transform:none">(applies on Restart / New Game)</span></div><div class="grid g2" style="margin-top:6px">';
@@ -628,14 +635,18 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="cnt"){ var pp=(arg||"").split(":"),d=parseInt(pp[1],10)||0; if(pp[0]==="rival")SETTINGS.rivalCount=clamp(SETTINGS.rivalCount+d,0,MAX_COMPANIES-1); else SETTINGS.neutralCount=clamp(SETTINGS.neutralCount+d,0,MAX_COMPANIES-1); if(SETTINGS.rivalCount+SETTINGS.neutralCount>MAX_COMPANIES-1){ if(pp[0]==="rival")SETTINGS.neutralCount=Math.max(0,MAX_COMPANIES-1-SETTINGS.rivalCount); else SETTINGS.rivalCount=Math.max(0,MAX_COMPANIES-1-SETTINGS.neutralCount); } saveSettings(); renderMenu(); return; }
   if(act==="setup_start"){ doNewGame(); syncScene(); renderMenu(); render(); return; }
   if(act==="menu_restart"||act==="menu_new"){ UI.menu="setup"; renderMenu(); return; }
-  if(act==="menu_mp"){ if(!UI.mp)UI.mp={url:"ws://localhost:8090",name:"Player",code:"",company:"0",chat:[],chat_text:"",status:"idle",room:null,started:false,error:""}; UI.menu="mp"; renderMenu(); return; }
+  if(act==="menu_mp"){ if(!UI.mp)UI.mp={url:"ws://localhost:8090",name:"Player",email:"",code:"",company:"0",chat:[],chat_text:"",chan:"match",status:"idle",account:null,match:null,error:""}; if(!UI.mp.account){ try{ var sa=localStorage.getItem("solarwar.mp.account"); if(sa){ UI.mp.account=JSON.parse(sa); UI.mp.name=UI.mp.account.name; } }catch(e){} } UI.menu="mp"; renderMenu(); return; }
   if(act==="mp_back"){ UI.menu="main"; renderMenu(); return; }
-  if(act==="mp_connect"){ UI.mp.error=""; UI.mp.status="connecting"; renderMenu(); Net.connect(UI.mp.url,UI.mp.name); return; }
-  if(act==="mp_disconnect"){ Net.disconnect(); UI.mp.status="idle"; UI.mp.room=null; renderMenu(); return; }
+  if(act==="mp_signin"){ var em=(UI.mp.email||"").trim().toLowerCase(),nm=(UI.mp.name||"Player").trim(); if(!em){ UI.mp.error="Enter an email to identify your account."; renderMenu(); return; } mpSetAccount({id:"dev:"+em,email:em,name:nm||em,provider:"dev"}); return; }
+  if(act==="mp_google"){ mpGoogleSignIn(); return; }
+  if(act==="mp_signout"){ Net.disconnect(); UI.mp.account=null; UI.mp.status="idle"; UI.mp.match=null; try{ localStorage.removeItem("solarwar.mp.account"); }catch(e){} renderMenu(); return; }
+  if(act==="mp_connect"){ UI.mp.error=""; UI.mp.status="connecting"; renderMenu(); Net.connect(UI.mp.url,UI.mp.account); return; }
+  if(act==="mp_disconnect"){ Net.disconnect(); UI.mp.status="idle"; UI.mp.match=null; renderMenu(); return; }
   if(act==="mp_create"){ Net.create({rivalCount:SETTINGS.rivalCount,neutralCount:SETTINGS.neutralCount}); return; }
   if(act==="mp_join"){ Net.join((UI.mp.code||"").toUpperCase()); return; }
   if(act==="mp_claim"){ Net.claim(parseInt(UI.mp.company,10)||0); return; }
-  if(act==="mp_chat_send"){ var tx=(UI.mp.chat_text||"").trim(); if(tx){ Net.chat(tx); UI.mp.chat_text=""; renderMenu(); } return; }
+  if(act==="mp_chan"){ UI.mp.chan=arg==="team"?"team":"match"; renderMenu(); return; }
+  if(act==="mp_chat_send"){ var tx=(UI.mp.chat_text||"").trim(); if(tx){ Net.chat(UI.mp.chan||"match",tx); UI.mp.chat_text=""; renderMenu(); } return; }
   if(act==="mp_start"){ Net.start(); return; }
   if(act==="mp_leave"){ Net.leave(); renderMenu(); return; }
   if(act==="reset"){ if(confirm("Reset? All progress lost.")){ try{localStorage.removeItem(SAVE_KEY);}catch(e){} doNewGame(); syncScene(); renderMenu(); render(); } return; }
@@ -949,52 +960,64 @@ function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity=
 
 /* ============================================================ MULTIPLAYER CLIENT (scaffold)
    Inert until Net.connect() is called from the Multiplayer lobby. Offline play is unaffected.
-   Protocol matches /server/server.js (host-authoritative relay).
-   Milestone 2 (live): the host streams full state snapshots; guests mirror them and relay their
-   whitelisted economy actions back to the host, which applies them. Map-placed builds are
-   host-side for now (see server/README.md roadmap). */
+   Protocol matches /server/server.js (v2: accounts + company teams).
+   Each signed-in account owns one company; every device on that account co-manages it (a TEAM).
+   The team's company-host runs that company's sim and streams snapshots to teammates, who mirror
+   them and relay their economy actions back. Up to 64 companies compete per match. */
 var Net=(function(){
-  var ws=null,self={id:null,connected:false,room:null},matchActive=false;
+  var ws=null,self={id:null,connected:false,account:null,match:null,company:null},matchActive=false;
   function refresh(){ if(UI.menu==="mp")renderMenu(); }
-  function isHost(){ return !!(self.room&&self.id&&self.room.hostId===self.id); }
+  function myCompany(){ return self.company; }
+  function isCompanyHost(){ return !!(self.company&&self.id&&self.company.hostId===self.id); }
+  function isMatchHost(){ return !!(self.match&&self.id&&self.match.hostId===self.id); }
+  function findMine(match){ if(!match||!match.companies)return null; for(var i=0;i<match.companies.length;i++)if(match.companies[i].members.some(function(d){return d.id===self.id;}))return match.companies[i]; return null; }
   function applySnapshot(snap){ if(!snap)return; S=snap; if(!S.gameOver)S.gameOver={over:false,won:false,type:"",text:""}; UI.dirty=true; try{ syncScene(); }catch(e){} render(); patch(); }
-  function begin(room){ matchActive=true; if(room&&room.settings){ SETTINGS.rivalCount=clamp(room.settings.rivalCount||0,0,MAX_COMPANIES-1); SETTINGS.neutralCount=clamp(room.settings.neutralCount||0,0,MAX_COMPANIES-1); } if(isHost())doNewGame(); UI.menu=null; renderMenu(); render(); }
+  function begin(match){ matchActive=true; if(match&&match.settings){ SETTINGS.rivalCount=clamp(match.settings.rivalCount||0,0,MAX_COMPANIES-1); SETTINGS.neutralCount=clamp(match.settings.neutralCount||0,0,MAX_COMPANIES-1); } if(isCompanyHost())doNewGame(); UI.menu=null; renderMenu(); render(); }
   function handle(m){
     if(m.t==="welcome")self.id=m.id;
+    else if(m.t==="authed"){ self.account=m.account; if(UI.mp){ UI.mp.status="connected"; UI.mp.error=""; } }
     else if(m.t==="joined"){ if(UI.mp)UI.mp.code=m.code; }
-    else if(m.t==="room"){ self.room=m.room; if(UI.mp){ UI.mp.room=m.room; UI.mp.status="inroom"; } }
-    else if(m.t==="host"){ if(self.room)self.room.hostId=m.hostId; if(UI.mp&&UI.mp.room)UI.mp.room.hostId=m.hostId; }
-    else if(m.t==="chat"){ if(UI.mp){ UI.mp.chat.push({from:m.from,text:m.text}); if(UI.mp.chat.length>60)UI.mp.chat.shift(); } }
-    else if(m.t==="start"){ self.room=m.room||self.room; if(UI.mp){ UI.mp.room=self.room; if(UI.mp.room)UI.mp.room.started=true; } begin(m.room); return; }
-    else if(m.t==="action"){ if(isHost()&&Net._apply){ Net._apply(m.action); save(); } }
-    else if(m.t==="state"){ if(!isHost())applySnapshot(m.snapshot); return; }
+    else if(m.t==="match"){ self.match=m.match; var mc=findMine(m.match); if(mc)self.company=mc; if(UI.mp){ UI.mp.match=m.match; UI.mp.status="inmatch"; } }
+    else if(m.t==="team"){ self.company=m.company; }
+    else if(m.t==="host"){ if(m.scope==="match"&&self.match)self.match.hostId=m.hostId; else if(m.scope==="team"&&self.company&&self.company.index===m.companyIndex)self.company.hostId=m.hostId; }
+    else if(m.t==="chat"){ if(UI.mp){ UI.mp.chat.push({channel:m.channel,from:m.from,text:m.text}); if(UI.mp.chat.length>80)UI.mp.chat.shift(); } }
+    else if(m.t==="start"){ self.match=m.match||self.match; if(self.match){ self.match.started=true; var mc2=findMine(self.match); if(mc2)self.company=mc2; } if(UI.mp)UI.mp.match=self.match; begin(self.match); return; }
+    else if(m.t==="action"){ if(isCompanyHost()&&Net._apply){ Net._apply(m.action); save(); } }
+    else if(m.t==="state"){ if(!isCompanyHost())applySnapshot(m.snapshot); return; }
     else if(m.t==="error"){ if(UI.mp)UI.mp.error=m.msg; }
     refresh();
   }
   return {
-    get id(){ return self.id; }, get room(){ return self.room; }, get connected(){ return self.connected; },
-    isHost:isHost,
+    get id(){ return self.id; }, get account(){ return self.account; }, get connected(){ return self.connected; },
+    company:myCompany, isHost:isCompanyHost, isMatchHost:isMatchHost,
     inMatch:function(){ return matchActive&&self.connected; },
-    isMirror:function(){ return matchActive&&self.connected&&!isHost(); },
-    connect:function(url,name){ try{ ws=new WebSocket(url); }catch(e){ if(UI.mp){UI.mp.error="Invalid server URL";UI.mp.status="idle";} refresh(); return; }
-      ws.onopen=function(){ self.connected=true; if(UI.mp){UI.mp.status="connected";UI.mp.error="";} ws.send(JSON.stringify({t:"hello",name:name})); refresh(); };
+    isMirror:function(){ return matchActive&&self.connected&&!isCompanyHost(); },
+    connect:function(url,account){ try{ ws=new WebSocket(url); }catch(e){ if(UI.mp){UI.mp.error="Invalid server URL";UI.mp.status="idle";} refresh(); return; }
+      ws.onopen=function(){ self.connected=true; if(UI.mp)UI.mp.error=""; ws.send(JSON.stringify({t:"auth",account:account})); refresh(); };
       ws.onmessage=function(e){ try{ handle(JSON.parse(e.data)); }catch(_){} };
-      ws.onclose=function(){ self.connected=false; self.room=null; matchActive=false; if(UI.mp){ UI.mp.status="idle"; UI.mp.room=null; } refresh(); };
+      ws.onclose=function(){ self.connected=false; self.match=null; self.company=null; matchActive=false; if(UI.mp){ UI.mp.status="idle"; UI.mp.match=null; } refresh(); };
       ws.onerror=function(){ if(UI.mp){UI.mp.error="Connection error — is the server running?";} refresh(); }; },
     send:function(o){ if(ws&&ws.readyState===1)ws.send(JSON.stringify(o)); },
     create:function(s){ this.send({t:"create",settings:s}); },
     join:function(code){ this.send({t:"join",code:code}); },
     claim:function(i){ this.send({t:"claim",company:i}); },
-    chat:function(t){ this.send({t:"chat",text:t}); },
+    chat:function(channel,t){ this.send({t:"chat",channel:channel,text:t}); },
     start:function(){ this.send({t:"start"}); },
     action:function(a){ this.send({t:"action",action:a}); },
     publishState:function(snap){ this.send({t:"state",snapshot:snap}); },
-    leave:function(){ this.send({t:"leave"}); self.room=null; matchActive=false; if(UI.mp){ UI.mp.room=null; UI.mp.status="connected"; } refresh(); },
-    disconnect:function(){ if(ws){ try{ws.close();}catch(_){}} ws=null; self.connected=false; self.room=null; matchActive=false; }
+    leave:function(){ this.send({t:"leave"}); self.match=null; self.company=null; matchActive=false; if(UI.mp){ UI.mp.match=null; UI.mp.status="connected"; } refresh(); },
+    disconnect:function(){ if(ws){ try{ws.close();}catch(_){}} ws=null; self.connected=false; self.match=null; self.company=null; matchActive=false; }
   };
 })();
-/* route whitelisted player actions to the host while mirroring its world */
+/* route whitelisted player actions to my company host while mirroring its world */
 (function(){ var NETACT={research:1,trade:1,launchCrypto:1,sellCrypto:1,sabotage:1,steal:1,acqrival:1,pact:1,setSpeed:1,build:1,ship:1},raw={}; Object.keys(NETACT).forEach(function(k){ if(typeof A[k]==="function"){ raw[k]=A[k]; A[k]=function(){ if(Net.isMirror()){ Net.action({fn:k,args:Array.prototype.slice.call(arguments)}); return; } return raw[k].apply(A,arguments); }; } }); Net._apply=function(a){ if(a&&raw[a.fn])raw[a.fn].apply(A,a.args||[]); }; })();
+/* identity helpers */
+function mpSetAccount(acc){ if(!UI.mp)return; UI.mp.account=acc; UI.mp.name=acc.name; UI.mp.error=""; UI.mp.status="idle"; try{ localStorage.setItem("solarwar.mp.account",JSON.stringify(acc)); }catch(e){} renderMenu(); }
+function mpDecodeJwt(tok){ try{ var p=tok.split(".")[1].replace(/-/g,"+").replace(/_/g,"/"); return JSON.parse(decodeURIComponent(escape(atob(p)))); }catch(e){ return null; } }
+function mpGoogleSignIn(){ var cid=window.MP_GOOGLE_CLIENT_ID||(function(){try{return localStorage.getItem("solarwar.mp.gcid");}catch(e){return null;}})(); if(!cid){ UI.mp.error="Google sign-in needs window.MP_GOOGLE_CLIENT_ID set and this origin authorized in Google Cloud. Email sign-in works now."; renderMenu(); return; }
+  function go(){ try{ google.accounts.id.initialize({client_id:cid,callback:function(resp){ var p=mpDecodeJwt(resp.credential); if(p)mpSetAccount({id:"google:"+p.sub,email:p.email||"",name:p.name||p.email||"Player",provider:"google"}); }}); google.accounts.id.prompt(); }catch(e){ UI.mp.error="Google sign-in failed to initialize."; renderMenu(); } }
+  if(window.google&&google.accounts&&google.accounts.id){ go(); return; }
+  var s=document.createElement("script"); s.src="https://accounts.google.com/gsi/client"; s.async=true; s.onload=go; s.onerror=function(){ UI.mp.error="Could not load Google Identity Services."; renderMenu(); }; document.head.appendChild(s); }
 
 /* ============================================================ BOOT */
 loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); UI.menu=hadSave?"main":"setup"; initScene(); render(); renderMenu();
@@ -1003,7 +1026,7 @@ setInterval(function(){ if(S.speed>0&&!UI.menu&&!Net.isMirror()){ var dt=0.2*S.s
   if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); updateMpBadge(); },200);
 setInterval(function(){ if(UI.open&&!S.battleTarget){ var t=UI.tab; if(t==="markets"||t==="military"||t==="intel"||t==="industry"||t==="trade"||(t==="digital"&&S.crypto.launched)){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); } } syncScene(); if(!Net.isMirror())save(); if(Net.inMatch()&&Net.isHost())Net.publishState(S); },900);
 function showEnd(){ var g=S.gameOver; el("end").innerHTML='<div class="overlay" style="z-index:60"><div class="modal glass" style="max-width:440px;text-align:center;border-color:'+(g.won?"rgba(0,255,65,.4)":"rgba(255,40,40,.5)")+'"><div style="font-size:40px">🏆</div><h1 style="font-size:24px">'+(g.won?"VICTORY":"DEFEAT")+'</h1>'+(g.type?'<div class="lbl">'+g.type+(g.won?" victory":"")+'</div>':"")+'<p style="color:#9dffb0;font-size:14px;line-height:1.6;margin:14px 0">'+g.text+'</p><button class="btn sm" style="width:auto;margin:0 auto" data-act="reset">↺ New Game</button></div></div>'; }
-function updateMpBadge(){ var b=el("mpbadge"); if(Net.inMatch()){ if(!b){ b=document.createElement("div"); b.id="mpbadge"; b.className="panelglass ui"; b.style.cssText="position:fixed;bottom:8px;right:12px;z-index:40;padding:4px 9px;font-size:12px;display:flex;gap:8px;align-items:center"; document.body.appendChild(b); } var lbl=Net.isHost()?"Hosting":"Guest · live mirror"; if(b.getAttribute("data-l")!==lbl){ b.setAttribute("data-l",lbl); b.innerHTML='<span style="color:#8fd6ff">🌐 '+lbl+'</span><button class="btn ui sm" style="width:auto;padding:2px 8px" data-act="menu_mp">Lobby</button><button class="btn ui sm red" style="width:auto;padding:2px 8px" data-act="mp_leave">Leave</button>'; } } else if(b){ b.remove(); } }
+function updateMpBadge(){ var b=el("mpbadge"); if(Net.inMatch()){ if(!b){ b=document.createElement("div"); b.id="mpbadge"; b.className="panelglass ui"; b.style.cssText="position:fixed;bottom:8px;right:12px;z-index:40;padding:4px 9px;font-size:12px;display:flex;gap:8px;align-items:center"; document.body.appendChild(b); } var co=Net.company(),cn=co?companyName(co.index):"company",lbl=(Net.isHost()?"Hosting ":"Team · ")+cn; if(b.getAttribute("data-l")!==lbl){ b.setAttribute("data-l",lbl); b.innerHTML='<span style="color:#8fd6ff">🌐 '+esc(lbl)+'</span><button class="btn ui sm" style="width:auto;padding:2px 8px" data-act="menu_mp">Lobby</button><button class="btn ui sm red" style="width:auto;padding:2px 8px" data-act="mp_leave">Leave</button>'; } } else if(b){ b.remove(); } }
 window.addEventListener("beforeunload",save);
 </script>
 </body>

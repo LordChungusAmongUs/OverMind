@@ -1,220 +1,226 @@
 /*
- * Solar War 2040 — Multiplayer Backend (scaffold)
- * ------------------------------------------------
- * A lightweight WebSocket lobby + action-relay server.
+ * Solar War 2040 — Multiplayer Backend (v2: accounts + company teams)
+ * -------------------------------------------------------------------
+ * A WebSocket server that models:  MATCH ▸ COMPANIES (teams) ▸ MEMBERS (devices).
  *
- * Model: HOST-AUTHORITATIVE RELAY.
- *   - Players connect, then create or join a room by 4-letter code.
- *   - Each room has one HOST (the creator). The host runs the authoritative
- *     simulation in their browser and broadcasts {t:"state"} snapshots.
- *   - Non-host players send {t:"action"} messages; the server relays them to
- *     the host, who applies them and rebroadcasts the resulting state.
- *   - The server itself is authoritative ONLY for lobby concerns: room
- *     membership, company claims, chat, and host hand-off.
+ *   - A device connects and AUTHENTICATES with an account identity
+ *     (Google sub/email in production, or a dev email in local play).
+ *   - A device joins a MATCH (by 4-letter code). Inside the match it is placed on
+ *     the COMPANY that belongs to its account: every device signed into the SAME
+ *     account shares one company TEAM and co-manages it (up to 64 devices/company).
+ *   - Different accounts get different companies — up to 64 companies compete in a
+ *     match.
  *
- * This is deliberately simple so it can be deployed anywhere Node runs
- * (Render / Fly / Railway / a VPS). For a fully server-authoritative sim,
- * port the engine functions from solar-war.html into ./engine and tick here.
+ * Authority model (host-authoritative, per company):
+ *   - Each company team has a HOST device (the first to join that company) which
+ *     runs that company's simulation and publishes {t:"state"} snapshots; the
+ *     server fans them out to that company's OTHER devices only.
+ *   - Teammates send {t:"action"}; the server relays them to their company host.
+ *   - One device is the MATCH host (the creator) and controls match start/settings.
  *
- * Run:  npm install && npm start     (PORT env var, default 8090)
- * Wire: point the in-game Multiplayer lobby at  ws://<host>:8090
+ * NOTE ON AUTH: this scaffold TRUSTS the client-supplied identity so it runs with
+ * zero secrets. In production, verify the Google ID token here (see verifyAccount)
+ * before trusting account.id — never trust a raw client claim for ranked play.
+ *
+ * Run:  npm install && npm start     (PORT env, default 8090)
  */
 "use strict";
 const http = require("http");
 const { WebSocketServer } = require("ws");
 
 const PORT = process.env.PORT || 8090;
-const MAX_COMPANIES = 64;
-const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous chars
+const MAX_COMPANIES = 64;      // companies (accounts) per match
+const MAX_TEAM = 64;           // devices per company
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-/** @type {Map<string, Room>} */
-const rooms = new Map();
+/** @type {Map<string, Match>} */
+const matches = new Map();
 let nextId = 1;
 
 function makeCode() {
-  let code;
-  do {
-    code = Array.from({ length: 4 }, () => CODE_CHARS[(Math.random() * CODE_CHARS.length) | 0]).join("");
-  } while (rooms.has(code));
-  return code;
+  let c; do { c = Array.from({ length: 4 }, () => CODE_CHARS[(Math.random() * CODE_CHARS.length) | 0]).join(""); } while (matches.has(c));
+  return c;
 }
 
-function roomView(room) {
+/**
+ * Production hook: verify a Google ID token and return a trusted account.
+ * Left as a pass-through for the scaffold (no network/secrets required).
+ */
+async function verifyAccount(account) {
+  // In production:
+  //   const r = await fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + account.token);
+  //   const tok = await r.json(); assert(tok.aud === GOOGLE_CLIENT_ID);
+  //   return { id: "google:" + tok.sub, email: tok.email, name: tok.name, provider: "google" };
+  return account;
+}
+
+function companyView(co) {
+  return { index: co.index, name: co.name, accountId: co.accountId, hostId: co.hostId, members: co.members.map((m) => ({ id: m.id, name: m.name })) };
+}
+function matchView(match) {
   return {
-    code: room.code,
-    hostId: room.hostId,
-    started: room.started,
-    settings: room.settings,
-    players: room.players.map((p) => ({ id: p.id, name: p.name, company: p.company, host: p.id === room.hostId })),
+    code: match.code, hostId: match.hostId, started: match.started, settings: match.settings,
+    companies: [...match.companies.values()].map(companyView),
   };
 }
+function send(ws, msg) { if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg)); }
+function toMatch(match, msg, exceptId) { match.companies.forEach((co) => co.members.forEach((m) => { if (m.id !== exceptId) send(m.ws, msg); })); }
+function toTeam(co, msg, exceptId) { co.members.forEach((m) => { if (m.id !== exceptId) send(m.ws, msg); }); }
+function companyOf(match, accountId) { return match.companies.get(accountId); }
+function memberCompany(match, memberId) { for (const co of match.companies.values()) if (co.members.some((m) => m.id === memberId)) return co; return null; }
+function freeIndex(match) { const used = new Set([...match.companies.values()].map((c) => c.index)); for (let i = 0; i < MAX_COMPANIES; i++) if (!used.has(i)) return i; return -1; }
 
-function send(ws, msg) {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
+function leaveMatch(client) {
+  const match = client.match; if (!match) return;
+  const co = memberCompany(match, client.id);
+  client.match = null;
+  if (!co) return;
+  co.members = co.members.filter((m) => m.id !== client.id);
+  if (co.members.length === 0) {
+    match.companies.delete(co.accountId);
+  } else if (co.hostId === client.id) {
+    co.hostId = co.members[0].id;                 // company-host hand-off within team
+    toTeam(co, { t: "host", scope: "team", companyIndex: co.index, hostId: co.hostId });
+  }
+  // match-host hand-off / empty cleanup
+  const anyMember = [...match.companies.values()].some((c) => c.members.length);
+  if (!anyMember) { matches.delete(match.code); return; }
+  if (match.hostId === client.id) {
+    const first = [...match.companies.values()][0];
+    match.hostId = first.members[0].id;
+    toMatch(match, { t: "host", scope: "match", hostId: match.hostId });
+  }
+  toMatch(match, { t: "match", match: matchView(match) });
 }
 
-function broadcast(room, msg, exceptId) {
-  room.players.forEach((p) => {
-    if (p.id !== exceptId) send(p.ws, msg);
-  });
-}
-
-function leaveRoom(client) {
-  const room = client.room;
-  if (!room) return;
-  room.players = room.players.filter((p) => p.id !== client.id);
-  client.room = null;
-  if (room.players.length === 0) {
-    rooms.delete(room.code);
-    return;
+function placeInCompany(client, match, chosenIndex) {
+  let co = companyOf(match, client.account.id);   // same account -> same company team
+  if (!co) {
+    if (match.companies.size >= MAX_COMPANIES) return { error: "Match is full (64 companies)." };
+    let idx = (typeof chosenIndex === "number" && chosenIndex >= 0 && chosenIndex < MAX_COMPANIES && ![...match.companies.values()].some((c) => c.index === chosenIndex)) ? chosenIndex : freeIndex(match);
+    if (idx < 0) return { error: "No free company slot." };
+    co = { index: idx, accountId: client.account.id, name: client.account.name ? client.account.name + " Corp" : "Company " + (idx + 1), hostId: client.id, members: [] };
+    match.companies.set(client.account.id, co);
   }
-  // host hand-off
-  if (room.hostId === client.id) {
-    room.hostId = room.players[0].id;
-    broadcast(room, { t: "host", hostId: room.hostId });
-  }
-  broadcast(room, { t: "room", room: roomView(room) });
+  if (co.members.length >= MAX_TEAM) return { error: "Company team is full (64 devices)." };
+  co.members.push(client);
+  return { company: co };
 }
 
 const server = http.createServer((req, res) => {
-  // tiny health endpoint so platform health-checks pass
   if (req.url === "/health" || req.url === "/") {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, rooms: rooms.size, ts: Date.now() }));
+    res.end(JSON.stringify({ ok: true, matches: matches.size, ts: Date.now() }));
     return;
   }
-  res.writeHead(404);
-  res.end();
+  res.writeHead(404); res.end();
 });
 
 const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws) => {
-  const client = { id: "p" + nextId++, name: "Player", ws, room: null };
-  ws.isAlive = true;
-  ws.on("pong", () => (ws.isAlive = true));
+  const client = { id: "d" + nextId++, ws, account: null, match: null };
+  ws.isAlive = true; ws.on("pong", () => (ws.isAlive = true));
   send(ws, { t: "welcome", id: client.id });
 
-  ws.on("message", (raw) => {
-    let m;
-    try { m = JSON.parse(raw); } catch (e) { return; }
+  ws.on("message", async (raw) => {
+    let m; try { m = JSON.parse(raw); } catch (e) { return; }
     if (!m || typeof m.t !== "string") return;
 
+    // must authenticate before anything else
+    if (m.t === "auth") {
+      const acc = await verifyAccount(m.account || {});
+      client.account = {
+        id: String(acc.id || ("guest:" + client.id)).slice(0, 80),
+        email: String(acc.email || "").slice(0, 120),
+        name: String(acc.name || "Player").slice(0, 32),
+        provider: acc.provider === "google" ? "google" : "dev",
+      };
+      send(ws, { t: "authed", account: { id: client.account.id, name: client.account.name, provider: client.account.provider } });
+      return;
+    }
+    if (!client.account) { send(ws, { t: "error", msg: "Sign in first." }); return; }
+
     switch (m.t) {
-      case "hello":
-        client.name = String(m.name || "Player").slice(0, 24);
-        break;
-
       case "create": {
-        if (client.room) leaveRoom(client);
+        if (client.match) leaveMatch(client);
         const code = makeCode();
-        const room = {
-          code,
-          hostId: client.id,
-          started: false,
-          settings: sanitizeSettings(m.settings),
-          players: [],
-        };
-        rooms.set(code, room);
-        client.company = 0;
-        room.players.push(client);
-        client.room = room;
-        send(ws, { t: "joined", code, you: client.id });
-        broadcast(room, { t: "room", room: roomView(room) });
+        const match = { code, hostId: client.id, started: false, settings: sanitizeSettings(m.settings), companies: new Map() };
+        matches.set(code, match);
+        client.match = match;
+        const r = placeInCompany(client, match, m.company);
+        if (r.error) { send(ws, { t: "error", msg: r.error }); break; }
+        send(ws, { t: "joined", code, you: client.id, company: r.company.index });
+        toMatch(match, { t: "match", match: matchView(match) });
+        send(ws, { t: "team", company: companyView(r.company) });
         break;
       }
-
       case "join": {
-        const room = rooms.get(String(m.code || "").toUpperCase());
-        if (!room) { send(ws, { t: "error", msg: "No room with that code." }); break; }
-        if (room.started) { send(ws, { t: "error", msg: "Match already started." }); break; }
-        if (room.players.length >= MAX_COMPANIES) { send(ws, { t: "error", msg: "Room is full." }); break; }
-        if (client.room) leaveRoom(client);
-        client.company = firstFreeCompany(room);
-        room.players.push(client);
-        client.room = room;
-        send(ws, { t: "joined", code: room.code, you: client.id });
-        broadcast(room, { t: "room", room: roomView(room) });
+        const match = matches.get(String(m.code || "").toUpperCase());
+        if (!match) { send(ws, { t: "error", msg: "No match with that code." }); break; }
+        if (client.match) leaveMatch(client);
+        client.match = match;
+        const r = placeInCompany(client, match, m.company);
+        if (r.error) { client.match = null; send(ws, { t: "error", msg: r.error }); break; }
+        send(ws, { t: "joined", code: match.code, you: client.id, company: r.company.index });
+        toMatch(match, { t: "match", match: matchView(match) });
+        toTeam(r.company, { t: "team", company: companyView(r.company) });
         break;
       }
-
       case "claim": {
-        const room = client.room;
-        if (!room || room.started) break;
+        const match = client.match; if (!match || match.started) break;
+        const co = memberCompany(match, client.id);
+        if (!co || co.hostId !== client.id) break;          // only the company host re-slots
         const idx = m.company | 0;
         if (idx < 0 || idx >= MAX_COMPANIES) break;
-        if (room.players.some((p) => p.id !== client.id && p.company === idx)) break; // taken
-        client.company = idx;
-        broadcast(room, { t: "room", room: roomView(room) });
+        if ([...match.companies.values()].some((c) => c !== co && c.index === idx)) break;
+        co.index = idx;
+        toMatch(match, { t: "match", match: matchView(match) });
         break;
       }
-
       case "chat": {
-        const room = client.room;
-        if (!room) break;
-        broadcast(room, { t: "chat", from: client.name, fromId: client.id, text: String(m.text || "").slice(0, 280) });
+        const match = client.match; if (!match) break;
+        const co = memberCompany(match, client.id);
+        const payload = { t: "chat", channel: m.channel === "team" ? "team" : "match", from: client.account.name, fromCompany: co ? co.index : -1, text: String(m.text || "").slice(0, 280) };
+        if (payload.channel === "team" && co) toTeam(co, payload); else toMatch(match, payload);
         break;
       }
-
       case "start": {
-        const room = client.room;
-        if (!room || room.hostId !== client.id) break;
-        room.started = true;
-        broadcast(room, { t: "start", room: roomView(room) });
+        const match = client.match; if (!match || match.hostId !== client.id) break;
+        match.started = true;
+        toMatch(match, { t: "start", match: matchView(match) });
         break;
       }
-
-      case "action": {
-        const room = client.room;
-        if (!room) break;
-        // relay player actions to the host for authoritative application
-        const host = room.players.find((p) => p.id === room.hostId);
-        if (host) send(host.ws, { t: "action", from: client.id, action: m.action });
+      case "action": {                                       // relay to my company host
+        const match = client.match; if (!match) break;
+        const co = memberCompany(match, client.id); if (!co) break;
+        const host = co.members.find((x) => x.id === co.hostId);
+        if (host && host.id !== client.id) send(host.ws, { t: "action", from: client.id, action: m.action });
         break;
       }
-
-      case "state": {
-        const room = client.room;
-        if (!room || room.hostId !== client.id) break; // only host publishes state
-        broadcast(room, { t: "state", snapshot: m.snapshot }, client.id);
+      case "state": {                                        // company host -> teammates
+        const match = client.match; if (!match) break;
+        const co = memberCompany(match, client.id); if (!co || co.hostId !== client.id) break;
+        toTeam(co, { t: "state", companyIndex: co.index, snapshot: m.snapshot }, client.id);
         break;
       }
-
-      case "leave":
-        leaveRoom(client);
-        break;
+      case "leave": leaveMatch(client); break;
     }
   });
 
-  ws.on("close", () => leaveRoom(client));
+  ws.on("close", () => leaveMatch(client));
   ws.on("error", () => {});
 });
-
-function firstFreeCompany(room) {
-  const taken = new Set(room.players.map((p) => p.company));
-  for (let i = 0; i < MAX_COMPANIES; i++) if (!taken.has(i)) return i;
-  return 0;
-}
 
 function sanitizeSettings(s) {
   s = s || {};
   const clamp = (v, lo, hi, d) => (typeof v === "number" && isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : d);
-  return {
-    rivalCount: clamp(s.rivalCount, 0, MAX_COMPANIES - 1, 7),
-    neutralCount: clamp(s.neutralCount, 0, MAX_COMPANIES - 1, 10),
-  };
+  return { rivalCount: clamp(s.rivalCount, 0, MAX_COMPANIES - 1, 7), neutralCount: clamp(s.neutralCount, 0, MAX_COMPANIES - 1, 10) };
 }
 
-// drop dead connections every 30s
 const heartbeat = setInterval(() => {
-  wss.clients.forEach((ws) => {
-    if (ws.isAlive === false) return ws.terminate();
-    ws.isAlive = false;
-    try { ws.ping(); } catch (e) {}
-  });
+  wss.clients.forEach((ws) => { if (ws.isAlive === false) return ws.terminate(); ws.isAlive = false; try { ws.ping(); } catch (e) {} });
 }, 30000);
 wss.on("close", () => clearInterval(heartbeat));
 
-server.listen(PORT, () => {
-  console.log(`Solar War 2040 multiplayer server listening on :${PORT}`);
-});
+server.listen(PORT, () => console.log(`Solar War 2040 multiplayer server (v2 teams) listening on :${PORT}`));
