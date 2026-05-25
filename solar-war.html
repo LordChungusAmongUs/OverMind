@@ -112,7 +112,8 @@ var RESMETA={
 var STOCKS=Object.keys(RESMETA);
 var PHYS={}; /* physical goods that must be transported (everything but money, compute, talent, influence) */
 (function(){ STOCKS.forEach(function(k){ if(k!=="capital"&&k!=="compute"&&k!=="talent"&&k!=="influence")PHYS[k]=1; }); })();
-var LOGI_BASE=1500; /* baseline freight throughput before transport fleets */
+var LOGI_BASE=1500; /* baseline surface freight throughput */
+var SPACE_BASE=150; /* baseline space lift before launch/freighters — off-world haulage is scarce */
 var RESGROUPS=[["core","Core"],["fuel","Energy Fuels"],["industrial","Industrial"],["hitech","High-Tech"],["space","Space Resources"]];
 var HEADLINE=["capital","compute","talent","influence","materials"];
 var RES=RESMETA;
@@ -158,7 +159,7 @@ var BUILDINGS={
   consumer_division:{name:"Consumer AI Products",loc:"earth",cat:"Revenue",ds:"Mass-market AI. Consumer share + influence.",cost:{capital:4500,materials:20},g:1.17,days:120,prod:{capital:22,influence:0.5},con:{energy:12,compute:0.2},req:"personal_ai"},
   enterprise_division:{name:"Enterprise AI Division",loc:"earth",cat:"Revenue",ds:"B2B automation. High margins.",cost:{capital:6000,materials:30},g:1.17,days:150,prod:{capital:34},con:{energy:14,compute:0.4},req:"enterprise_ai"},
   gov_relations:{name:"Government Affairs Office",loc:"earth",cat:"Revenue",ds:"Contracts, influence, political cover.",cost:{capital:5000},g:1.18,days:150,prod:{capital:18,influence:0.8},con:{energy:8},req:"gov_contracts"},
-  launch_complex:{name:"Launch Complex",loc:"earth",cat:"Logistics",ds:"Spaceport. Lifts cargo to orbit and speeds every orbital, lunar & deep-space build.",cost:{capital:80000,steel:1500,concrete:2000,copper:200,materials:400},g:1.2,days:1095,con:{energy:20,materials:1},logi:1800,req:"orbital_logistics"},
+  launch_complex:{name:"Launch Complex",loc:"earth",cat:"Logistics",ds:"Spaceport. Lifts cargo to orbit and speeds every orbital, lunar & deep-space build.",cost:{capital:80000,steel:1500,concrete:2000,copper:200,materials:400},g:1.2,days:1095,con:{energy:20,materials:1},logi:1800,logiDom:"space",req:"orbital_logistics"},
   /* --- Earth: in-city corporate developments --- */
   retail_ai_center:{name:"Retail AI Center",loc:"earth",cat:"City",ds:"Consumer storefronts. Revenue + reach.",cost:{capital:3000},g:1.16,days:60,prod:{capital:16,influence:0.3},con:{energy:6,compute:0.2},req:"personal_ai"},
   regional_hq:{name:"Regional Headquarters",loc:"earth",cat:"City",ds:"Talent acquisition hub.",cost:{capital:6000,materials:20},g:1.18,days:270,prod:{talent:0.5,capital:5},con:{energy:5}},
@@ -184,8 +185,8 @@ var BUILDINGS={
   orbital_solar_array:{name:"Orbital Solar Array",loc:"orbit",cat:"Orbital",ds:"Space solar, no day/night.",cost:{capital:7000,steel:80,materials:60},g:1.16,days:180,prod:{energy:130},req:"orbital_energy"},
   ai_cluster:{name:"AI Compute Cluster",loc:"orbit",cat:"Orbital",ds:"Frontier training fabric.",cost:{capital:20000,steel:80,chips:120,copper:60,aluminum:40},g:1.17,days:365,prod:{compute:20},con:{energy:42},req:"ai_models"},
   orbital_shipyard:{name:"Orbital Shipyard",loc:"orbit",cat:"Orbital",ds:"Orbital warship assembly. Huge ship-speed boost.",cost:{capital:80000,steel:1000,titanium:200,aluminum:200,chips:150},g:1.2,days:1095,con:{energy:40,steel:1},req:"space_manufacturing"},
-  orbital_manufacturing:{name:"Orbital Manufacturing Complex",loc:"orbit",cat:"Orbital",ds:"Matures orbital industry — speeds all space builds.",cost:{capital:70000,steel:800,titanium:150,chips:120,aluminum:150},g:1.19,days:730,prod:{materials:20,chips:2,capital:15},con:{asteroid_metals:2,energy:50},logi:1500,req:"space_manufacturing"},
-  space_freighter:{name:"Space Freighter Fleet",loc:"orbit",cat:"Logistics",ds:"Heavy-lift cargo haulers for cislunar & deep-space delivery.",cost:{capital:60000,steel:600,titanium:200,chips:80},g:1.18,days:540,con:{energy:30},logi:3000,req:"space_manufacturing"},
+  orbital_manufacturing:{name:"Orbital Manufacturing Complex",loc:"orbit",cat:"Orbital",ds:"Matures orbital industry — speeds all space builds.",cost:{capital:70000,steel:800,titanium:150,chips:120,aluminum:150},g:1.19,days:730,prod:{materials:20,chips:2,capital:15},con:{asteroid_metals:2,energy:50},logi:1500,logiDom:"space",req:"space_manufacturing"},
+  space_freighter:{name:"Space Freighter Fleet",loc:"orbit",cat:"Logistics",ds:"Heavy-lift cargo haulers for cislunar & deep-space delivery.",cost:{capital:60000,steel:600,titanium:200,chips:80},g:1.18,days:540,con:{energy:30},logi:3000,logiDom:"space",req:"space_manufacturing"},
   orbital_habitat:{name:"Orbital Habitat",loc:"orbit",cat:"Orbital",ds:"People live in space. Talent + influence.",cost:{capital:120000,steel:800,titanium:400,aluminum:300,chips:100,materials:400,water_ice:200},g:1.2,days:1825,prod:{talent:1.5,influence:1},con:{energy:25,water_ice:1,materials:2},req:"space_habitation"},
   orbital_research_station:{name:"Orbital Research Station",loc:"orbit",cat:"Orbital",ds:"Microgravity science. Compute + talent.",cost:{capital:40000,steel:300,titanium:80,chips:60,aluminum:60},g:1.19,days:1095,prod:{compute:8,talent:0.3},con:{energy:20},req:"space_science"},
   orbital_defense_platform:{name:"Orbital Defense Platform",loc:"orbit",cat:"Military",ds:"Static orbital defense.",cost:{capital:25000,steel:300,chips:40},g:1.18,days:365,con:{energy:18},req:"orbital_warfare"},
@@ -308,13 +309,13 @@ function techMult(r){ var m=zero(),k; for(k in m)m[k]=1; var g=1; r.forEach(func
 var RUNWIN=1.5;
 function extractionFactors(S){ var sum={},cnt={}; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit)return; var b=BUILDINGS[pl.id]; if(!b||!b.dep)return; var lon=pl.lon!==undefined?pl.lon:(pl.gx||0)*GRID_STEP,lat=pl.lat!==undefined?pl.lat:(pl.gy||0)*GRID_STEP,r=depRichness(lon,lat,b.dep)||1; sum[pl.id]=(sum[pl.id]||0)+r; cnt[pl.id]=(cnt[pl.id]||0)+1; }); var f={}; for(var id in sum)f[id]=sum[id]/cnt[id]; return f; }
 function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),eS=0,eD=0,k,rf,xf=extractionFactors(S);
-  /* physical goods must be moved: logistics capacity (transport fleets + hubs) vs throughput (extraction/refining tonnage) */
-  var logiCap=LOGI_BASE,logiDem=0; for(var lid in S.buildings){ var lc=S.buildings[lid],lb=BUILDINGS[lid]; if(!lc||!lb)continue; if(lb.logi)logiCap+=lb.logi*lc; var t=0; if(lb.prod)for(k in lb.prod){ if(PHYS[k])t+=lb.prod[k]; } if(lb.con)for(k in lb.con){ if(PHYS[k])t+=lb.con[k]; } logiDem+=t*lc; }
-  var lr=logiDem<=0?1:clamp(logiCap/logiDem,0,1);
+  /* physical goods must be moved on two transport networks: SURFACE (truck/rail/sea/air) and SPACE (launch/freighters) */
+  var surfCap=LOGI_BASE,surfDem=0,spCap=SPACE_BASE,spDem=0; for(var lid in S.buildings){ var lc=S.buildings[lid],lb=BUILDINGS[lid]; if(!lc||!lb)continue; if(lb.logi){ if(lb.logiDom==="space")spCap+=lb.logi*lc; else surfCap+=lb.logi*lc; } var t=0; if(lb.prod)for(k in lb.prod){ if(PHYS[k])t+=lb.prod[k]; } if(lb.con)for(k in lb.con){ if(PHYS[k])t+=lb.con[k]; } if(lb.loc==="earth")surfDem+=t*lc; else spDem+=t*lc; }
+  var lrS=surfDem<=0?1:clamp(surfCap/surfDem,0,1),lrSp=spDem<=0?1:clamp(spCap/spDem,0,1),lr=Math.min(lrS,lrSp);
   for(var id in S.buildings){ var c=S.buildings[id]; if(!c)continue; var b=BUILDINGS[id]; if(!b)continue;
     rf=1; if(b.con)for(k in b.con){ if(k==="energy")continue; var nd=b.con[k]*c,av=S.resources[k]||0,f=nd<=0?1:clamp(av/(nd*RUNWIN),0,1); if(f<rf)rf=f; }
-    var xr=(b.dep&&xf[id]!==undefined)?xf[id]:1;
-    if(b.prod)for(k in b.prod){ if(k==="energy")eS+=b.prod[k]*c*rf; else gross[k]+=b.prod[k]*c*rf*xr*(PHYS[k]?lr:1); }
+    var xr=(b.dep&&xf[id]!==undefined)?xf[id]:1,blr=b.loc==="earth"?lrS:lrSp;
+    if(b.prod)for(k in b.prod){ if(k==="energy")eS+=b.prod[k]*c*rf; else gross[k]+=b.prod[k]*c*rf*xr*(PHYS[k]?blr:1); }
     if(b.gpu){ var gm=S.gpuMode||"ai"; if(gm==="ai")gross.compute+=14*c; else if(gm==="render")gross.capital+=10*c; }
     if(b.con)for(k in b.con){ if(k==="energy")eD+=b.con[k]*c*rf; else con[k]+=b.con[k]*c*rf; } }
   for(var fid in S.fleet){ var fc=S.fleet[fid]; if(!fc)continue; var sh=SHIPS[fid]; if(!sh||!sh.up)continue; for(k in sh.up){ if(k==="energy")eD+=sh.up[k]*fc; else con[k]+=sh.up[k]*fc; } }
@@ -324,7 +325,7 @@ function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),eS=0,eD=
   var net=zero(); for(k in net)net[k]=pg[k]+ext[k]-con[k];
   var capInc=pg.capital+mRev+ext.capital,tax=REG_TAX_MAX*(S.regulation/100)*capInc,payroll=(S.resources.talent||0)*PAYROLL_WAGE,interest=(S.debt||0)*(S.fedRate||0.05)/365/DAY_SECONDS;
   net.capital=capInc-con.capital-tax-payroll-interest; net.influence=pg.influence+mInf+ext.influence-con.influence;
-  return {eS:eS,eD:eD,pr:pr,net:net,payroll:payroll,capInc:capInc,tax:tax,interest:interest,conCapital:con.capital,logiCap:logiCap,logiDem:logiDem,lr:lr}; }
+  return {eS:eS,eD:eD,pr:pr,net:net,payroll:payroll,capInc:capInc,tax:tax,interest:interest,conCapital:con.capital,surfCap:surfCap,surfDem:surfDem,lrS:lrS,spCap:spCap,spDem:spDem,lrSp:lrSp,lr:lr}; }
 function advance(S,dt){ var r=rates(S),o={}; STOCKS.forEach(function(k){ if(k==="capital"){ o[k]=S.resources[k]; return; } o[k]=Math.max(0,S.resources[k]+r.net[k]*dt); }); return o; }
 /* Closed-loop dollars: operating revenue is drawn from finite customer money pools; payroll, tax, interest and
    upkeep recirculate back into them; the Fed prints only to backstop contraction. New money = credit + printing. */
@@ -501,7 +502,7 @@ function prog$(kind,id){ var info=jobInfo(kind,id); if(!info)return ""; return '
 function resBar(){ var r=rates(S),h='<div class="panelglass ui" id="resbar">';
   HEADLINE.forEach(function(k){ var d=RES[k],nv=r.net[k]; h+='<div class="res"><div class="lbl" style="color:'+d.col+'">'+(k==="capital"?"Cash ($)":d.name)+'</div><div class="v" style="color:'+d.col+'" id="res-'+k+'">'+(k==="capital"?money(S.resources[k]):fmt(S.resources[k]))+'</div><div class="r" id="rate-'+k+'" style="color:'+(nv>0?"#2f8f43":nv<0?"#ff5d8f":"#456")+'">'+fmtRate(nv)+'</div></div>'; });
   var pw=r.pr>=1; h+='<div class="res"><div class="lbl enr">Energy</div><div class="v enr" id="res-energy">'+fmt(r.eS)+'<span style="color:#456;font-size:11px">/'+fmt(r.eD)+'</span></div><div class="r" id="rate-energy" style="color:'+(pw?"#2f8f43":"#ff5d8f")+'">'+(pw?"powered":Math.round(r.pr*100)+"% deficit")+'</div></div>';
-  var lok=r.lr>=0.999; h+='<div class="res"><div class="lbl" style="color:#c2a36b">Logistics</div><div class="v" style="color:#c2a36b" id="res-logi">'+fmt(r.logiDem)+'<span style="color:#456;font-size:11px">/'+fmt(r.logiCap)+'</span></div><div class="r" id="rate-logi" style="color:'+(lok?"#2f8f43":"#ff5d8f")+'">'+(lok?"delivered":Math.round((1-r.lr)*100)+"% backlog")+'</div></div>';
+  var lok=r.lr>=0.999,sp=r.lrSp<r.lrS,bd=sp?r.spDem:r.surfDem,bc=sp?r.spCap:r.surfCap; h+='<div class="res"><div class="lbl" style="color:#c2a36b">Logistics'+(lok?"":sp?" \u00b7spc":" \u00b7srf")+'</div><div class="v" style="color:#c2a36b" id="res-logi">'+fmt(bd)+'<span style="color:#456;font-size:11px">/'+fmt(bc)+'</span></div><div class="r" id="rate-logi" style="color:'+(lok?"#2f8f43":"#ff5d8f")+'">'+(lok?"delivered":Math.round((1-r.lr)*100)+"% backlog")+'</div></div>';
   return h+'</div>'; }
 var TABS=[["ops","⚙","Operations"],["industry","🏭","Industry"],["trade","⚖","Trade"],["bank","🏦","Bank"],["digital","💠","Digital"],["research","🧪","Research"],["markets","👑","Markets"],["partners","🤝","Partners"],["military","⚔","Military"],["intel","📡","Intel"]];
 function tradePanel(){ var h='<div class="small" style="margin-bottom:6px">Commodity exchange — buy inputs you lack, sell surplus. Prices float with the market.</div>';
@@ -621,7 +622,7 @@ function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(fu
 }
 function patch(){ var r=rates(S); STOCKS.forEach(function(k){ var v=el("res-"+k); if(v)v.textContent=k==="capital"?money(S.resources[k]):fmt(S.resources[k]); var rt=el("rate-"+k); if(rt){ rt.textContent=fmtRate(r.net[k]); rt.style.color=r.net[k]>0?"#2f8f43":r.net[k]<0?"#ff5d8f":"#456"; } });
   var e=el("res-energy"); if(e)e.innerHTML=fmt(r.eS)+'<span style="color:#456;font-size:11px">/'+fmt(r.eD)+'</span>'; var er=el("rate-energy"); if(er){ er.textContent=r.pr>=1?"powered":Math.round(r.pr*100)+"% deficit"; er.style.color=r.pr>=1?"#2f8f43":"#ff5d8f"; }
-  var lv=el("res-logi"); if(lv)lv.innerHTML=fmt(r.logiDem)+'<span style="color:#456;font-size:11px">/'+fmt(r.logiCap)+'</span>'; var lr2=el("rate-logi"); if(lr2){ lr2.textContent=r.lr>=0.999?"delivered":Math.round((1-r.lr)*100)+"% backlog"; lr2.style.color=r.lr>=0.999?"#2f8f43":"#ff5d8f"; }
+  var sp2=r.lrSp<r.lrS,bd2=sp2?r.spDem:r.surfDem,bc2=sp2?r.spCap:r.surfCap; var lv=el("res-logi"); if(lv)lv.innerHTML=fmt(bd2)+'<span style="color:#456;font-size:11px">/'+fmt(bc2)+'</span>'; var lr2=el("rate-logi"); if(lr2){ lr2.textContent=r.lr>=0.999?"delivered":Math.round((1-r.lr)*100)+"% backlog"; lr2.style.color=r.lr>=0.999?"#2f8f43":"#ff5d8f"; }
   document.querySelectorAll("[data-cost]").forEach(function(b){ try{ if(afford(S.resources,JSON.parse(b.getAttribute("data-cost"))))b.classList.remove("dis"); else b.classList.add("dis"); }catch(e){} });
   document.querySelectorAll("[data-prog]").forEach(function(elp){ var pk=elp.getAttribute("data-prog").split(":"),info=jobInfo(pk[0],pk[1]); if(info){ var bar=elp.querySelector("i"); if(bar)bar.style.width=((1-info.rem/info.tot)*100)+"%"; var tx=elp.querySelector("[data-rem]"); if(tx)tx.textContent=fmtTime(info.rem)+(info.n>1?" ×"+info.n:""); } });
   var tk=el("ticker"); if(tk&&S.events[0])tk.innerHTML='<span class="lbl">intel</span> <span class="k-'+S.events[0].kind+'">'+S.events[0].text+'</span>';
