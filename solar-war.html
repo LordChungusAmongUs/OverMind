@@ -78,10 +78,43 @@
 <script>
 "use strict";
 /* ============================================================ DATA */
-var STOCKS=["capital","compute","talent","materials","influence"];
-var RES={ capital:{name:"Capital",cls:"cap"},compute:{name:"Compute",cls:"cmp"},talent:{name:"Talent",cls:"tal"},materials:{name:"Materials",cls:"mat"},influence:{name:"Influence",cls:"inf"} };
-var CODE={capital:"CAP",compute:"CMP",talent:"TAL",materials:"MAT",influence:"INF",energy:"ENR"};
-var FCLS={capital:"cap",compute:"cmp",talent:"tal",materials:"mat",influence:"inf",energy:"enr"};
+var RESMETA={
+  capital:{name:"Capital",code:"CAP",tier:"core",col:"#39ff14"},
+  compute:{name:"Compute",code:"CMP",tier:"core",col:"#33d6ff"},
+  talent:{name:"Talent",code:"TAL",tier:"core",col:"#b388ff"},
+  influence:{name:"Influence",code:"INF",tier:"core",col:"#ff5d8f"},
+  materials:{name:"Materials",code:"MAT",tier:"core",col:"#ffc24d"},
+  oil:{name:"Oil",code:"OIL",tier:"fuel",col:"#9a8459"},
+  gas:{name:"Natural Gas",code:"GAS",tier:"fuel",col:"#9fc7d8"},
+  coal:{name:"Coal",code:"COAL",tier:"fuel",col:"#7d7d86"},
+  uranium:{name:"Uranium",code:"URN",tier:"fuel",col:"#7dff8f"},
+  iron_ore:{name:"Iron Ore",code:"ORE",tier:"industrial",col:"#b27a55"},
+  steel:{name:"Steel",code:"STL",tier:"industrial",col:"#c4ccd6"},
+  aluminum:{name:"Aluminum",code:"ALU",tier:"industrial",col:"#d8dfe8"},
+  concrete:{name:"Concrete",code:"CNC",tier:"industrial",col:"#a6a69c"},
+  copper:{name:"Copper",code:"CU",tier:"industrial",col:"#e08a55"},
+  silicon:{name:"Silicon",code:"SI",tier:"hitech",col:"#8fa2b3"},
+  chips:{name:"Semiconductors",code:"CHP",tier:"hitech",col:"#5fffd2"},
+  rare_earths:{name:"Rare Earths",code:"REE",tier:"hitech",col:"#caa0ff"},
+  lithium:{name:"Lithium",code:"LI",tier:"hitech",col:"#cfe0ff"},
+  cobalt:{name:"Cobalt",code:"CO",tier:"hitech",col:"#5d7dff"},
+  nickel:{name:"Nickel",code:"NI",tier:"hitech",col:"#a3b3a0"},
+  gallium:{name:"Gallium",code:"GA",tier:"hitech",col:"#b3b3c4"},
+  germanium:{name:"Germanium",code:"GE",tier:"hitech",col:"#c2c2d2"},
+  tungsten:{name:"Tungsten",code:"W",tier:"hitech",col:"#8c8c93"},
+  water_ice:{name:"Water Ice",code:"ICE",tier:"space",col:"#bfe8ff"},
+  titanium:{name:"Titanium",code:"TI",tier:"space",col:"#ccd4dd"},
+  platinum:{name:"Platinum Group",code:"PGM",tier:"space",col:"#e6e6f2"},
+  helium3:{name:"Helium-3",code:"HE3",tier:"space",col:"#9fffe2"},
+  asteroid_metals:{name:"Asteroid Metals",code:"AST",tier:"space",col:"#b89c7c"}
+};
+var STOCKS=Object.keys(RESMETA);
+var RESGROUPS=[["core","Core"],["fuel","Energy Fuels"],["industrial","Industrial"],["hitech","High-Tech"],["space","Space Resources"]];
+var HEADLINE=["capital","compute","talent","influence","materials"];
+var RES=RESMETA;
+var CODE={energy:"ENR"}, FCLS={energy:"enr",capital:"cap",compute:"cmp",talent:"tal",materials:"mat",influence:"inf"};
+(function(){ for(var k in RESMETA)CODE[k]=RESMETA[k].code; })();
+function rcol(k){ return k==="energy"?"#ffe14d":(RESMETA[k]?RESMETA[k].col:"#8fae6b"); }
 var LOCATIONS=[
   {id:"earth",name:"Earth",tag:"Talent · Customers · Capital"},
   {id:"orbit",name:"Orbit",tag:"Energy · Compute · Manufacturing"},
@@ -90,25 +123,61 @@ var LOCATIONS=[
   {id:"deep_space",name:"Deep Space",tag:"Sovereignty · Megaprojects",by:"fusion_propulsion"}
 ];
 var BUILDINGS={
-  ground_dc:{name:"Ground Data Center",loc:"earth",ds:"Your founding terrestrial datacenter. Self-powered compute.",cost:{capital:500},g:1.14,prod:{compute:2,energy:10}},
-  operations_center:{name:"Operations Center",loc:"earth",ds:"Corporate HQ. Revenue, recruiting, on-site power.",cost:{capital:2200},g:1.2,prod:{capital:10,talent:0.08,energy:14}},
-  mine:{name:"Mining Complex",loc:"earth",ds:"Terrestrial extraction of metals and minerals.",cost:{capital:1500,materials:10},g:1.16,prod:{materials:1.5},con:{energy:6}},
-  logistics_hub:{name:"Logistics Hub",loc:"earth",ds:"Ground distribution network. Boosts revenue.",cost:{capital:2500},g:1.17,prod:{capital:7},con:{energy:5}},
-  recruitment_hub:{name:"Recruitment Hub",loc:"earth",ds:"Attracts engineers; salaries ongoing.",cost:{capital:900},g:1.16,prod:{talent:0.35},con:{energy:3,capital:0.6}},
-  leased_cloud:{name:"Leased Cloud (outsourced)",loc:"earth",ds:"Rent compute. No power; pay rent forever.",cost:{capital:600},g:1.13,prod:{compute:1},con:{capital:1.3}},
-  solar_farm:{name:"Solar Farm",loc:"earth",ds:"Cheap reliable energy capacity.",cost:{capital:1100,materials:15},g:1.15,prod:{energy:45}},
-  consumer_division:{name:"Consumer AI Products",loc:"earth",ds:"Mass-market AI. Consumer share + influence.",cost:{capital:4500},g:1.17,prod:{capital:22,influence:0.5},con:{energy:12},req:"personal_ai"},
-  enterprise_division:{name:"Enterprise AI Division",loc:"earth",ds:"B2B automation. High margins.",cost:{capital:6000},g:1.17,prod:{capital:34},con:{energy:14,compute:0.4},req:"enterprise_ai"},
-  gov_relations:{name:"Government Affairs Office",loc:"earth",ds:"Contracts, influence, political cover.",cost:{capital:5000},g:1.18,prod:{capital:18,influence:0.8},con:{energy:8},req:"gov_contracts"},
-  fusion_reactor:{name:"Fusion Reactor",loc:"earth",ds:"Enormous baseload power.",cost:{capital:18000,materials:220},g:1.18,prod:{energy:340},req:"fusion"},
-  comms_satellite:{name:"Communications Satellite",loc:"orbit",ds:"Global mesh. Projects influence.",cost:{capital:1600,materials:8},g:1.16,prod:{influence:0.55},con:{energy:2}},
-  orbital_data_center:{name:"Orbital Data Center (in-house)",loc:"orbit",ds:"Own your compute; needs real power.",cost:{capital:2800,materials:25},g:1.16,prod:{compute:2},con:{energy:8}},
-  orbital_solar_array:{name:"Orbital Solar Array",loc:"orbit",ds:"Space solar, no day/night.",cost:{capital:7000,materials:130},g:1.16,prod:{energy:130},req:"orbital_energy"},
-  ai_cluster:{name:"AI Compute Cluster",loc:"orbit",ds:"Frontier training fabric.",cost:{capital:13000,materials:160,compute:500},g:1.17,prod:{compute:9},con:{energy:42},req:"ai_models"},
-  mining_outpost:{name:"Lunar Mining Outpost",loc:"moon",ds:"Extract metals from regolith.",cost:{capital:9000,materials:60},g:1.16,prod:{materials:2.2},con:{energy:14,capital:1}},
-  robotic_factory:{name:"Autonomous Factory",loc:"moon",ds:"Self-operating manufacturing.",cost:{capital:22000,materials:320},g:1.17,prod:{materials:6.5,capital:9},con:{energy:32},req:"industrial_robotics"},
-  asteroid_harvester:{name:"Asteroid Harvester",loc:"asteroids",ds:"Strip-mines metal-rich asteroids.",cost:{capital:55000,materials:900},g:1.18,prod:{materials:20,capital:12},con:{energy:65}},
-  sovereign_colony:{name:"Sovereign Colony",loc:"deep_space",ds:"Self-sufficient off-world civilization.",cost:{capital:280000,materials:5500},g:1.25,prod:{influence:9,capital:45,talent:1.2},con:{energy:160}}
+  /* --- Earth: corporate & compute --- */
+  ground_dc:{name:"Ground Data Center",loc:"earth",cat:"Compute",ds:"Your founding datacenter. Self-powered compute.",cost:{capital:500},g:1.14,days:30,prod:{compute:2,energy:8}},
+  corporate_office:{name:"Corporate Office",loc:"earth",cat:"Corporate",ds:"Management, sales, admin. Revenue + talent.",cost:{capital:1200},g:1.18,days:60,prod:{capital:8,talent:0.12},con:{energy:3}},
+  operations_center:{name:"Operations Center",loc:"earth",cat:"Corporate",ds:"Corporate HQ. Revenue, recruiting, on-site power.",cost:{capital:2200},g:1.2,days:120,prod:{capital:10,talent:0.08,energy:14}},
+  research_lab:{name:"Research Laboratory",loc:"earth",cat:"Compute",ds:"R&D output: compute + talent.",cost:{capital:3000,materials:20},g:1.17,days:150,prod:{compute:4,talent:0.1},con:{energy:8}},
+  data_center:{name:"Data Center",loc:"earth",cat:"Compute",ds:"Regional compute generation.",cost:{capital:3500,materials:30},g:1.16,days:120,prod:{compute:9},con:{energy:14}},
+  fab:{name:"Chip Fabrication Plant",loc:"earth",cat:"High-Tech",ds:"Semiconductors. The longest, hardest terrestrial build.",cost:{capital:60000,steel:200,concrete:300,copper:60,materials:200},g:1.18,days:1095,prod:{chips:4},con:{silicon:2,rare_earths:0.4,gallium:0.15,water_ice:0.3,energy:35},req:"chip_design"},
+  factory:{name:"Factory",loc:"earth",cat:"Industry",ds:"General manufacturing from metals.",cost:{capital:6000,materials:40},g:1.16,days:365,prod:{materials:8,capital:5},con:{steel:2,aluminum:0.5,energy:10}},
+  robotic_factory:{name:"Robotics Factory",loc:"earth",cat:"Industry",ds:"Robot production. High-volume automated output.",cost:{capital:22000,steel:120,chips:30},g:1.17,days:730,prod:{materials:14,capital:10},con:{steel:3,chips:0.5,copper:0.4,energy:18},req:"industrial_robotics"},
+  /* --- Earth: extraction & heavy industry --- */
+  oil_well:{name:"Oil Well",loc:"earth",cat:"Extraction",ds:"Pumps crude oil and associated gas.",cost:{capital:1500,materials:5},g:1.15,days:60,prod:{oil:3,gas:1},con:{energy:2}},
+  offshore_platform:{name:"Offshore Oil Platform",loc:"earth",cat:"Extraction",ds:"Large offshore oil & gas extraction.",cost:{capital:18000,steel:200,concrete:120},g:1.17,days:730,prod:{oil:14,gas:5},con:{energy:8},req:"offshore_drilling"},
+  mine:{name:"Mining Complex",loc:"earth",cat:"Extraction",ds:"Iron, copper, coal and trace uranium.",cost:{capital:1500,materials:10},g:1.16,days:540,prod:{iron_ore:4,copper:1.5,coal:3,uranium:0.04},con:{energy:6}},
+  rare_metals_mine:{name:"Rare-Metals Mine",loc:"earth",cat:"Extraction",ds:"Rare earths and high-tech minerals.",cost:{capital:9000,steel:60,materials:40},g:1.17,days:600,prod:{rare_earths:1,lithium:0.8,cobalt:0.5,nickel:0.7,tungsten:0.4,gallium:0.2,germanium:0.2},con:{energy:10},req:"advanced_materials"},
+  steel_mill:{name:"Steel Mill",loc:"earth",cat:"Industry",ds:"Smelts ore + coal into steel & aluminum.",cost:{capital:8000,materials:60},g:1.16,days:540,prod:{steel:3,aluminum:1.5},con:{iron_ore:4,coal:2,energy:8}},
+  chemical_plant:{name:"Chemical Plant",loc:"earth",cat:"Industry",ds:"Refines oil into materials, concrete, silicon.",cost:{capital:7000,materials:40},g:1.16,days:450,prod:{materials:5,concrete:3,silicon:1},con:{oil:3,energy:6}},
+  solar_farm:{name:"Solar Farm",loc:"earth",cat:"Power",ds:"Cheap reliable energy capacity.",cost:{capital:1100,materials:8},g:1.15,days:120,prod:{energy:45}},
+  gas_plant:{name:"Natural Gas Power Plant",loc:"earth",cat:"Power",ds:"Burns gas for dispatchable power.",cost:{capital:5000,steel:30,concrete:40},g:1.16,days:540,prod:{energy:120},con:{gas:3}},
+  nuclear_plant:{name:"Nuclear Power Plant",loc:"earth",cat:"Power",ds:"Massive baseload. Very long build.",cost:{capital:30000,steel:300,concrete:500,materials:200},g:1.17,days:2555,prod:{energy:420},con:{uranium:0.15},req:"nuclear_power"},
+  fusion_reactor:{name:"Fusion Reactor",loc:"earth",cat:"Power",ds:"Helium-3 fusion. Enormous power.",cost:{capital:60000,steel:400,materials:600,chips:80},g:1.18,days:1460,prod:{energy:900},con:{helium3:0.08},req:"fusion"},
+  logistics_hub:{name:"Logistics Hub",loc:"earth",cat:"Corporate",ds:"Distribution network. Boosts revenue.",cost:{capital:2500,materials:10},g:1.17,days:90,prod:{capital:7},con:{energy:5,materials:0.5}},
+  recruitment_hub:{name:"Recruitment Hub",loc:"earth",cat:"Corporate",ds:"Attracts engineers; salaries ongoing.",cost:{capital:900},g:1.16,days:60,prod:{talent:0.35},con:{energy:3,capital:0.6}},
+  leased_cloud:{name:"Leased Cloud (outsourced)",loc:"earth",cat:"Compute",ds:"Rent compute. Pay rent forever.",cost:{capital:600},g:1.13,days:30,prod:{compute:1},con:{capital:1.3}},
+  consumer_division:{name:"Consumer AI Products",loc:"earth",cat:"Revenue",ds:"Mass-market AI. Consumer share + influence.",cost:{capital:4500,materials:20},g:1.17,days:120,prod:{capital:22,influence:0.5},con:{energy:12,compute:0.2},req:"personal_ai"},
+  enterprise_division:{name:"Enterprise AI Division",loc:"earth",cat:"Revenue",ds:"B2B automation. High margins.",cost:{capital:6000,materials:30},g:1.17,days:150,prod:{capital:34},con:{energy:14,compute:0.4},req:"enterprise_ai"},
+  gov_relations:{name:"Government Affairs Office",loc:"earth",cat:"Revenue",ds:"Contracts, influence, political cover.",cost:{capital:5000},g:1.18,days:150,prod:{capital:18,influence:0.8},con:{energy:8},req:"gov_contracts"},
+  launch_complex:{name:"Launch Complex",loc:"earth",cat:"Industry",ds:"Spaceport. Speeds every orbital, lunar & deep-space build.",cost:{capital:40000,steel:500,concrete:800,materials:300},g:1.2,days:1095,con:{energy:20,materials:1},req:"orbital_logistics"},
+  /* --- Earth: in-city corporate developments --- */
+  retail_ai_center:{name:"Retail AI Center",loc:"earth",cat:"City",ds:"Consumer storefronts. Revenue + reach.",cost:{capital:3000},g:1.16,days:60,prod:{capital:16,influence:0.3},con:{energy:6,compute:0.2},req:"personal_ai"},
+  regional_hq:{name:"Regional Headquarters",loc:"earth",cat:"City",ds:"Talent acquisition hub.",cost:{capital:6000,materials:20},g:1.18,days:270,prod:{talent:0.5,capital:5},con:{energy:5}},
+  university_partnership:{name:"University Partnership",loc:"earth",cat:"City",ds:"Research talent pipeline.",cost:{capital:8000},g:1.18,days:540,prod:{talent:0.4,compute:3},con:{capital:2,energy:4}},
+  smart_infrastructure:{name:"Smart Infrastructure Contract",loc:"earth",cat:"City",ds:"Civic systems. Pure influence.",cost:{capital:5000,materials:30,concrete:40},g:1.18,days:120,prod:{influence:1.2},con:{energy:4,materials:0.4},req:"gov_contracts"},
+  /* --- Earth: military --- */
+  security_operations:{name:"Security Operations Center",loc:"earth",cat:"Military",ds:"Cyber-defense & corporate security.",cost:{capital:4000,chips:5},g:1.17,days:90,prod:{influence:0.2},con:{energy:6,compute:0.3},req:"cyberwarfare"},
+  weapons_factory:{name:"Weapons Factory",loc:"earth",cat:"Military",ds:"Munitions. Speeds warship construction.",cost:{capital:15000,steel:120,chips:20},g:1.17,days:540,prod:{materials:4},con:{steel:1,energy:12},req:"security_forces"},
+  drone_facility:{name:"Drone Production Facility",loc:"earth",cat:"Military",ds:"Autonomous drones. Revenue + materiel.",cost:{capital:12000,steel:60,chips:30},g:1.17,days:365,prod:{materials:3,capital:6},con:{chips:0.4,energy:10},req:"corporate_military"},
+  missile_facility:{name:"Missile Facility",loc:"earth",cat:"Military",ds:"Strategic deterrent. Static defense.",cost:{capital:18000,steel:150,materials:80},g:1.18,days:730,con:{energy:8,materials:0.5},req:"directed_energy"},
+  military_shipyard:{name:"Military Shipyard",loc:"earth",cat:"Military",ds:"Builds warships. Major ship-speed boost.",cost:{capital:50000,steel:600,chips:80},g:1.19,days:1460,con:{energy:30,steel:1},req:"corporate_military"},
+  /* --- Orbit --- */
+  comms_satellite:{name:"Communications Satellite",loc:"orbit",cat:"Orbital",ds:"Global mesh. Projects influence.",cost:{capital:1600,steel:6,chips:2},g:1.16,days:30,prod:{influence:0.55},con:{energy:2}},
+  orbital_data_center:{name:"Orbital Data Center",loc:"orbit",cat:"Orbital",ds:"In-house compute. Needs real power.",cost:{capital:2800,steel:25,chips:10},g:1.16,days:365,prod:{compute:6},con:{energy:8}},
+  orbital_solar_array:{name:"Orbital Solar Array",loc:"orbit",cat:"Orbital",ds:"Space solar, no day/night.",cost:{capital:7000,steel:80,materials:60},g:1.16,days:180,prod:{energy:130},req:"orbital_energy"},
+  ai_cluster:{name:"AI Compute Cluster",loc:"orbit",cat:"Orbital",ds:"Frontier training fabric.",cost:{capital:13000,steel:60,chips:60},g:1.17,days:365,prod:{compute:20},con:{energy:42},req:"ai_models"},
+  orbital_shipyard:{name:"Orbital Shipyard",loc:"orbit",cat:"Orbital",ds:"Orbital warship assembly. Huge ship-speed boost.",cost:{capital:60000,steel:800,chips:120},g:1.2,days:1095,con:{energy:40,steel:1},req:"space_manufacturing"},
+  orbital_manufacturing:{name:"Orbital Manufacturing Complex",loc:"orbit",cat:"Orbital",ds:"Matures orbital industry — speeds all space builds.",cost:{capital:50000,steel:600,chips:80},g:1.19,days:730,prod:{materials:20,chips:2,capital:15},con:{asteroid_metals:2,energy:50},req:"space_manufacturing"},
+  orbital_habitat:{name:"Orbital Habitat",loc:"orbit",cat:"Orbital",ds:"People live in space. Talent + influence.",cost:{capital:80000,steel:1000,materials:400,water_ice:200},g:1.2,days:1825,prod:{talent:1.5,influence:1},con:{energy:25,water_ice:1,materials:2},req:"space_habitation"},
+  orbital_research_station:{name:"Orbital Research Station",loc:"orbit",cat:"Orbital",ds:"Microgravity science. Compute + talent.",cost:{capital:40000,steel:300,chips:60},g:1.19,days:1095,prod:{compute:8,talent:0.3},con:{energy:20},req:"space_science"},
+  orbital_defense_platform:{name:"Orbital Defense Platform",loc:"orbit",cat:"Military",ds:"Static orbital defense.",cost:{capital:25000,steel:300,chips:40},g:1.18,days:365,con:{energy:18},req:"orbital_warfare"},
+  /* --- Moon --- */
+  mining_outpost:{name:"Lunar Mining Base",loc:"moon",cat:"Lunar",ds:"Regolith mining: titanium, ice, helium-3.",cost:{capital:9000,steel:60,materials:60},g:1.16,days:1095,prod:{titanium:1,water_ice:2,helium3:0.04,asteroid_metals:1},con:{energy:14,capital:1}},
+  lunar_refinery:{name:"Lunar Refinery",loc:"moon",cat:"Lunar",ds:"Refines lunar metals into steel & alloys.",cost:{capital:40000,steel:300,materials:200},g:1.18,days:1825,prod:{steel:12,aluminum:6,materials:10},con:{titanium:0.5,asteroid_metals:2,energy:30},req:"lunar_industry"},
+  lunar_manufacturing:{name:"Lunar Manufacturing Hub",loc:"moon",cat:"Lunar",ds:"Self-operating off-world factory.",cost:{capital:90000,steel:800,chips:150},g:1.2,days:2920,prod:{materials:40,chips:4,capital:20},con:{steel:3,asteroid_metals:2,energy:50},req:"lunar_industry"},
+  /* --- Asteroids / Deep space --- */
+  asteroid_harvester:{name:"Asteroid Harvester",loc:"asteroids",cat:"Space",ds:"Strip-mines metal-rich asteroids.",cost:{capital:55000,steel:600,materials:400},g:1.18,days:1460,prod:{asteroid_metals:8,platinum:1,titanium:2,materials:10},con:{energy:65}},
+  sovereign_colony:{name:"Sovereign Colony",loc:"deep_space",cat:"Space",ds:"Self-sufficient off-world civilization.",cost:{capital:280000,steel:4000,materials:5000,chips:400},g:1.25,days:7300,prod:{influence:9,capital:45,talent:1.2},con:{energy:160,water_ice:5,materials:5}}
 };
 var TECHS={
   ai_models:{name:"Advanced AI Models",br:"Compute",ds:"+25% compute. Unlocks AI Clusters.",cost:{compute:300},mult:{compute:1.25}},
@@ -134,7 +203,17 @@ var TECHS={
   corporate_military:{name:"Corporate Military",br:"Defense",ds:"Unlocks Frigates.",cost:{compute:2600,capital:24000,materials:400},req:["security_forces"]},
   autonomous_fleets:{name:"Autonomous Fleets",br:"Defense",ds:"+10% ALL output.",cost:{compute:4200,capital:42000,materials:520},req:["corporate_military"],gm:1.1},
   directed_energy:{name:"Directed-Energy Weapons",br:"Defense",ds:"Unlocks Cruisers.",cost:{compute:5000,capital:60000,materials:900},req:["autonomous_fleets"]},
-  orbital_warfare:{name:"Orbital Warfare",br:"Defense",ds:"Unlocks Dreadnoughts.",cost:{compute:9000,capital:140000,materials:2400},req:["directed_energy"]}
+  orbital_warfare:{name:"Orbital Warfare",br:"Defense",ds:"Unlocks Dreadnoughts.",cost:{compute:9000,capital:140000,materials:2400},req:["directed_energy"]},
+  nuclear_power:{name:"Nuclear Fission",br:"Energy",ds:"Unlocks Nuclear Power Plants.",cost:{compute:600,capital:9000,materials:120}},
+  offshore_drilling:{name:"Offshore Drilling",br:"Energy",ds:"Unlocks Offshore Oil Platforms.",cost:{compute:300,capital:6000}},
+  ai_construction:{name:"AI-Managed Construction",br:"Robotics",ds:"Build crews directed by AI — much faster builds.",cost:{compute:2000,capital:14000},req:["industrial_robotics"]},
+  autonomous_construction:{name:"Autonomous Construction",br:"Robotics",ds:"Self-directing construction fleets.",cost:{compute:4500,capital:40000},req:["ai_construction"]},
+  nanofabrication:{name:"Nanofabrication",br:"Robotics",ds:"Atomic-scale assembly. Dramatic build speed.",cost:{compute:9000,capital:90000,materials:1500},req:["humanoid_robots","advanced_materials"]},
+  self_replicating:{name:"Self-Replicating Industry",br:"Robotics",ds:"Factories that build factories. Near-instant builds.",cost:{compute:20000,capital:300000,materials:6000},req:["nanofabrication","autonomous_construction"]},
+  space_manufacturing:{name:"Space Manufacturing",br:"Transportation",ds:"Orbital industry — fast space builds. Unlocks orbital factories & shipyards.",cost:{compute:3000,capital:40000,materials:400},req:["orbital_logistics"]},
+  space_science:{name:"Orbital Science",br:"Compute",ds:"Unlocks Orbital Research Stations.",cost:{compute:3500,capital:30000},req:["space_manufacturing"]},
+  space_habitation:{name:"Space Habitation",br:"Transportation",ds:"Unlocks Orbital Habitats.",cost:{compute:4000,capital:60000,materials:600},req:["space_manufacturing"]},
+  lunar_industry:{name:"Lunar Industrialization",br:"Transportation",ds:"Unlocks lunar refineries & factories.",cost:{compute:5000,capital:80000,materials:1000},req:["lunar_logistics","space_manufacturing"]}
 };
 var SHIPS={
   corvette:{name:"Corvette",cls:"Escort",cost:{capital:3000,materials:40},g:1.08,fp:10,hull:25,up:{energy:4,capital:0.5},req:"security_forces"},
@@ -175,11 +254,11 @@ function saveSettings(){ try{ localStorage.setItem(SET_KEY,JSON.stringify(SETTIN
 
 /* ============================================================ HELPERS */
 function clamp(n,lo,hi){ return Math.max(lo,Math.min(hi,n)); }
-function zero(){ return {capital:0,compute:0,talent:0,materials:0,influence:0}; }
+function zero(){ var z={}; for(var i=0;i<STOCKS.length;i++)z[STOCKS[i]]=0; return z; }
 function fmt(n){ var a=Math.abs(n); if(a>=1e12)return (n/1e12).toFixed(2)+"T"; if(a>=1e9)return (n/1e9).toFixed(2)+"B"; if(a>=1e6)return (n/1e6).toFixed(2)+"M"; if(a>=1e3)return (n/1e3).toFixed(1)+"K"; if(a>=100)return n.toFixed(0); if(a>=1)return n.toFixed(1); if(a===0)return "0"; return n.toFixed(2); }
 function fmtRate(n){ return (n>0?"+":n<0?"−":"")+fmt(Math.abs(n))+"/s"; }
-function freshState(){ var sr=SETTINGS.startRes; return {
-  resources:{capital:sr.capital,compute:sr.compute,talent:sr.talent,materials:sr.materials,influence:sr.influence},
+function freshState(){ var sr=SETTINGS.startRes,r0=zero(); for(var k in sr)if(r0[k]!==undefined)r0[k]=sr[k]; return {
+  resources:r0,
   buildings:{ground_dc:1}, researched:[], fleet:{}, neutral:{}, jobs:[], orbitAround:"earth", earthPlacements:[{id:"ground_dc",lon:-74,lat:40.7}], units:[], groups:{}, bookmarks:{},
   rivals:RIVAL_SEEDS.slice(0,clamp(SETTINGS.aiCount,1,RIVAL_SEEDS.length)).map(function(s,i){return {id:s.id,name:s.name,pers:s.pers,eco:s.eco,tech:s.tech,inf:s.inf,mil:s.mil,gr:s.gr,host:10,crip:0,dead:false,treaty:"none",intel:8,color:PCOLORS[(i+1)%PCOLORS.length]};}),
   marketShare:{consumer:0.12,enterprise:0.1,government:0.08}, marketSize:{consumer:60000,enterprise:40000,government:28000},
@@ -187,24 +266,31 @@ function freshState(){ var sr=SETTINGS.startRes; return {
   gameOver:{over:false,won:false,type:"",text:""}, speed:1, battleTarget:null }; }
 
 /* ============================================================ ENGINE */
-function techMult(r){ var m={capital:1,compute:1,talent:1,materials:1,influence:1},g=1; r.forEach(function(id){ var t=TECHS[id]; if(!t)return; if(t.gm)g*=t.gm; if(t.mult)for(var k in t.mult)m[k]*=t.mult[k]; }); for(var k in m)m[k]*=g; return m; }
-function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),eS=0,eD=0,k;
+function techMult(r){ var m=zero(),k; for(k in m)m[k]=1; var g=1; r.forEach(function(id){ var t=TECHS[id]; if(!t)return; if(t.gm)g*=t.gm; if(t.mult)for(var kk in t.mult)if(m[kk]!==undefined)m[kk]*=t.mult[kk]; }); for(k in m)m[k]*=g; return m; }
+var RUNWIN=1.5;
+function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),eS=0,eD=0,k,rf;
   for(var id in S.buildings){ var c=S.buildings[id]; if(!c)continue; var b=BUILDINGS[id]; if(!b)continue;
-    if(b.prod)for(k in b.prod){ if(k==="energy")eS+=b.prod[k]*c; else gross[k]+=b.prod[k]*c; }
-    if(b.con)for(k in b.con){ if(k==="energy")eD+=b.con[k]*c; else con[k]+=b.con[k]*c; } }
+    rf=1; if(b.con)for(k in b.con){ if(k==="energy")continue; var nd=b.con[k]*c,av=S.resources[k]||0,f=nd<=0?1:clamp(av/(nd*RUNWIN),0,1); if(f<rf)rf=f; }
+    if(b.prod)for(k in b.prod){ if(k==="energy")eS+=b.prod[k]*c*rf; else gross[k]+=b.prod[k]*c*rf; }
+    if(b.con)for(k in b.con){ if(k==="energy")eD+=b.con[k]*c*rf; else con[k]+=b.con[k]*c*rf; } }
   for(var fid in S.fleet){ var fc=S.fleet[fid]; if(!fc)continue; var sh=SHIPS[fid]; if(!sh||!sh.up)continue; for(k in sh.up){ if(k==="energy")eD+=sh.up[k]*fc; else con[k]+=sh.up[k]*fc; } }
   var ext=zero(); NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]; if(st==="leased"){ for(var k in co.lease){ if(k==="energy")eS+=co.lease[k]; else ext[k]+=co.lease[k]; } con.capital+=co.rent; } else if(st==="owned"){ for(var k in co.own){ if(k==="energy")eS+=co.own[k]; else ext[k]+=co.own[k]; } } });
   var pr=eD>0?Math.min(1,eS/eD):1,pg=zero(); for(k in pg)pg[k]=gross[k]*m[k]*pr;
   var mRev=0,mInf=0; MARKETS.forEach(function(mk){ var rev=S.marketSize[mk.id]*S.marketShare[mk.id]*MARKET_MARGIN; mRev+=rev; if(mk.id==="consumer")mInf+=rev*0.02; if(mk.id==="government")mInf+=rev*0.015; });
-  var capInc=pg.capital+mRev+ext.capital,tax=REG_TAX_MAX*(S.regulation/100)*capInc,net=zero();
-  net.capital=capInc-con.capital-tax; net.compute=pg.compute+ext.compute-con.compute; net.talent=pg.talent+ext.talent-con.talent; net.materials=pg.materials+ext.materials-con.materials; net.influence=pg.influence+mInf+ext.influence-con.influence;
+  var net=zero(); for(k in net)net[k]=pg[k]+ext[k]-con[k];
+  var capInc=pg.capital+mRev+ext.capital,tax=REG_TAX_MAX*(S.regulation/100)*capInc;
+  net.capital=capInc-con.capital-tax; net.influence=pg.influence+mInf+ext.influence-con.influence;
   return {eS:eS,eD:eD,pr:pr,net:net}; }
 function advance(S,dt){ var r=rates(S),o={}; STOCKS.forEach(function(k){ o[k]=Math.max(0,S.resources[k]+r.net[k]*dt); }); return o; }
 function bcost(b,o){ var c={},g=b.g||1.15,m=SETTINGS.costMult.build; for(var k in b.cost)c[k]=b.cost[k]*Math.pow(g,o)*m; return c; }
 function scost(s,o){ var c={},g=s.g||1.1,m=SETTINGS.costMult.ship; for(var k in s.cost)c[k]=s.cost[k]*Math.pow(g,o)*m; return c; }
 function tcost(id){ var t=TECHS[id],c={},m=SETTINGS.costMult.tech; for(var k in t.cost)c[k]=t.cost[k]*m; return c; }
 function cocost(co){ var c={},m=SETTINGS.costMult.build; for(var k in co.acq)c[k]=co.acq[k]*m; return c; }
-function btime(b){ return clamp(Math.sqrt(b.cost.capital||100)/12,2,45)*SETTINGS.timeMult; }
+function buildSpeed(S){ var s=1,has=function(t){return S.researched.indexOf(t)>=0;};
+  if(has("industrial_robotics"))s*=1.4; if(has("humanoid_robots"))s*=1.5; if(has("ai_construction"))s*=1.8; if(has("autonomous_construction"))s*=2; if(has("agi"))s*=1.8; if(has("nanofabrication"))s*=2.2; if(has("self_replicating"))s*=2.5; return s; }
+function btime(b){ var days=b.days||60,sp=buildSpeed(S),sl=b.loc;
+  if(sl==="orbit"||sl==="moon"||sl==="asteroids"||sl==="deep_space"){ if((S.buildings.launch_complex||0)>0)sp*=1.5; if(S.researched.indexOf("space_manufacturing")>=0)sp*=2.5; if((S.buildings.orbital_manufacturing||0)>0)sp*=2; }
+  return Math.max(2,days*DAY_SECONDS*SETTINGS.timeMult/sp); }
 function stime(s){ return clamp(Math.sqrt(s.cost.capital||100)/12,3,40)*SETTINGS.timeMult; }
 function ttime(t){ return clamp(Math.sqrt(t.cost.compute||(t.cost.capital||100)/10)/4,5,60)*SETTINGS.timeMult; }
 function cotime(co){ return clamp(Math.sqrt(co.acq.capital||100)/10,4,40)*SETTINGS.timeMult; }
@@ -264,7 +350,7 @@ function completeJob(j){ if(j.kind==="build")S.buildings[j.id]=(S.buildings[j.id
 function processJobs(dt){ if(!S.jobs.length)return false; var done=[],i; for(i=0;i<S.jobs.length;i++){ S.jobs[i].rem-=dt; if(S.jobs[i].rem<=0)done.push(i); }
   for(i=done.length-1;i>=0;i--){ var j=S.jobs[done[i]]; S.jobs.splice(done[i],1); completeJob(j); } return done.length>0; }
 function save(){ try{ S.lastSaved=Date.now(); localStorage.setItem(SAVE_KEY,JSON.stringify(S)); }catch(e){} }
-function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.earthPlacements)p.earthPlacements=[]; if(!p.units)p.units=[]; if(!p.groups)p.groups={}; if(!p.bookmarks)p.bookmarks={}; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=PCOLORS[(i+1)%PCOLORS.length]; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
+function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; STOCKS.forEach(function(k){ if(typeof p.resources[k]!=="number")p.resources[k]=0; }); if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.earthPlacements)p.earthPlacements=[]; if(!p.units)p.units=[]; if(!p.groups)p.groups={}; if(!p.bookmarks)p.bookmarks={}; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=PCOLORS[(i+1)%PCOLORS.length]; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
 var A={
   build:function(id){ var b=BUILDINGS[id]; if(!b)return; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); },
   placeEarth:function(id,lon,lat){ var b=BUILDINGS[id]; if(!b||(b.loc!=="earth"&&b.loc!=="moon"))return false; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return false; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); S.earthPlacements.push({id:id,lon:lon,lat:lat}); return true; },
@@ -287,13 +373,20 @@ function doNewGame(){ S=freshState(); UI.menu=null; UI.open=false; UI.sel=null; 
 var UI={ tab:"ops", open:false, sel:null, menu:null, dirty:false };
 function el(id){ return document.getElementById(id); }
 function cost$(c,res){ var h=""; for(var k in c){ var ok=res[k]>=c[k]; h+='<span style="color:'+(ok?"#2f8f43":"#ff5d8f")+'">'+fmt(c[k])+" "+CODE[k]+"</span> "; } return h; }
-function flow$(map,sign){ var h=""; for(var k in map)h+='<span class="chip '+FCLS[k]+'">'+sign+fmt(map[k])+" "+CODE[k]+"</span> "; return h; }
-function prog$(kind,id){ var info=jobInfo(kind,id); if(!info)return ""; return '<div data-prog="'+kind+':'+id+'" class="progwrap"><div class="bar"><i style="width:'+((1-info.rem/info.tot)*100)+'%"></i></div><span class="small" data-rem>'+Math.ceil(info.rem)+'s'+(info.n>1?" ×"+info.n:"")+'</span></div>'; }
+function flow$(map,sign){ var h=""; for(var k in map)h+='<span class="chip" style="color:'+rcol(k)+'">'+sign+fmt(map[k])+" "+(CODE[k]||k)+"</span> "; return h; }
+function fmtDur(sec){ if(sec<90)return Math.ceil(sec)+"s"; if(sec<5400)return Math.round(sec/60)+"m"; if(sec<172800)return (sec/3600).toFixed(1)+"h"; return (sec/86400).toFixed(1)+"d"; }
+function prog$(kind,id){ var info=jobInfo(kind,id); if(!info)return ""; return '<div data-prog="'+kind+':'+id+'" class="progwrap"><div class="bar"><i style="width:'+((1-info.rem/info.tot)*100)+'%"></i></div><span class="small" data-rem>'+fmtDur(info.rem)+(info.n>1?" ×"+info.n:"")+'</span></div>'; }
 function resBar(){ var r=rates(S),h='<div class="panelglass ui" id="resbar">';
-  STOCKS.forEach(function(k){ var d=RES[k],nv=r.net[k]; h+='<div class="res"><div class="lbl '+d.cls+'">'+d.name+'</div><div class="v '+d.cls+'" id="res-'+k+'">'+fmt(S.resources[k])+'</div><div class="r" id="rate-'+k+'" style="color:'+(nv>0?"#2f8f43":nv<0?"#ff5d8f":"#456")+'">'+fmtRate(nv)+'</div></div>'; });
+  HEADLINE.forEach(function(k){ var d=RES[k],nv=r.net[k]; h+='<div class="res"><div class="lbl" style="color:'+d.col+'">'+d.name+'</div><div class="v" style="color:'+d.col+'" id="res-'+k+'">'+fmt(S.resources[k])+'</div><div class="r" id="rate-'+k+'" style="color:'+(nv>0?"#2f8f43":nv<0?"#ff5d8f":"#456")+'">'+fmtRate(nv)+'</div></div>'; });
   var pw=r.pr>=1; h+='<div class="res"><div class="lbl enr">Energy</div><div class="v enr" id="res-energy">'+fmt(r.eS)+'<span style="color:#456;font-size:11px">/'+fmt(r.eD)+'</span></div><div class="r" id="rate-energy" style="color:'+(pw?"#2f8f43":"#ff5d8f")+'">'+(pw?"powered":Math.round(r.pr*100)+"% deficit")+'</div></div>';
   return h+'</div>'; }
-var TABS=[["ops","⚙","Operations"],["research","🧪","Research"],["markets","👑","Markets"],["partners","🤝","Partners"],["military","⚔","Military"],["intel","📡","Intel"]];
+var TABS=[["ops","⚙","Operations"],["industry","🏭","Industry"],["research","🧪","Research"],["markets","👑","Markets"],["partners","🤝","Partners"],["military","⚔","Military"],["intel","📡","Intel"]];
+function industryPanel(){ var r=rates(S),h='<div class="small" style="margin-bottom:6px">Supply chain — extraction → refining → high-tech & space. Refineries idle without inputs.</div>';
+  RESGROUPS.forEach(function(grp){ if(grp[0]==="core")return; var keys=STOCKS.filter(function(k){return RESMETA[k].tier===grp[0];}); if(!keys.length)return;
+    h+='<div style="margin-top:8px"><b style="color:#9dffb0;text-transform:uppercase;letter-spacing:.1em;font-size:11px">'+grp[1]+'</b><div class="grid g2" style="margin-top:6px">';
+    keys.forEach(function(k){ var nv=r.net[k]; h+='<div class="item" style="padding:7px 9px;gap:1px"><div class="row between"><span class="small" style="color:'+RESMETA[k].col+'">'+RESMETA[k].name+'</span><b style="color:'+RESMETA[k].col+'" id="res-'+k+'">'+fmt(S.resources[k])+'</b></div><div class="r" id="rate-'+k+'" style="font-size:10px;color:'+(nv>0?"#2f8f43":nv<0?"#ff5d8f":"#456")+'">'+fmtRate(nv)+'</div></div>'; });
+    h+='</div></div>'; });
+  return h; }
 function opsPanel(){ var sel=UI.sel,h="";
   if(sel)h+='<div class="small" style="margin-bottom:8px"><span class="ui" data-act="ops_all" style="cursor:pointer;color:#39ff14">‹ all locations</span></div>';
   LOCATIONS.forEach(function(loc){ if(sel&&loc.id!==sel)return; var unlocked=locUnlocked(loc.id,S.researched),list=Object.keys(BUILDINGS).filter(function(id){return BUILDINGS[id].loc===loc.id;});
@@ -305,7 +398,7 @@ function opsPanel(){ var sel=UI.sel,h="";
     if(!unlocked){ h+='<div class="item small" style="margin-top:8px">🔒 Research <b style="color:#39ff14">'+(TECHS[loc.by]?TECHS[loc.by].name:"")+'</b> to open '+loc.name+'.</div></div>'; return; }
     h+='<div class="grid g2" style="margin-top:8px">';
     list.forEach(function(id){ var b=BUILDINGS[id],owned=S.buildings[id]||0; if(!bUnlocked(b,S.researched)){ h+='<div class="item lock"><div class="nm">🔒 '+b.name+'</div><div class="ds">Needs '+(TECHS[b.req]?TECHS[b.req].name:"—")+'</div></div>'; return; }
-      var c=bcost(b,owned+queued("build",id)),ok=afford(S.resources,c); h+='<div class="item"><div class="row between"><span class="nm">'+b.name+'</span><span class="badge">×'+owned+'</span></div><div class="ds">'+b.ds+'</div><div class="row" style="gap:7px">'+(b.prod?flow$(b.prod,"+"):"")+(b.con?flow$(b.con,"−"):"")+'</div><button class="btn ui'+(ok?"":" dis")+'" data-act="build" data-id="'+id+'" data-cost=\''+JSON.stringify(c)+'\'>BUILD '+cost$(c,S.resources)+' <span class="small">· '+Math.ceil(btime(b))+'s</span></button>'+prog$("build",id)+'</div>'; });
+      var c=bcost(b,owned+queued("build",id)),ok=afford(S.resources,c); h+='<div class="item"><div class="row between"><span class="nm">'+b.name+'</span><span class="badge">×'+owned+'</span></div><div class="ds">'+b.ds+'</div><div class="row" style="gap:7px">'+(b.prod?flow$(b.prod,"+"):"")+(b.con?flow$(b.con,"−"):"")+'</div><button class="btn ui'+(ok?"":" dis")+'" data-act="build" data-id="'+id+'" data-cost=\''+JSON.stringify(c)+'\'>BUILD '+cost$(c,S.resources)+' <span class="small">· '+fmtDur(btime(b))+'</span></button>'+prog$("build",id)+'</div>'; });
     h+='</div></div>'; });
   return h; }
 function researchPanel(){ var brs=[]; Object.keys(TECHS).forEach(function(id){ if(brs.indexOf(TECHS[id].br)<0)brs.push(TECHS[id].br); }); var h="";
@@ -339,7 +432,7 @@ function intelPanel(){ var h=""; S.events.forEach(function(e){ h+='<div class="e
 function ageStr(t){ var d=Math.max(0,Math.floor(S.worldClock-t)); return d<60?d+"s":d<3600?Math.floor(d/60)+"m":Math.floor(d/3600)+"h"; }
 function fogTier(v){ return v>=80?3:v>=50?2:v>=25?1:0; }
 function gameClock(){ var td=S.worldClock/DAY_SECONDS,d=new Date(Date.UTC(2040,0,1)+Math.floor(td)*86400000),fr=td-Math.floor(td),mins=Math.floor(fr*1440),hh=("0"+Math.floor(mins/60)).slice(-2),mm=("0"+(mins%60)).slice(-2),ds=d.getUTCFullYear()+"-"+("0"+(d.getUTCMonth()+1)).slice(-2)+"-"+("0"+d.getUTCDate()).slice(-2); return {day:Math.floor(td),txt:ds+" "+hh+":"+mm}; }
-function panelHtml(){ return UI.tab==="ops"?opsPanel():UI.tab==="research"?researchPanel():UI.tab==="markets"?marketsPanel():UI.tab==="partners"?partnersPanel():UI.tab==="military"?militaryPanel():intelPanel(); }
+function panelHtml(){ return UI.tab==="ops"?opsPanel():UI.tab==="industry"?industryPanel():UI.tab==="research"?researchPanel():UI.tab==="markets"?marketsPanel():UI.tab==="partners"?partnersPanel():UI.tab==="military"?militaryPanel():intelPanel(); }
 function tabTitle(){ var t=TABS.find(function(x){return x[0]===UI.tab;}); return t?t[1]+" "+t[2]:""; }
 function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(function(o){return o.d;}).length;
   var h='<div id="topbar">'+resBar()+'<div class="panelglass ui" style="padding:5px"><div class="speed" style="display:flex;align-items:center"><span class="lbl" style="margin:0 6px">SPD</span>'+
@@ -370,7 +463,7 @@ function openTab(t){ if(UI.open&&UI.tab===t)UI.open=false; else{ UI.tab=t; UI.op
 function menuBtn(act,label,cls){ return '<button class="btn ui '+(cls||"")+'" data-act="'+act+'" style="margin:6px 0">'+label+'</button>'; }
 function settingsHtml(){ var s=SETTINGS,h='<div class="modal glass" style="max-width:470px"><div class="dhead"><b style="color:#9dffb0">⚙ Settings</b><span class="x" data-act="menu_back">‹ back</span></div>';
   h+='<div class="lbl" style="margin-top:6px">Starting resources <span class="small" style="text-transform:none">(applies on Restart / New Game)</span></div><div class="grid g2" style="margin-top:6px">';
-  STOCKS.forEach(function(k){ h+='<label class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+RES[k].name+'<input type="number" min="0" step="100" value="'+s.startRes[k]+'" data-set="start.'+k+'" style="width:120px"></label>'; });
+  HEADLINE.forEach(function(k){ h+='<label class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+RES[k].name+'<input type="number" min="0" step="100" value="'+s.startRes[k]+'" data-set="start.'+k+'" style="width:120px"></label>'; });
   h+='</div><div class="lbl" style="margin-top:14px">Cost multipliers <span class="small" style="text-transform:none">(live)</span></div><div class="grid g2" style="margin-top:6px">';
   [["build","Structures"],["ship","Units"],["tech","Research"]].forEach(function(p){ h+='<label class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+p[1]+' ×<input type="number" min="0" step="0.1" value="'+s.costMult[p[0]]+'" data-set="cost.'+p[0]+'" style="width:120px"></label>'; });
   h+='</div><div class="lbl" style="margin-top:14px">Build time</div><div class="grid g2" style="margin-top:6px"><label class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px">Time ×<input type="number" min="0.01" step="0.1" value="'+s.timeMult+'" data-set="time" style="width:120px"></label></div>';
@@ -532,7 +625,7 @@ function placeAtScreen(sx,sy){ if(!EM||!EM.tool)return; var cv=EM.canvas,worldW=
 function paletteHtml(){ if(!EM)return ""; var ids=Object.keys(BUILDINGS).filter(function(id){ return BUILDINGS[id].loc===EM.loc&&bUnlocked(BUILDINGS[id],S.researched); });
   if(!ids.length)return '<span class="small">No '+(EM.loc==="moon"?"lunar ":"")+'structures available yet'+(EM.loc==="moon"?" — research Nuclear Propulsion.":".")+'</span>';
   return ids.map(function(id){ var b=BUILDINGS[id],o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o),ok=afford(S.resources,c),sel=EM.tool===id;
-    return '<button class="btn ui sm" data-act="emtool" data-id="'+id+'" style="width:auto;flex:0 0 auto;'+(sel?"background:rgba(0,255,65,.32);border-color:rgba(0,255,65,.7)":ok?"":"opacity:.5")+'">'+b.name+' <span class="small">'+cost$(c,S.resources)+'· '+Math.ceil(btime(b))+'s</span></button>'; }).join(""); }
+    return '<button class="btn ui sm" data-act="emtool" data-id="'+id+'" style="width:auto;flex:0 0 auto;'+(sel?"background:rgba(0,255,65,.32);border-color:rgba(0,255,65,.7)":ok?"":"opacity:.5")+'">'+b.name+' <span class="small">'+cost$(c,S.resources)+'· '+fmtDur(btime(b))+'</span></button>'; }).join(""); }
 function openEarthMap(loc){ if(EM)return; loc=loc||"earth"; var d=document.createElement("div"); d.id="earthmap"; d.innerHTML='<canvas id="emcanvas"></canvas>';
   document.body.appendChild(d); var cv=d.querySelector("#emcanvas"); EM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,drag:false,moved:false,tool:null,loc:loc,bw:loc==="moon"?1:2,bh:1,maxZoom:loc==="moon"?1:8};
   EM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; EM.camX=(cv.width*EM.bw*EM.zoom-cv.width)/2; drawEarthMap(); }; window.addEventListener("resize",EM.resize); EM.resize();
