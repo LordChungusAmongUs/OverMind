@@ -92,7 +92,10 @@ var LOCATIONS=[
   {id:"deep_space",name:"Deep Space",tag:"Sovereignty · Megaprojects",by:"fusion_propulsion"}
 ];
 var BUILDINGS={
+  ground_dc:{name:"Ground Data Center",loc:"earth",ds:"Your founding terrestrial datacenter. Self-powered compute.",cost:{capital:500},g:1.14,prod:{compute:1,energy:6}},
   operations_center:{name:"Operations Center",loc:"earth",ds:"Corporate HQ. Revenue, recruiting, on-site power.",cost:{capital:2200},g:1.2,prod:{capital:10,talent:0.08,energy:14}},
+  mine:{name:"Mining Complex",loc:"earth",ds:"Terrestrial extraction of metals and minerals.",cost:{capital:1500,materials:10},g:1.16,prod:{materials:1.5},con:{energy:6}},
+  logistics_hub:{name:"Logistics Hub",loc:"earth",ds:"Ground distribution network. Boosts revenue.",cost:{capital:2500},g:1.17,prod:{capital:7},con:{energy:5}},
   recruitment_hub:{name:"Recruitment Hub",loc:"earth",ds:"Attracts engineers; salaries ongoing.",cost:{capital:900},g:1.16,prod:{talent:0.35},con:{energy:3,capital:0.6}},
   leased_cloud:{name:"Leased Cloud (outsourced)",loc:"earth",ds:"Rent compute. No power; pay rent forever.",cost:{capital:600},g:1.13,prod:{compute:1},con:{capital:1.3}},
   solar_farm:{name:"Solar Farm",loc:"earth",ds:"Cheap reliable energy capacity.",cost:{capital:1100,materials:15},g:1.15,prod:{energy:45}},
@@ -179,7 +182,7 @@ function fmt(n){ var a=Math.abs(n); if(a>=1e12)return (n/1e12).toFixed(2)+"T"; i
 function fmtRate(n){ return (n>0?"+":n<0?"−":"")+fmt(Math.abs(n))+"/s"; }
 function freshState(){ var sr=SETTINGS.startRes; return {
   resources:{capital:sr.capital,compute:sr.compute,talent:sr.talent,materials:sr.materials,influence:sr.influence},
-  buildings:{operations_center:1,orbital_data_center:1,comms_satellite:1}, researched:[], fleet:{}, neutral:{}, jobs:[], orbitAround:"earth",
+  buildings:{ground_dc:1}, researched:[], fleet:{}, neutral:{}, jobs:[], orbitAround:"earth", earthPlacements:[{id:"ground_dc",lon:-74,lat:40.7}],
   rivals:RIVAL_SEEDS.slice(0,clamp(SETTINGS.aiCount,1,RIVAL_SEEDS.length)).map(function(s,i){return {id:s.id,name:s.name,pers:s.pers,eco:s.eco,tech:s.tech,inf:s.inf,mil:s.mil,gr:s.gr,host:10,crip:0,dead:false,treaty:"none",intel:8,color:PCOLORS[(i+1)%PCOLORS.length]};}),
   marketShare:{consumer:0.12,enterprise:0.1,government:0.08}, marketSize:{consumer:60000,enterprise:40000,government:28000},
   regulation:8, events:[{id:0,t:0,kind:"info",text:"Incorporation complete. The Solar War begins."}], eventSeq:1, worldClock:0, eventClock:0,
@@ -264,9 +267,10 @@ function completeJob(j){ if(j.kind==="build")S.buildings[j.id]=(S.buildings[j.id
 function processJobs(dt){ if(!S.jobs.length)return false; var done=[],i; for(i=0;i<S.jobs.length;i++){ S.jobs[i].rem-=dt; if(S.jobs[i].rem<=0)done.push(i); }
   for(i=done.length-1;i>=0;i--){ var j=S.jobs[done[i]]; S.jobs.splice(done[i],1); completeJob(j); } return done.length>0; }
 function save(){ try{ S.lastSaved=Date.now(); localStorage.setItem(SAVE_KEY,JSON.stringify(S)); }catch(e){} }
-function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=PCOLORS[(i+1)%PCOLORS.length]; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
+function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.earthPlacements)p.earthPlacements=[]; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=PCOLORS[(i+1)%PCOLORS.length]; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
 var A={
   build:function(id){ var b=BUILDINGS[id]; if(!b)return; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); },
+  placeEarth:function(id,lon,lat){ var b=BUILDINGS[id]; if(!b||b.loc!=="earth")return false; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return false; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); S.earthPlacements.push({id:id,lon:lon,lat:lat}); return true; },
   ship:function(id){ var s=SHIPS[id]; if(!s)return; if(s.req&&S.researched.indexOf(s.req)<0)return; var o=(S.fleet[id]||0)+queued("ship",id),c=scost(s,o); if(!afford(S.resources,c))return; spend(c); var t=stime(s); S.jobs.push({kind:"ship",id:id,rem:t,tot:t}); },
   research:function(id){ var t=TECHS[id]; if(!t||S.researched.indexOf(id)>=0||queued("tech",id)>0)return; if(t.req&&!t.req.every(function(r){return S.researched.indexOf(r)>=0;}))return; var c=tcost(id); if(!afford(S.resources,c))return; spend(c); var tm=ttime(t); S.jobs.push({kind:"tech",id:id,rem:tm,tot:tm}); pushEvent(S,"tech","Started research: "+t.name+"."); },
   lease:function(id){ var st=S.neutral[id]||"none"; if(st==="owned"||queued("acqco",id)>0)return; S.neutral[id]=st==="leased"?"none":"leased"; },
@@ -383,6 +387,7 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="menu_open"){ UI.menu="pause"; renderMenu(); return; }
   if(act==="earthmap"){ openEarthMap(); return; }
   if(act==="earthmap_close"){ closeEarthMap(); return; }
+  if(act==="emtool"){ if(EM){ EM.tool=EM.tool===id?null:id; renderEarthPalette(); } return; }
   if(act==="orbitmap"){ openOrbitMap(); return; }
   if(act==="orbitmap_close"){ closeOrbitMap(); return; }
   if(act==="menu_continue"){ UI.menu=null; renderMenu(); render(); return; }
@@ -533,26 +538,32 @@ var LAND=[
  {name:"Antarctica",col:"#5a6b73",c:[0,-82],pts:[[-180,-72],[-120,-75],[-60,-72],[0,-70],[60,-68],[120,-72],[180,-72],[180,-86],[-180,-86]]},
  {name:"Greenland",col:"#5a6b73",c:[-40,73],pts:[[-45,60],[-30,70],[-20,76],[-30,82],[-50,82],[-58,76],[-55,68]]}
 ];
-function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=cv.height,worldW=W*EM.zoom,worldH=worldW/2;
+var BSHAPE={ground_dc:"dc",orbital_data_center:"dc",solar_farm:"solar",orbital_solar_array:"solar",ai_cluster:"ai",comms_satellite:"sat",operations_center:"hub",recruitment_hub:"station",consumer_division:"dc",enterprise_division:"dc",gov_relations:"station",fusion_reactor:"ai",mine:"mine",logistics_hub:"hub",mining_outpost:"mine",robotic_factory:"dc",asteroid_harvester:"mine",sovereign_colony:"hub"};
+function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=cv.height,worldW=W*EM.zoom,worldH=worldW/2,lon,lat;
   if(worldH<=H)EM.camY=(H-worldH)/2; else EM.camY=clamp(EM.camY,H-worldH,0); EM.camX=((EM.camX%worldW)+worldW)%worldW;
   function px(lon,ox){ return (lon+180)/360*worldW-EM.camX+ox; } function py(lat){ return EM.camY+(90-lat)/180*worldH; }
-  var g=c.createLinearGradient(0,0,0,H); g.addColorStop(0,"#06303f"); g.addColorStop(1,"#02141c"); c.fillStyle=g; c.fillRect(0,0,W,H);
+  var g=c.createLinearGradient(0,0,0,H); g.addColorStop(0,"#062236"); g.addColorStop(0.5,"#0a4d78"); g.addColorStop(1,"#05283f"); c.fillStyle=g; c.fillRect(0,0,W,H);
   var copies=[-worldW,0,worldW];
-  c.strokeStyle="rgba(0,255,65,0.08)"; c.lineWidth=1; var lon,lat;
+  c.strokeStyle="rgba(130,200,255,0.06)"; c.lineWidth=1;
   for(lon=-180;lon<=180;lon+=30)copies.forEach(function(ox){ c.beginPath(); c.moveTo(px(lon,ox),py(90)); c.lineTo(px(lon,ox),py(-90)); c.stroke(); });
   for(lat=-60;lat<=60;lat+=30){ c.beginPath(); c.moveTo(0,py(lat)); c.lineTo(W,py(lat)); c.stroke(); }
-  copies.forEach(function(ox){ LAND.forEach(function(L){ c.beginPath(); L.pts.forEach(function(p,i){ var x=px(p[0],ox),y=py(p[1]); if(i===0)c.moveTo(x,y); else c.lineTo(x,y); }); c.closePath(); c.fillStyle=L.col; c.fill(); c.strokeStyle="rgba(120,255,170,0.55)"; c.lineWidth=1.3; c.stroke(); }); });
-  c.textAlign="center"; c.font="bold "+clamp(worldW/64,10,20)+"px monospace"; c.fillStyle="rgba(220,245,222,0.8)";
+  copies.forEach(function(ox){ LAND.forEach(function(L){ c.beginPath(); L.pts.forEach(function(p,i){ var x=px(p[0],ox),y=py(p[1]); if(i===0)c.moveTo(x,y); else c.lineTo(x,y); }); c.closePath(); c.save(); c.shadowColor="rgba(0,0,0,0.45)"; c.shadowBlur=10; c.fillStyle=(L.name==="Antarctica"||L.name==="Greenland")?"#d3e2e8":L.col; c.fill(); c.restore(); c.strokeStyle="rgba(180,255,205,0.4)"; c.lineWidth=1; c.stroke(); }); });
+  c.textAlign="center"; c.font="bold "+clamp(worldW/72,9,15)+"px monospace"; c.fillStyle="rgba(225,245,228,0.45)";
   copies.forEach(function(ox){ LAND.forEach(function(L){ c.fillText(L.name.toUpperCase(),px(L.c[0],ox),py(L.c[1])); }); });
-  copies.forEach(function(ox){ var x=px(-74,ox),y=py(40); c.fillStyle="#39ff14"; c.beginPath(); c.moveTo(x,y-6); c.lineTo(x+5,y); c.lineTo(x,y+6); c.lineTo(x-5,y); c.closePath(); c.fill(); c.fillStyle="#9dffb0"; c.font="11px monospace"; c.fillText("◆ YOUR HQ",x,y-10); }); }
+  (S.earthPlacements||[]).forEach(function(pl){ copies.forEach(function(ox){ var x=px(pl.lon,ox),y=py(pl.lat); if(x<-30||x>W+30)return; drawIcon(c,x,y,BSHAPE[pl.id]||"hub",hexCol(PCOLORS[0]),clamp(worldW/95,7,14)); }); });
+}
+function placeAtScreen(sx,sy){ if(!EM||!EM.tool)return; var cv=EM.canvas,worldW=cv.width*EM.zoom,worldH=worldW/2; var lon=(((sx+EM.camX)%worldW)/worldW)*360-180,lat=90-((sy-EM.camY)/worldH)*180; if(lat>85||lat<-85)return; if(A.placeEarth(EM.tool,lon,lat)){ save(); renderEarthPalette(); drawEarthMap(); render(); } }
+function renderEarthPalette(){ var p=el("empal"); if(!p)return; var ids=Object.keys(BUILDINGS).filter(function(id){ return BUILDINGS[id].loc==="earth"&&bUnlocked(BUILDINGS[id],S.researched); });
+  p.innerHTML=ids.map(function(id){ var b=BUILDINGS[id],o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o),ok=afford(S.resources,c),sel=EM.tool===id;
+    return '<button class="btn ui sm" data-act="emtool" data-id="'+id+'" style="width:auto;flex:0 0 auto;'+(sel?"background:rgba(0,255,65,.32);border-color:rgba(0,255,65,.7)":ok?"":"opacity:.5")+'">'+b.name+' <span class="small">'+cost$(c,S.resources)+'· '+Math.ceil(btime(b))+'s</span></button>'; }).join(""); }
 function openEarthMap(){ if(EM)return; var d=document.createElement("div"); d.id="earthmap";
-  d.innerHTML='<canvas id="emcanvas"></canvas><div id="emtop"><div class="panelglass" style="padding:8px 12px;pointer-events:auto"><div class="lbl">Earth · Surface</div><div style="font-size:15px;font-weight:900;color:#9dffb0">Continental Map</div></div><button class="btn ui" style="width:auto" data-act="earthmap_close">↩ Back to System</button></div><div class="small" style="position:absolute;bottom:12px;left:50%;transform:translateX(-50%);color:#2f8f43">drag to pan (wraps east–west) · scroll to zoom</div>';
-  document.body.appendChild(d); var cv=d.querySelector("#emcanvas"); EM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1.5,drag:false};
-  EM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; EM.camX=cv.width*(EM.zoom-1)/2; drawEarthMap(); }; window.addEventListener("resize",EM.resize); EM.resize();
-  var px=0,py=0; cv.addEventListener("pointerdown",function(e){ EM.drag=true; px=e.clientX; py=e.clientY; cv.style.cursor="grabbing"; });
-  EM.up=function(){ EM.drag=false; if(EM)cv.style.cursor="grab"; }; window.addEventListener("pointerup",EM.up);
-  cv.addEventListener("pointermove",function(e){ if(!EM||!EM.drag)return; EM.camX-=(e.clientX-px); EM.camY+=(e.clientY-py); px=e.clientX; py=e.clientY; drawEarthMap(); });
-  cv.addEventListener("wheel",function(e){ e.preventDefault(); EM.zoom=clamp(EM.zoom*(e.deltaY<0?1.12:0.89),1,6); drawEarthMap(); },{passive:false}); }
+  d.innerHTML='<canvas id="emcanvas"></canvas><div id="emtop"><div class="panelglass" style="padding:8px 12px;pointer-events:auto"><div class="lbl">Earth · Surface</div><div style="font-size:15px;font-weight:900;color:#9dffb0">Build Your Company</div></div><button class="btn ui" style="width:auto" data-act="earthmap_close">↩ Back to System</button></div><div id="empal" class="panelglass" style="position:absolute;left:12px;right:12px;bottom:10px;padding:8px;display:flex;gap:6px;overflow-x:auto;pointer-events:auto"></div><div class="small" id="emhint" style="position:absolute;top:66px;left:50%;transform:translateX(-50%);color:#2f8f43">pick a structure below, then click the map to build · drag to pan · scroll to zoom</div>';
+  document.body.appendChild(d); var cv=d.querySelector("#emcanvas"); EM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1.6,drag:false,moved:false,tool:null};
+  EM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; EM.camX=cv.width*(EM.zoom-1)/2; drawEarthMap(); }; window.addEventListener("resize",EM.resize); EM.resize(); renderEarthPalette();
+  var sx=0,sy=0; cv.addEventListener("pointerdown",function(e){ EM.drag=true; EM.moved=false; sx=e.clientX; sy=e.clientY; cv.style.cursor=EM.tool?"crosshair":"grabbing"; });
+  EM.up=function(e){ if(!EM)return; cv.style.cursor=EM.tool?"crosshair":"grab"; if(EM.drag&&!EM.moved&&EM.tool&&e&&e.target===cv)placeAtScreen(e.clientX,e.clientY); EM.drag=false; }; window.addEventListener("pointerup",EM.up);
+  cv.addEventListener("pointermove",function(e){ if(!EM||!EM.drag)return; if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4)EM.moved=true; EM.camX-=(e.clientX-sx); EM.camY+=(e.clientY-sy); sx=e.clientX; sy=e.clientY; drawEarthMap(); });
+  cv.addEventListener("wheel",function(e){ e.preventDefault(); EM.zoom=clamp(EM.zoom*(e.deltaY<0?1.12:0.89),1,8); drawEarthMap(); },{passive:false}); }
 function closeEarthMap(){ if(!EM)return; window.removeEventListener("resize",EM.resize); window.removeEventListener("pointerup",EM.up); var d=el("earthmap"); if(d)d.remove(); EM=null; }
 
 /* ============================================================ EARTH ORBIT MAP (2D, wraps) */
@@ -574,6 +585,8 @@ function drawIcon(c,x,y,shape,col,s){ c.save(); c.translate(x,y); c.strokeStyle=
   else if(shape==="frig"){ c.beginPath(); c.moveTo(0,-s*0.85);c.lineTo(s*0.7,s*0.45);c.lineTo(0,s*0.1);c.lineTo(-s*0.7,s*0.45);c.closePath(); c.fill(); }
   else if(shape==="cru"){ c.beginPath(); c.moveTo(0,-s*0.95);c.lineTo(s*0.6,0);c.lineTo(0,s*0.95);c.lineTo(-s*0.6,0);c.closePath(); c.fill(); }
   else if(shape==="dread"){ c.beginPath(); for(i=0;i<5;i++){a=-1.57+i/5*6.28;px=Math.cos(a)*s;py=Math.sin(a)*s;i?c.lineTo(px,py):c.moveTo(px,py);} c.closePath(); c.fill(); }
+  else if(shape==="mine"){ c.beginPath(); c.moveTo(-s*0.7,s*0.6);c.lineTo(s*0.7,s*0.6);c.lineTo(s*0.45,-s*0.4);c.lineTo(-s*0.45,-s*0.4);c.closePath(); c.stroke(); c.beginPath(); c.moveTo(0,-s*0.4);c.lineTo(0,-s*0.85);c.stroke(); }
+  else if(shape==="hub"){ c.strokeRect(-s*0.6,-s*0.6,s*1.2,s*1.2); c.beginPath(); c.moveTo(-s*0.6,0);c.lineTo(s*0.6,0);c.moveTo(0,-s*0.6);c.lineTo(0,s*0.6); c.stroke(); }
   else { c.beginPath(); c.moveTo(0,-s*0.7);c.lineTo(s*0.5,s*0.5);c.lineTo(-s*0.5,s*0.5);c.closePath(); c.fill(); }
   c.restore(); }
 function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=cv.height,bw=W*OM.zoom,i; OM.camX=((OM.camX%bw)+bw)%bw;
