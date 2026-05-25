@@ -700,7 +700,7 @@ document.addEventListener("keydown",function(e){ if(e.target&&e.target.tagName==
 /* ============================================================ 3D SOLAR SYSTEM (Earth-centred) */
 var SC=null;
 var EARTH_R=6; /* 1 Earth radius = 6 units */
-var AU=140000, SUN_R=654, MOON_DIST=120, MOON_R=3.2, STATION_R=40; /* compressed cislunar scale so the Moon stays in frame just past the orbit ring */
+var AU=140000, SUN_R=654, MOON_DIST=362, MOON_R=1.6, STATION_R=40; /* real scale (1 Earth radius = 6 units): 1 AU≈23.5k R, Sun 109 R, Moon 60 R & 0.27 R, GEO 6.6 R */
 var DAY_SECONDS=60, MOON_PERIOD=27.3; /* 1 Earth day = 60s of game time at 1x; orbital periods are real */
 /* realistic relative orbit distances (AU), planet-size ratios, and orbital PERIODS (real days).
    Sun size and Moon distance are compressed; a literal 1:1 scale makes planets invisible specks. */
