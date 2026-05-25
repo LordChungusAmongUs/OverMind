@@ -57,6 +57,9 @@
   #earthmap{ position:fixed; inset:0; z-index:8; background:#02060a; }
   #earthmap canvas{ display:block; width:100%; height:100%; cursor:grab; }
   #emtop{ position:absolute; top:10px; left:12px; right:12px; display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+  #orbitmap{ position:fixed; inset:0; z-index:8; background:#01040a; }
+  #orbitmap canvas{ display:block; width:100%; height:100%; cursor:grab; }
+  #fade{ position:fixed; inset:0; z-index:30; background:#000; opacity:0; pointer-events:none; transition:opacity .42s ease; }
   #hint{ position:absolute; top:54%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#2f8f43; font-size:13px; pointer-events:none; opacity:.8; }
   .reslabel{ text-align:right; font-size:11px; }
   .gridhdr,.gridrow{ display:grid; grid-template-columns:1.6fr .9fr .5fr .8fr .8fr; gap:6px; padding:7px 8px; font-size:12px; }
@@ -72,6 +75,7 @@
 <div id="battle"></div>
 <div id="menu"></div>
 <div id="end"></div>
+<div id="fade"></div>
 
 <script>
 "use strict";
@@ -299,6 +303,7 @@ function opsPanel(){ var sel=UI.sel,h="";
   LOCATIONS.forEach(function(loc){ if(sel&&loc.id!==sel)return; var unlocked=locUnlocked(loc.id,S.researched),list=Object.keys(BUILDINGS).filter(function(id){return BUILDINGS[id].loc===loc.id;});
     h+='<div style="margin-top:10px"><div class="row" style="gap:8px;align-items:baseline"><b style="color:#9dffb0;text-transform:uppercase;letter-spacing:.12em;font-size:13px">'+loc.name+'</b><span class="small">'+loc.tag+'</span></div>';
     if(loc.id==="earth"&&unlocked)h+='<div style="margin-top:5px"><button class="btn ui sm" style="width:auto" data-act="earthmap">🌍 View Surface Map</button> <span class="small">or double-click Earth</span></div>';
+    if(loc.id==="orbit"&&unlocked)h+='<div style="margin-top:5px"><button class="btn ui sm" style="width:auto" data-act="orbitmap">🛰 View Orbit Map</button> <span class="small">or double-click the orbit ring</span></div>';
     if(loc.id==="orbit"&&unlocked)h+='<div class="small" style="margin-top:5px">Station orbit: <b style="color:#39ff14">'+(S.orbitAround==="moon"?"Moon":"Earth")+'</b> <button class="btn ui sm" style="width:auto;display:inline-block;margin-left:6px" data-act="orbitwhere">↔ Switch to '+(S.orbitAround==="moon"?"Earth":"Moon")+'</button></div>';
     if(!unlocked){ h+='<div class="item small" style="margin-top:8px">🔒 Research <b style="color:#39ff14">'+(TECHS[loc.by]?TECHS[loc.by].name:"")+'</b> to open '+loc.name+'.</div></div>'; return; }
     h+='<div class="grid g2" style="margin-top:8px">';
@@ -382,6 +387,8 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="menu_open"){ UI.menu="pause"; renderMenu(); return; }
   if(act==="earthmap"){ openEarthMap(); return; }
   if(act==="earthmap_close"){ closeEarthMap(); return; }
+  if(act==="orbitmap"){ openOrbitMap(); return; }
+  if(act==="orbitmap_close"){ closeOrbitMap(); return; }
   if(act==="menu_continue"){ UI.menu=null; renderMenu(); render(); return; }
   if(act==="menu_settings"){ UI.menu="settings"; renderMenu(); return; }
   if(act==="menu_back"){ UI.menu="pause"; renderMenu(); return; }
@@ -393,7 +400,7 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="reset"){ if(confirm("Reset? All progress lost.")){ try{localStorage.removeItem(SAVE_KEY);}catch(e){} doNewGame(); syncScene(); renderMenu(); render(); } return; }
   if(A[act]){ A[act](id); save(); syncScene(); render(); } });
 document.addEventListener("input",function(e){ var t=e.target,k=t.getAttribute&&t.getAttribute("data-set"); if(!k)return; var v=parseFloat(t.value); if(isNaN(v))return; var p=k.split("."); if(p[0]==="start")SETTINGS.startRes[p[1]]=Math.max(0,v); else if(p[0]==="cost")SETTINGS.costMult[p[1]]=Math.max(0,v); else if(p[0]==="time")SETTINGS.timeMult=Math.max(0.01,v); saveSettings(); });
-document.addEventListener("keydown",function(e){ if(e.target&&e.target.tagName==="INPUT")return; if(e.key==="p"||e.key==="P"){ UI.menu=UI.menu?null:"pause"; renderMenu(); render(); } else if(e.key==="Escape"){ if(EM)closeEarthMap(); else if(UI.menu){ UI.menu=null; renderMenu(); render(); } } });
+document.addEventListener("keydown",function(e){ if(e.target&&e.target.tagName==="INPUT")return; if(e.key==="p"||e.key==="P"){ UI.menu=UI.menu?null:"pause"; renderMenu(); render(); } else if(e.key==="Escape"){ if(EM)closeEarthMap(); else if(OM)closeOrbitMap(); else if(UI.menu){ UI.menu=null; renderMenu(); render(); } } });
 
 /* ============================================================ 3D SOLAR SYSTEM (Earth-centred) */
 var SC=null;
@@ -408,6 +415,12 @@ var PLANETS=[
   {id:"earth",au:1.0,r:EARTH_R,col:0x2f7fff,period:365.25},
   {id:"mars",au:1.52,r:3.2,col:0xc1440e,period:687}
 ];
+function makeEarthTexture(){ var W=1024,H=512,cv=document.createElement("canvas"); cv.width=W; cv.height=H; var c=cv.getContext("2d");
+  var g=c.createLinearGradient(0,0,0,H); g.addColorStop(0,"#0a3a6b"); g.addColorStop(0.5,"#0f66ad"); g.addColorStop(1,"#0a3a6b"); c.fillStyle=g; c.fillRect(0,0,W,H);
+  function px(lon){ return (lon+180)/360*W; } function py(lat){ return (90-lat)/180*H; }
+  (typeof LAND!=="undefined"?LAND:[]).forEach(function(L){ c.beginPath(); L.pts.forEach(function(p,i){ var x=px(p[0]),y=py(p[1]); i?c.lineTo(x,y):c.moveTo(x,y); }); c.closePath(); c.fillStyle=(L.name==="Antarctica"||L.name==="Greenland")?"#e3ebf2":"#3f7a3a"; c.fill(); c.strokeStyle="rgba(30,70,30,0.55)"; c.lineWidth=1.2; c.stroke(); });
+  c.fillStyle="rgba(232,240,250,0.9)"; c.fillRect(0,0,W,H*0.05); c.fillRect(0,H*0.95,W,H*0.05);
+  return new THREE.CanvasTexture(cv); }
 function makeLabel(text,color,sx,sy){ var c=document.createElement("canvas"); c.width=256; c.height=64; var x=c.getContext("2d"); x.font="bold 30px monospace"; x.fillStyle=color; x.textAlign="center"; x.fillText(text,128,42); var t=new THREE.CanvasTexture(c); var sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthTest:false})); sp.scale.set(sx||46,sy||11.5,1); return sp; }
 function ringLine(scene,rad,col){ var pts=[]; for(var a=0;a<=90;a++){ var an=a/90*Math.PI*2; pts.push(new THREE.Vector3(Math.cos(an)*rad,0,Math.sin(an)*rad)); } scene.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.5}))); }
 function addHit(parent,r,loc,pick){ var m=new THREE.Mesh(new THREE.SphereGeometry(r,10,10),new THREE.MeshBasicMaterial({visible:false})); m.userData.loc=loc; parent.add(m); pick.push(m); return m; }
@@ -426,7 +439,8 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   var pick=[],pivots=[],focusObj={},earthGroup,moonPivot,moonMesh;
   PLANETS.forEach(function(p){ var piv=new THREE.Group(); piv.rotation.y=Math.random()*6.28; scene.add(piv);
     var g=new THREE.Group(); g.position.set(p.au*AU,0,0); piv.add(g);
-    var mesh=new THREE.Mesh(new THREE.SphereGeometry(p.r,28,28),new THREE.MeshStandardMaterial({color:p.col,emissive:p.col,emissiveIntensity:0.15,roughness:0.75,metalness:0.15})); g.add(mesh);
+    var emat=p.id==="earth"?new THREE.MeshStandardMaterial({map:makeEarthTexture(),roughness:0.9,metalness:0.05}):new THREE.MeshStandardMaterial({color:p.col,emissive:p.col,emissiveIntensity:0.15,roughness:0.75,metalness:0.15});
+    var mesh=new THREE.Mesh(new THREE.SphereGeometry(p.r,p.id==="earth"?48:28,p.id==="earth"?32:28),emat); g.add(mesh);
     g.add(makeLabel(p.id.charAt(0).toUpperCase()+p.id.slice(1),"#cdeccf",p.r>4?40:30,10).translateY(p.r+5));
     pivots.push({piv:piv,phase:piv.rotation.y,omega:2*Math.PI/(p.period*DAY_SECONDS),spin:(p.id==="earth"?2*Math.PI/DAY_SECONDS:2*Math.PI/(p.period*DAY_SECONDS)*3),mesh:mesh}); focusObj[p.id]=g;
     addHit(g,p.r+2,p.id,pick);
@@ -445,7 +459,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   var rivalGrp=new THREE.Group(); earthGroup.add(rivalGrp); var neutralGrp=new THREE.Group(); earthGroup.add(neutralGrp);
   SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,earthGroup:earthGroup,ast:ast,deep:deep,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0};
   attachControls(canvas); window.addEventListener("resize",onResize);
-  canvas.addEventListener("dblclick",function(e){ if(!SC||UI.menu||EM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false); if(hit.length&&hit[0].object.userData.loc==="earth")openEarthMap(); });
+  canvas.addEventListener("dblclick",function(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false); if(hit.length){ var lc=hit[0].object.userData.loc; if(lc==="earth")openEarthMap(); else if(lc==="orbit")openOrbitMap(); } });
   syncScene(); loopScene();
 }
 function onResize(){ if(!SC)return; SC.renderer.setSize(window.innerWidth,window.innerHeight,false); SC.cam.aspect=window.innerWidth/window.innerHeight; SC.cam.updateProjectionMatrix(); }
@@ -454,7 +468,7 @@ function attachControls(canvas){ var c=SC.cam0,px=0,py=0,moved=false;
   window.addEventListener("pointerup",function(e){ canvas.style.cursor="grab"; if(SC.drag&&!moved)pickAt(e); SC.drag=false; });
   window.addEventListener("pointermove",function(e){ if(!SC.drag)return; if(Math.abs(e.clientX-px)+Math.abs(e.clientY-py)>4)moved=true; c.theta-=(e.clientX-px)*0.006; c.phi=clamp(c.phi-(e.clientY-py)*0.006,0.2,Math.PI-0.2); px=e.clientX; py=e.clientY; });
   canvas.addEventListener("wheel",function(e){ e.preventDefault(); c.r=clamp(c.r+e.deltaY*(c.r*0.0014+0.5),14,1200000); },{passive:false}); }
-function pickAt(e){ if(!SC||UI.menu||EM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false); if(!hit.length)return; var loc=hit[0].object.userData.loc,gameplay=["earth","orbit","moon","asteroids","deep_space"];
+function pickAt(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false); if(!hit.length)return; var loc=hit[0].object.userData.loc,gameplay=["earth","orbit","moon","asteroids","deep_space"];
   if(gameplay.indexOf(loc)>=0){ UI.tab="ops"; UI.open=true; UI.sel=locUnlocked(loc,S.researched)?loc:null; SC.focus=(loc==="orbit"?"earth":loc); SC.cam0.r=(loc==="asteroids"||loc==="deep_space")?90:(loc==="moon"?22:55); render(); }
   else { SC.focus=loc; SC.cam0.r=40; } }
 function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S.buildings)if(BUILDINGS[id]&&BUILDINGS[id].loc===loc)c+=S.buildings[id]; return c; }
@@ -470,6 +484,7 @@ function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S
   // neutral companies — also Earth-based
   SC.neutralGrp.clear(); NEUTRAL.forEach(function(co,ci){ var st=S.neutral[co.id]||"none",col=st==="owned"?PC:0xbfc7cf,a=ci*1.02+0.4,rad=56+ci*10,m=new THREE.Mesh(new THREE.BoxGeometry(3,3,3),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:st==="none"?0.25:0.55})); m.position.set(Math.cos(a)*rad,-12,Math.sin(a)*rad); SC.neutralGrp.add(m); if(st!=="none"){ var lab=makeLabel(co.name.split(" ")[0],hexCol(col),44,11); lab.position.set(Math.cos(a)*rad,-5,Math.sin(a)*rad); SC.neutralGrp.add(lab); } }); }
 function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene); var c=SC.cam0; SC.t+=0.016;
+  if(SC.trans){ SC.trans.t+=0.016; var tk=Math.min(1,SC.trans.t/SC.trans.dur); c.r=SC.transStart+(26-SC.transStart)*tk; if(tk>=1)SC.trans=null; }
   var wc=S.worldClock; SC.pivots.forEach(function(p){ p.piv.rotation.y=p.phase+p.omega*wc; p.mesh.rotation.y=p.spin*wc; }); if(SC.moonPivot)SC.moonPivot.rotation.y=SC.moonPhase+SC.moonOmega*wc; SC.fleetGrp.rotation.y+=0.012; if(SC.glow)SC.glow.material.opacity=0.14+Math.sin(SC.t*2)*0.04;
   var obj=SC.focusObj[SC.focus]||SC.earthGroup; obj.getWorldPosition(SC.tmp); c.tx=SC.tmp.x; c.ty=SC.tmp.y; c.tz=SC.tmp.z;
   SC.cam.position.set(c.tx+Math.sin(c.phi)*Math.cos(c.theta)*c.r,c.ty+Math.cos(c.phi)*c.r,c.tz+Math.sin(c.phi)*Math.sin(c.theta)*c.r); SC.cam.lookAt(c.tx,c.ty,c.tz); SC.renderer.render(SC.scene,SC.cam); }
@@ -543,6 +558,49 @@ function openEarthMap(){ if(EM)return; var d=document.createElement("div"); d.id
   cv.addEventListener("pointermove",function(e){ if(!EM||!EM.drag)return; EM.camX-=(e.clientX-px); EM.camY+=(e.clientY-py); px=e.clientX; py=e.clientY; drawEarthMap(); });
   cv.addEventListener("wheel",function(e){ e.preventDefault(); EM.zoom=clamp(EM.zoom*(e.deltaY<0?1.12:0.89),1,6); drawEarthMap(); },{passive:false}); }
 function closeEarthMap(){ if(!EM)return; window.removeEventListener("resize",EM.resize); window.removeEventListener("pointerup",EM.up); var d=el("earthmap"); if(d)d.remove(); EM=null; }
+
+/* ============================================================ EARTH ORBIT MAP (2D, wraps) */
+var OM=null;
+function orbitItems(){ var it=[],P=PCOLORS[0],id,i;
+  var SB={comms_satellite:["sat",0.95],orbital_data_center:["dc",0.7],orbital_solar_array:["solar",1.25],ai_cluster:["ai",1.0]};
+  for(id in SB){ var n=Math.min(S.buildings[id]||0,14); for(i=0;i<n;i++)it.push({shape:SB[id][0],alt:SB[id][1],color:P,owner:"player"}); }
+  [["corvette","corv"],["frigate","frig"],["cruiser","cru"],["dreadnought","dread"]].forEach(function(p){ var n=Math.min(S.fleet[p[0]]||0,12); for(var i=0;i<n;i++)it.push({shape:p[1],alt:0.45,color:P,owner:"player"}); });
+  S.rivals.forEach(function(r){ if(r.dead)return; var ns=clamp(Math.round(Math.sqrt(Math.max(10,r.eco))/90),1,6); for(var i=0;i<ns;i++)it.push({shape:"station",alt:0.9,color:r.color,owner:r.id}); var nm=clamp(Math.round(r.mil/70),0,5); for(var j=0;j<nm;j++)it.push({shape:"gship",alt:0.5,color:r.color,owner:r.id}); });
+  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; it.push({shape:"station",alt:0.75,color:st==="owned"?P:0xbfc7cf,owner:co.id}); });
+  return it; }
+function drawIcon(c,x,y,shape,col,s){ c.save(); c.translate(x,y); c.strokeStyle=col; c.fillStyle=col; c.lineWidth=1.4; c.shadowColor=col; c.shadowBlur=6; var i,a,px,py;
+  if(shape==="sat"){ c.beginPath(); c.arc(0,0,s*0.5,0,6.28); c.fill(); c.fillRect(-s*1.4,-s*0.16,s*0.7,s*0.32); c.fillRect(s*0.7,-s*0.16,s*0.7,s*0.32); }
+  else if(shape==="dc"){ c.strokeRect(-s*0.7,-s*0.5,s*1.4,s); c.beginPath(); for(i=-1;i<2;i++){c.moveTo(-s*0.7,i*s*0.33);c.lineTo(s*0.7,i*s*0.33);} c.stroke(); }
+  else if(shape==="solar"){ c.strokeRect(-s*1.3,-s*0.45,s*2.6,s*0.9); c.beginPath(); for(i=-2;i<=2;i++){c.moveTo(i*s*0.5,-s*0.45);c.lineTo(i*s*0.5,s*0.45);} c.stroke(); }
+  else if(shape==="ai"){ c.beginPath(); for(i=0;i<6;i++){a=i/6*6.28+0.5;px=Math.cos(a)*s*0.8;py=Math.sin(a)*s*0.8;i?c.lineTo(px,py):c.moveTo(px,py);} c.closePath(); c.stroke(); }
+  else if(shape==="station"){ c.strokeRect(-s*0.55,-s*0.55,s*1.1,s*1.1); c.beginPath(); c.moveTo(0,-s*0.55); c.lineTo(0,-s*1.05); c.stroke(); c.beginPath(); c.arc(0,-s*1.05,s*0.18,0,6.28); c.fill(); }
+  else if(shape==="corv"){ c.beginPath(); c.moveTo(0,-s*0.7);c.lineTo(s*0.55,s*0.55);c.lineTo(-s*0.55,s*0.55);c.closePath(); c.fill(); }
+  else if(shape==="frig"){ c.beginPath(); c.moveTo(0,-s*0.85);c.lineTo(s*0.7,s*0.45);c.lineTo(0,s*0.1);c.lineTo(-s*0.7,s*0.45);c.closePath(); c.fill(); }
+  else if(shape==="cru"){ c.beginPath(); c.moveTo(0,-s*0.95);c.lineTo(s*0.6,0);c.lineTo(0,s*0.95);c.lineTo(-s*0.6,0);c.closePath(); c.fill(); }
+  else if(shape==="dread"){ c.beginPath(); for(i=0;i<5;i++){a=-1.57+i/5*6.28;px=Math.cos(a)*s;py=Math.sin(a)*s;i?c.lineTo(px,py):c.moveTo(px,py);} c.closePath(); c.fill(); }
+  else { c.beginPath(); c.moveTo(0,-s*0.7);c.lineTo(s*0.5,s*0.5);c.lineTo(-s*0.5,s*0.5);c.closePath(); c.fill(); }
+  c.restore(); }
+function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=cv.height,bw=W*OM.zoom,i; OM.camX=((OM.camX%bw)+bw)%bw;
+  var g=c.createLinearGradient(0,0,0,H); g.addColorStop(0,"#01030a"); g.addColorStop(0.7,"#02060f"); g.addColorStop(1,"#0a2436"); c.fillStyle=g; c.fillRect(0,0,W,H);
+  c.fillStyle="rgba(160,255,190,0.45)"; for(i=0;i<170;i++)c.fillRect((i*7919)%W,(i*104729)%Math.floor(H*0.8),1,1);
+  var eg=c.createLinearGradient(0,H*0.8,0,H); eg.addColorStop(0,"rgba(47,127,255,0)"); eg.addColorStop(1,"rgba(47,127,255,0.55)"); c.fillStyle=eg; c.fillRect(0,H*0.8,W,H*0.2);
+  c.fillStyle="rgba(150,200,255,0.7)"; c.font="12px monospace"; c.textAlign="left"; c.fillText("◣ EARTH",10,H-10);
+  c.strokeStyle="rgba(0,255,65,0.08)"; c.textAlign="right";
+  [["LEO",0.6],["MEO",0.4],["GEO",0.2]].forEach(function(b){ var y=H*b[1]; c.beginPath(); c.moveTo(0,y); c.lineTo(W,y); c.stroke(); c.fillStyle="rgba(0,255,65,0.3)"; c.fillText(b[0],W-8,y-4); });
+  var copies=[-bw,0,bw];
+  OM.items.forEach(function(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17), bx=((hash*97+idx*131)%1000)/1000*bw, y=H*(0.78-it.alt*0.58)+((idx*37)%22-11), sz=(it.shape==="corv"||it.shape==="frig"||it.shape==="cru"||it.shape==="dread"||it.shape==="gship")?7:9;
+    copies.forEach(function(ox){ var x=bx-OM.camX+ox; if(x<-40||x>W+40)return; drawIcon(c,x,y,it.shape,hexCol(it.color),sz*OM.zoom*0.85); }); }); }
+function mountOrbitMap(){ var d=document.createElement("div"); d.id="orbitmap";
+  d.innerHTML='<canvas id="omcanvas"></canvas><div id="emtop"><div class="panelglass" style="padding:8px 12px;pointer-events:auto"><div class="lbl">Earth · Orbit</div><div style="font-size:15px;font-weight:900;color:#9dffb0">Orbital Traffic</div></div><button class="btn ui" style="width:auto" data-act="orbitmap_close">↩ Back to System</button></div><div class="small" style="position:absolute;bottom:12px;left:50%;transform:translateX(-50%);color:#2f8f43">all companies\' orbital units &amp; structures · drag to pan (wraps) · scroll to zoom</div>';
+  document.body.appendChild(d); var cv=d.querySelector("#omcanvas"); OM={canvas:cv,ctx:cv.getContext("2d"),camX:0,zoom:1.2,drag:false,items:orbitItems()};
+  OM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; drawOrbitMap(); }; window.addEventListener("resize",OM.resize); OM.resize();
+  OM.refresh=setInterval(function(){ if(OM){ OM.items=orbitItems(); drawOrbitMap(); } },1200);
+  var px=0; cv.addEventListener("pointerdown",function(e){ OM.drag=true; px=e.clientX; cv.style.cursor="grabbing"; });
+  OM.up=function(){ if(OM){ OM.drag=false; cv.style.cursor="grab"; } }; window.addEventListener("pointerup",OM.up);
+  cv.addEventListener("pointermove",function(e){ if(!OM||!OM.drag)return; OM.camX-=(e.clientX-px); px=e.clientX; drawOrbitMap(); });
+  cv.addEventListener("wheel",function(e){ e.preventDefault(); OM.zoom=clamp(OM.zoom*(e.deltaY<0?1.12:0.89),1,5); drawOrbitMap(); },{passive:false}); }
+function openOrbitMap(){ if(OM||EM)return; var f=el("fade"); if(f)f.style.opacity="1"; if(SC){ SC.transStart=SC.cam0.r; SC.trans={t:0,dur:0.42}; } setTimeout(function(){ mountOrbitMap(); if(f)f.style.opacity="0"; },460); }
+function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; },300); }
 
 /* ============================================================ BOOT */
 loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); if(!hadSave)UI.menu="setup"; initScene(); render(); renderMenu();
