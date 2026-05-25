@@ -261,6 +261,7 @@ var FREE_BUILD_SECS=900; /* 15-minute grace window: construction is instant */
 /* commodity market base prices (capital per unit) — grounded in real relative values */
 var MARKET_BASE={materials:2,oil:0.6,gas:0.4,coal:0.2,uranium:40,iron_ore:0.5,steel:3,aluminum:4,concrete:0.3,copper:6,silicon:8,chips:60,rare_earths:30,lithium:15,cobalt:25,nickel:8,gallium:50,germanium:60,tungsten:20,water_ice:2,titanium:12,platinum:200,helium3:500,asteroid_metals:5};
 var TRADABLE=Object.keys(MARKET_BASE);
+var GRID_STEP=3; /* surface build grid: degrees per cell */
 
 /* ============================================================ SETTINGS */
 function defaultSettings(){ return {startRes:{capital:16000,compute:300,talent:12,materials:200,influence:0},costMult:{build:1,ship:1,tech:1},timeMult:0.5,aiCount:3}; }
@@ -320,7 +321,7 @@ function cryptoTick(S,dt){ var cr=S.crypto; if(!cr||!cr.launched)return; var pr=
   if(st.exch>0)S.resources.capital+=Math.sqrt(Math.max(0,cr.price*hash*cr.adoption))*0.02*st.exch*dt; }
 function marketPrice(k){ return (S.market&&S.market[k])||MARKET_BASE[k]||1; }
 function contractCost(b,o){ var c=bcost(b,o),v=0; for(var k in c)v+=(k==="capital"?c[k]:c[k]*marketPrice(k)); return v*1.7; }
-function autoPlace(id){ var b=BUILDINGS[id]; if(!b)return; if(b.loc==="orbit"){ S.earthPlacements.push({id:id,orbit:true,fx:Math.random(),fy:0.28+Math.random()*0.44,lon:0,lat:0}); return; } var base=null,i; for(i=0;i<(S.earthPlacements||[]).length;i++){ if(!S.earthPlacements[i].orbit){ base=S.earthPlacements[i]; break; } } base=base||{lon:-74,lat:40}; S.earthPlacements.push({id:id,lon:clamp(base.lon+(Math.random()*30-15),-179,179),lat:clamp(base.lat+(Math.random()*20-10),-80,80)}); }
+function autoPlace(id){ var b=BUILDINGS[id]; if(!b)return; if(b.loc==="orbit"){ S.earthPlacements.push({id:id,orbit:true,fx:Math.random(),fy:0.28+Math.random()*0.44,lon:0,lat:0}); return; } var occ=occupiedSet(b.loc),base=null,i,pl; for(i=0;i<(S.earthPlacements||[]).length;i++){ pl=S.earthPlacements[i]; if(!pl.orbit&&BUILDINGS[pl.id]&&BUILDINGS[pl.id].loc===b.loc){ base=emCellOf(pl); break; } } var bg=base||{gx:Math.round(-74/GRID_STEP),gy:Math.round(40/GRID_STEP)}; for(var t=0;t<200;t++){ var gx=bg.gx+(Math.floor(Math.random()*11)-5),gy=bg.gy+(Math.floor(Math.random()*11)-5); if(Math.abs(gy*GRID_STEP)>85||occ[gx+","+gy])continue; S.earthPlacements.push({id:id,gx:gx,gy:gy,w:1,h:1,lon:gx*GRID_STEP,lat:gy*GRID_STEP}); return; } S.earthPlacements.push({id:id,gx:bg.gx,gy:bg.gy,w:1,h:1,lon:bg.gx*GRID_STEP,lat:bg.gy*GRID_STEP}); }
 function marketTick(S,dt){ for(var i=0;i<TRADABLE.length;i++){ var k=TRADABLE[i],base=MARKET_BASE[k],p=S.market[k]||base; p+=(Math.random()-0.5)*base*0.06*dt; p+=(base-p)*0.02*dt; S.market[k]=clamp(p,base*0.35,base*2.8); }
   S.contractClock+=dt; if(S.contractClock>22){ S.contractClock=0; S.contracts=S.contracts.filter(function(c){return (S.worldClock-c.t)<240;}); if(S.contracts.length<5){ var k=TRADABLE[(Math.random()*TRADABLE.length)|0],qty=Math.round((400+Math.random()*1600)/Math.max(0.3,Math.sqrt(MARKET_BASE[k]))),pay=qty*marketPrice(k)*(1.25+Math.random()*0.5); S.contracts.push({id:S.contractSeq++,res:k,qty:qty,pay:Math.round(pay),t:S.worldClock}); } } }
 function bcost(b,o){ var c={},g=b.g||1.15,m=SETTINGS.costMult.build; for(var k in b.cost)c[k]=b.cost[k]*Math.pow(g,o)*m; return c; }
@@ -386,7 +387,7 @@ function objectives(S){ var pm=playerMetrics(S),st=currentStage(S),ms=Math.max(S
 /* ============================================================ STATE + ACTIONS + JOBS */
 var S=freshState();
 function spend(c){ for(var k in c)S.resources[k]-=c[k]; }
-function completeJob(j){ if(j.kind==="build")S.buildings[j.id]=(S.buildings[j.id]||0)+1;
+function completeJob(j){ if(j.kind==="build")S.buildings[j.id]=(S.buildings[j.id]||0)+(j.qty||1);
   else if(j.kind==="ship")S.fleet[j.id]=(S.fleet[j.id]||0)+1;
   else if(j.kind==="tech"){ if(S.researched.indexOf(j.id)<0){ S.researched.push(j.id); pushEvent(S,"tech","Completed research: "+TECHS[j.id].name+"."); } }
   else if(j.kind==="acqco"){ S.neutral[j.id]="owned"; var co=NEUTRAL.find(function(x){return x.id===j.id;}); pushEvent(S,"good","Acquired "+(co?co.name:j.id)+"."); } }
@@ -721,8 +722,22 @@ function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=c
   var isz=moon?12:clamp(worldW/300,4,400);
   rivalEarthSites(EM.loc).forEach(function(s){ var a=clamp(0.22+(s.intel/100)*0.78,0.22,1); copies.forEach(function(ox){ var x=px(s.lon,ox),y=py(s.lat); if(x<-30||x>W+30)return; c.globalAlpha=a; drawIcon(c,x,y,s.shape,hexCol(s.color),isz*0.92); c.globalAlpha=1; }); });
   (S.earthPlacements||[]).forEach(function(pl){ if(!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; copies.forEach(function(ox){ var x=px(pl.lon,ox),y=py(pl.lat); if(x<-30||x>W+30)return; drawIcon(c,x,y,BSHAPE[pl.id]||"hub",hexCol(PCOLORS[0]),isz); }); });
+  if(EM.tool){ var cw=GRID_STEP/360*worldW,ch=GRID_STEP/180*worldH,occ=occupiedSet(EM.loc);
+    if(cw>3){ c.strokeStyle="rgba(57,255,20,0.10)"; c.lineWidth=1; for(var gl=-180;gl<=180;gl+=GRID_STEP){ var xx=px(gl,0); c.beginPath(); c.moveTo(xx,0); c.lineTo(xx,H); c.stroke(); } for(var gt=-84;gt<=84;gt+=GRID_STEP){ var yy=py(gt); c.beginPath(); c.moveTo(0,yy); c.lineTo(W,yy); c.stroke(); } }
+    if(EM.build){ var a=emCell(EM.build.x0,EM.build.y0),bb=emCell(EM.build.x1,EM.build.y1),gx0=Math.min(a.gx,bb.gx),gy0=Math.min(a.gy,bb.gy),w=Math.abs(a.gx-bb.gx)+1,h=Math.abs(a.gy-bb.gy)+1,gx,gy;
+      for(gx=gx0;gx<gx0+w;gx++)for(gy=gy0;gy<gy0+h;gy++){ var blocked=occ[gx+","+gy]||Math.abs(gy*GRID_STEP)>85,cx=px(gx*GRID_STEP,0),cy=py(gy*GRID_STEP); c.fillStyle=blocked?"rgba(255,60,40,0.30)":"rgba(57,255,20,0.28)"; c.fillRect(cx-cw/2,cy-ch/2,cw-1,ch-1); }
+      c.fillStyle="#9dffb0"; c.font="bold 12px monospace"; c.textAlign="center"; c.fillText("×"+(w*h)+" "+(BUILDINGS[EM.tool]?BUILDINGS[EM.tool].name:""),px(((gx0+w/2-0.5)*GRID_STEP),0),py(gy0*GRID_STEP)-ch/2-6); }
+  }
 }
-function placeAtScreen(sx,sy){ if(!EM||!EM.tool)return; var cv=EM.canvas,worldW=cv.width*EM.bw*EM.zoom,worldH=cv.height*EM.bh*EM.zoom; var lon=((((sx+EM.camX)%worldW)+worldW)%worldW)/worldW*360-180,lat=90-((sy-EM.camY)/worldH)*180; if(lat>85||lat<-85)return; if(A.placeEarth(EM.tool,lon,lat)){ save(); drawEarthMap(); render(); } }
+function emCell(sx,sy){ var cv=EM.canvas,worldW=cv.width*EM.bw*EM.zoom,worldH=cv.height*EM.bh*EM.zoom,lon=((((sx+EM.camX)%worldW)+worldW)%worldW)/worldW*360-180,lat=90-((sy-EM.camY)/worldH)*180; return {gx:Math.round(lon/GRID_STEP),gy:Math.round(lat/GRID_STEP)}; }
+function emCellOf(pl){ return pl.gx!==undefined?{gx:pl.gx,gy:pl.gy}:{gx:Math.round(pl.lon/GRID_STEP),gy:Math.round(pl.lat/GRID_STEP)}; }
+function occupiedSet(loc){ var s={}; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit)return; var b=BUILDINGS[pl.id]; if(!b||b.loc!==loc)return; var c=emCellOf(pl); s[c.gx+","+c.gy]=1; }); return s; }
+function placeRect(gx0,gy0,w,h){ if(!EM||!EM.tool)return; var b=BUILDINGS[EM.tool]; if(!b||b.loc!==EM.loc)return; var loc=EM.loc,occ=occupiedSet(loc),free=[],gx,gy;
+  w=clamp(w,1,80); h=clamp(h,1,80);
+  for(gx=gx0;gx<gx0+w;gx++)for(gy=gy0;gy<gy0+h;gy++){ if(Math.abs(gy*GRID_STEP)>85)continue; if(occ[gx+","+gy])continue; free.push([gx,gy]); }
+  var n=free.length; if(!n)return; var owned=(S.buildings[EM.tool]||0)+queued("build",EM.tool),uc=bcost(b,owned),cost={},k; for(k in uc)cost[k]=uc[k]*n; if(!afford(S.resources,cost))return;
+  spend(cost); free.forEach(function(g){ S.earthPlacements.push({id:EM.tool,gx:g[0],gy:g[1],w:1,h:1,lon:g[0]*GRID_STEP,lat:g[1]*GRID_STEP}); }); var t=btime(b); S.jobs.push({kind:"build",id:EM.tool,rem:t,tot:t,qty:n}); save(); drawEarthMap(); render(); }
+function placeAtScreen(sx,sy){ if(!EM||!EM.tool)return; var c=emCell(sx,sy); placeRect(c.gx,c.gy,1,1); }
 var GRID_KEYS=["q","w","e","r","t","a","s","d","f","g","z","x","c","v","b"];
 function shortName(n){ return n.replace(/\(.*\)/,"").replace(/Communications/,"Comms").replace(/Manufacturing/,"Mfg").replace(/Headquarters/,"HQ").trim(); }
 function gridList(){ var kind,items=[];
@@ -747,9 +762,9 @@ document.addEventListener("keydown",gridKey);
 function openEarthMap(loc){ if(EM)return; loc=loc||"earth"; var d=document.createElement("div"); d.id="earthmap"; d.innerHTML='<canvas id="emcanvas"></canvas>';
   document.body.appendChild(d); var cv=d.querySelector("#emcanvas"); EM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,drag:false,moved:false,tool:null,loc:loc,bw:loc==="moon"?1:2,bh:1,maxZoom:loc==="moon"?1:8};
   EM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; EM.camX=(cv.width*EM.bw*EM.zoom-cv.width)/2; drawEarthMap(); }; window.addEventListener("resize",EM.resize); EM.resize();
-  var sx=0,sy=0; cv.addEventListener("pointerdown",function(e){ EM.drag=true; EM.moved=false; sx=e.clientX; sy=e.clientY; cv.style.cursor=EM.tool?"crosshair":"grabbing"; });
-  EM.up=function(e){ if(!EM)return; cv.style.cursor=EM.tool?"crosshair":"grab"; if(EM.drag&&!EM.moved&&EM.tool&&e&&e.target===cv)placeAtScreen(e.clientX,e.clientY); EM.drag=false; }; window.addEventListener("pointerup",EM.up);
-  cv.addEventListener("pointermove",function(e){ if(!EM||!EM.drag)return; if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4)EM.moved=true; if(EM.loc!=="moon"){ EM.camX-=(e.clientX-sx); EM.camY+=(e.clientY-sy); } sx=e.clientX; sy=e.clientY; drawEarthMap(); });
+  var sx=0,sy=0; cv.addEventListener("pointerdown",function(e){ sx=e.clientX; sy=e.clientY; if(EM.tool){ EM.build={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } else { EM.drag=true; EM.moved=false; cv.style.cursor="grabbing"; } });
+  EM.up=function(e){ if(!EM)return; cv.style.cursor=EM.tool?"crosshair":"grab"; if(EM.build){ var a=emCell(EM.build.x0,EM.build.y0),b=emCell(EM.build.x1,EM.build.y1); placeRect(Math.min(a.gx,b.gx),Math.min(a.gy,b.gy),Math.abs(a.gx-b.gx)+1,Math.abs(a.gy-b.gy)+1); EM.build=null; } EM.drag=false; }; window.addEventListener("pointerup",EM.up);
+  cv.addEventListener("pointermove",function(e){ if(!EM)return; if(EM.build){ EM.build.x1=e.clientX; EM.build.y1=e.clientY; drawEarthMap(); return; } if(!EM.drag)return; if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4)EM.moved=true; if(EM.loc!=="moon"){ EM.camX-=(e.clientX-sx); EM.camY+=(e.clientY-sy); } sx=e.clientX; sy=e.clientY; drawEarthMap(); });
   cv.addEventListener("wheel",function(e){ e.preventDefault(); if(EM.maxZoom<=1)return; var oz=EM.zoom; EM.zoom=clamp(EM.zoom*(e.deltaY<0?1.12:0.89),1,EM.maxZoom); var f=EM.zoom/oz; EM.camX=(e.clientX+EM.camX)*f-e.clientX; EM.camY=e.clientY-(e.clientY-EM.camY)*f; drawEarthMap(); },{passive:false}); render(); }
 function closeEarthMap(){ if(!EM)return; window.removeEventListener("resize",EM.resize); window.removeEventListener("pointerup",EM.up); var d=el("earthmap"); if(d)d.remove(); EM=null; render(); }
 
@@ -785,7 +800,7 @@ function omPy(f){ return OM.camY+OM.canvas.height*1.5*OM.zoom*f; }
 function screenToFrac(sx,sy){ var bw=OM.canvas.width*3*OM.zoom,bh=OM.canvas.height*1.5*OM.zoom; return {fx:((((sx+OM.camX)%bw)+bw)%bw)/bw, fy:clamp((sy-OM.camY)/bh,0.04,0.96)}; }
 function placeAtScreenOrbit(sx,sy){ if(!OM||!OM.tool)return; var f=screenToFrac(sx,sy),id=OM.tool;
   if(SHIPS[id]){ var s=SHIPS[id]; if(s.req&&S.researched.indexOf(s.req)<0)return; var o=(S.fleet[id]||0)+S.units.filter(function(u){return u.type===id&&u.side==="p";}).length,c=scost(s,o); if(!afford(S.resources,c))return; spend(c); S.units.push(spawnUnit(id,f.fx,f.fy,"p",PCOLORS[0],stime(s))); }
-  else { var b=BUILDINGS[id]; if(!b||b.loc!=="orbit")return; var o=(S.buildings[id]||0)+queued("build",id),cc=bcost(b,o); if(!afford(S.resources,cc))return; spend(cc); S.jobs.push({kind:"build",id:id,rem:btime(b),tot:btime(b)}); S.earthPlacements.push({id:id,orbit:true,fx:f.fx,fy:f.fy,lon:0,lat:0}); }
+  else { var b=BUILDINGS[id]; if(!b||b.loc!=="orbit")return; var sfx=Math.round(f.fx*48)/48,sfy=clamp(Math.round(f.fy*16)/16,0.06,0.94); if((S.earthPlacements||[]).some(function(p){ return p.orbit&&Math.abs(fxd(p.fx,sfx))<0.012&&Math.abs(p.fy-sfy)<0.03; }))return; var o=(S.buildings[id]||0)+queued("build",id),cc=bcost(b,o); if(!afford(S.resources,cc))return; spend(cc); S.jobs.push({kind:"build",id:id,rem:btime(b),tot:btime(b)}); S.earthPlacements.push({id:id,orbit:true,fx:sfx,fy:sfy,lon:0,lat:0}); }
   save(); render(); }
 function clickSelect(sx,sy,shift){ var hit=null; S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<15&&Math.abs(omPy(u.fy)-sy)<15)hit=u; }); if(!shift)OM.sel=[]; if(hit&&OM.sel.indexOf(hit.uid)<0)OM.sel.push(hit.uid); render(); }
 function boxSelect(b,shift){ if(!shift)OM.sel=[]; var x0=Math.min(b.x0,b.x1),x1=Math.max(b.x0,b.x1),y0=Math.min(b.y0,b.y1),y1=Math.max(b.y0,b.y1); S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; var x=omScreenC(u),y=omPy(u.fy); if(x>=x0&&x<=x1&&y>=y0&&y<=y1&&OM.sel.indexOf(u.uid)<0)OM.sel.push(u.uid); }); render(); }
