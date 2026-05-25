@@ -221,6 +221,15 @@ wss.on("connection", (ws) => {
         if (destWs) send(destWs, { t: "attack", from: me ? me.index : -1, target: m.target | 0, kind: m.kind, mag: m.mag });
         break;
       }
+      case "shipgoods": {                                    // physical delivery: route a parcel to the target company's host
+        const match = client.match; if (!match) break;
+        const me = memberCompany(match, client.id);
+        const target = [...match.companies.values()].find((c) => c.index === (m.target | 0));
+        if (!target) break;                                  // no human recipient (AI/unknown) -> goods don't arrive
+        const h = target.members.find((x) => x.id === target.hostId);
+        if (h) send(h.ws, { t: "shipgoods", from: me ? me.index : -1, target: m.target | 0, res: m.res, qty: m.qty });
+        break;
+      }
       case "worldroster": {                                   // authoritative world roster (match host -> everyone else)
         const match = client.match; if (!match || match.hostId !== client.id) break;
         toMatch(match, { t: "worldroster", roster: m.roster }, client.id);

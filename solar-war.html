@@ -295,7 +295,7 @@ function fmtClock(s){ var m=Math.floor(s/60),ss=Math.floor(s%60); return m+":"+(
 function freshState(){ var sr=SETTINGS.startRes,r0=zero(); for(var k in sr)if(r0[k]!==undefined)r0[k]=sr[k]; return {
   resources:r0,
   buildings:{ground_dc:1}, researched:[], fleet:{}, neutral:{}, jobs:[], orbitAround:"earth", earthPlacements:[{id:"ground_dc",lon:-74,lat:40.7}], units:[], groups:{}, bookmarks:{},
-  debt:0, fedRate:0.05, printed:0, econ:{consumer:1.2e13,enterprise:7e12,government:4e12}, nodes:{orbit:{},moon:{},asteroids:{},deep_space:{}},
+  debt:0, fedRate:0.05, printed:0, econ:{consumer:1.2e13,enterprise:7e12,government:4e12}, nodes:{orbit:{},moon:{},asteroids:{},deep_space:{}}, shipments:[], shipSeq:0,
   rivals:(function(){ var nR=clamp(SETTINGS.rivalCount,0,MAX_COMPANIES-1),nN=clamp(SETTINGS.neutralCount,0,MAX_COMPANIES-1-nR),startEco=sr.capital+500,out=[],i; for(i=0;i<nR+nN;i++){ var neutral=i>=nR,idx=i+1; out.push({id:"co"+idx,name:companyName(i),pers:PERS[i%PERS.length],eco:startEco,tech:0,inf:5,mil:0,gr:1.0,host:neutral?2:10,crip:0,dead:false,treaty:"none",intel:8,color:coColor(idx),neutral:neutral}); } return out; })(),
   hadRivals:clamp(SETTINGS.rivalCount,0,MAX_COMPANIES-1)>0,
   marketShare:{consumer:0.12,enterprise:0.1,government:0.08}, marketSize:{consumer:60000,enterprise:40000,government:28000},
@@ -339,6 +339,10 @@ function haulTick(S,dt){ if(!S.nodes)return; var r=rates(S),np=r.nodeProd||{},ca
   if(total<=0)return; var frac=Math.min(1,cap/total);
   for(i=0;i<BODIES.length;i++){ body=BODIES[i]; nb=S.nodes[body]; if(!nb)continue; for(k in nb){ if(nb[k]>0){ var mv=nb[k]*frac; nb[k]-=mv; if(nb[k]<1e-9)nb[k]=0; S.resources[k]=(S.resources[k]||0)+mv; } } } }
 function nodeTotals(S){ var t={},grand=0; if(S.nodes)for(var i=0;i<BODIES.length;i++){ var nb=S.nodes[BODIES[i]]; if(!nb)continue; for(var k in nb){ if(nb[k]>1e-6){ t[k]=(t[k]||0)+nb[k]; grand+=nb[k]; } } } return {byRes:t,total:grand}; }
+/* Inter-company physical delivery: trading ownership doesn't move atoms — goods ride freight lanes for SHIP_TRANSIT
+   before they land in the recipient's stockpile. Outbound parcels leave the dock at once; inbound ones credit on arrival. */
+function shipTick(S,dt){ if(!S.shipments||!S.shipments.length)return; var keep=[],i; for(i=0;i<S.shipments.length;i++){ var sh=S.shipments[i]; sh.rem-=dt; if(sh.rem>0){ keep.push(sh); continue; } if(sh.dir==="in"){ S.resources[sh.res]=(S.resources[sh.res]||0)+sh.qty; pushEvent(S,"good","Delivery arrived: "+fmt(sh.qty)+" "+(RESMETA[sh.res]?RESMETA[sh.res].name:sh.res)+" from "+companyName(sh.peer)+"."); } } S.shipments=keep; }
+function applyIncomingDelivery(m){ if(!m||!PHYS[m.res]||!(m.qty>0))return; if(!S.shipments)S.shipments=[]; S.shipments.push({id:(S.shipSeq=(S.shipSeq||0)+1),dir:"in",peer:(m.from>=0?m.from:-1),res:m.res,qty:m.qty,rem:SHIP_TRANSIT,tot:SHIP_TRANSIT}); }
 /* Closed-loop dollars: operating revenue is drawn from finite customer money pools; payroll, tax, interest and
    upkeep recirculate back into them; the Fed prints only to backstop contraction. New money = credit + printing. */
 function econTick(S,dt){ if(!S.econ)return; var r=rates(S),e=S.econ,pool=e.consumer+e.enterprise+e.government,baseline=2.3e13;
@@ -471,7 +475,7 @@ function completeJob(j){ if(j.kind==="build")S.buildings[j.id]=(S.buildings[j.id
 function processJobs(dt){ if(!S.jobs.length)return false; var done=[],i; for(i=0;i<S.jobs.length;i++){ S.jobs[i].rem-=dt; if(S.jobs[i].rem<=0)done.push(i); }
   for(i=done.length-1;i>=0;i--){ var j=S.jobs[done[i]]; S.jobs.splice(done[i],1); completeJob(j); } return done.length>0; }
 function save(){ try{ S.lastSaved=Date.now(); localStorage.setItem(SAVE_KEY,JSON.stringify(S)); }catch(e){} }
-function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; STOCKS.forEach(function(k){ if(typeof p.resources[k]!=="number")p.resources[k]=0; }); if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.earthPlacements)p.earthPlacements=[]; if(!p.units)p.units=[]; if(!p.groups)p.groups={}; if(!p.bookmarks)p.bookmarks={}; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; if(typeof p.freeBuild!=="number")p.freeBuild=0; if(!p.crypto)p.crypto={launched:false,name:"",consensus:"pow",supply:"fixed",utility:"store",price:1,held:0,adoption:0,peak:1,vol:0}; if(!p.gpuMode)p.gpuMode="ai"; if(!p.market){ p.market={}; TRADABLE.forEach(function(k){ p.market[k]=MARKET_BASE[k]; }); } if(!p.contracts)p.contracts=[]; if(typeof p.contractSeq!=="number")p.contractSeq=1; if(typeof p.contractClock!=="number")p.contractClock=0; if(typeof p.debt!=="number")p.debt=0; if(typeof p.fedRate!=="number")p.fedRate=0.05; if(typeof p.printed!=="number")p.printed=0; if(!p.econ)p.econ={consumer:1.2e13,enterprise:7e12,government:4e12}; if(!p.nodes)p.nodes={orbit:{},moon:{},asteroids:{},deep_space:{}}; if(typeof p.hadRivals!=="boolean")p.hadRivals=true; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=coColor(i+1); if(typeof r.neutral!=="boolean")r.neutral=false; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); haulTick(S,d); econTick(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
+function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; STOCKS.forEach(function(k){ if(typeof p.resources[k]!=="number")p.resources[k]=0; }); if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.earthPlacements)p.earthPlacements=[]; if(!p.units)p.units=[]; if(!p.groups)p.groups={}; if(!p.bookmarks)p.bookmarks={}; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; if(typeof p.freeBuild!=="number")p.freeBuild=0; if(!p.crypto)p.crypto={launched:false,name:"",consensus:"pow",supply:"fixed",utility:"store",price:1,held:0,adoption:0,peak:1,vol:0}; if(!p.gpuMode)p.gpuMode="ai"; if(!p.market){ p.market={}; TRADABLE.forEach(function(k){ p.market[k]=MARKET_BASE[k]; }); } if(!p.contracts)p.contracts=[]; if(typeof p.contractSeq!=="number")p.contractSeq=1; if(typeof p.contractClock!=="number")p.contractClock=0; if(typeof p.debt!=="number")p.debt=0; if(typeof p.fedRate!=="number")p.fedRate=0.05; if(typeof p.printed!=="number")p.printed=0; if(!p.econ)p.econ={consumer:1.2e13,enterprise:7e12,government:4e12}; if(!p.nodes)p.nodes={orbit:{},moon:{},asteroids:{},deep_space:{}}; if(!p.shipments)p.shipments=[]; if(typeof p.shipSeq!=="number")p.shipSeq=0; if(typeof p.hadRivals!=="boolean")p.hadRivals=true; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=coColor(i+1); if(typeof r.neutral!=="boolean")r.neutral=false; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); haulTick(S,d); shipTick(S,d); econTick(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
 var A={
   build:function(id){ var b=BUILDINGS[id]; if(!b)return; var o=(S.buildings[id]||0)+queued("build",id),q=quoteBuild(b,o,1,{}); if(!afford(S.resources,q.pay))return; spend(q.pay); S.jobs.push({kind:"build",id:id,rem:q.time,tot:q.time}); },
   placeEarth:function(id,lon,lat){ var b=BUILDINGS[id]; if(!b||(b.loc!=="earth"&&b.loc!=="moon"))return false; if(b.loc==="earth"&&!terrOK(b,Math.round(lon/GRID_STEP),Math.round(lat/GRID_STEP)))return false; var o=(S.buildings[id]||0)+queued("build",id),q=quoteBuild(b,o,1,{gx:Math.round(lon/GRID_STEP),gy:Math.round(lat/GRID_STEP)}); if(!afford(S.resources,q.pay))return false; spend(q.pay); S.jobs.push({kind:"build",id:id,rem:q.time,tot:q.time}); S.earthPlacements.push({id:id,lon:lon,lat:lat}); return true; },
@@ -498,7 +502,8 @@ var A={
   acceptContract:function(cid){ var c=S.contracts.find(function(x){return x.id===cid;}); if(!c)return; if((S.resources[c.res]||0)<c.qty)return; S.resources[c.res]-=c.qty; S.resources.capital+=c.pay; S.contracts=S.contracts.filter(function(x){return x.id!==cid;}); pushEvent(S,"good","Fulfilled supply contract: "+fmt(c.qty)+" "+(CODE[c.res]||c.res)+" → +"+money(c.pay)+"."); },
   setSpeed:function(v){ S.speed=v; },
   borrow:function(amt){ amt=Math.max(0,+amt||0); var lim=creditLimit(); amt=Math.min(amt,lim); if(amt<1)return; S.resources.capital+=amt; S.debt=(S.debt||0)+amt; pushEvent(S,"info","Drew "+money(amt)+" in bank credit at "+(S.fedRate*100).toFixed(1)+"% — debt now "+money(S.debt)+"."); },
-  repay:function(amt){ amt=Math.max(0,+amt||0); amt=Math.min(amt,S.debt||0,S.resources.capital); if(amt<1)return; S.resources.capital-=amt; S.debt=(S.debt||0)-amt; pushEvent(S,"good","Repaid "+money(amt)+" of debt — "+money(S.debt)+" remaining."); }
+  repay:function(amt){ amt=Math.max(0,+amt||0); amt=Math.min(amt,S.debt||0,S.resources.capital); if(amt<1)return; S.resources.capital-=amt; S.debt=(S.debt||0)-amt; pushEvent(S,"good","Repaid "+money(amt)+" of debt — "+money(S.debt)+" remaining."); },
+  deliver:function(target,res,qty){ target=parseInt(target,10); qty=+qty; if(!PHYS[res]||!(qty>0))return; if(!Net.inMatch())return; var co=Net.company(),myIdx=co?co.index:-1; if(target===myIdx||isNaN(target))return; var have=S.resources[res]||0; if(have<1)return; qty=Math.min(qty,have); if(qty<1)return; S.resources[res]-=qty; if(!S.shipments)S.shipments=[]; S.shipments.push({id:(S.shipSeq=(S.shipSeq||0)+1),dir:"out",peer:target,res:res,qty:qty,rem:SHIP_TRANSIT,tot:SHIP_TRANSIT}); Net.deliverTo(target,res,qty); pushEvent(S,"info","Dispatched "+fmt(qty)+" "+(RESMETA[res]?RESMETA[res].name:res)+" → "+companyName(target)+" (≈4-day transit)."); }
 };
 function doNewGame(){ S=freshState(); UI.menu=null; UI.open=false; UI.sel=null; save(); }
 
@@ -539,7 +544,22 @@ function logisticsPanel(){ var r=rates(S),h='<div class="small" style="margin-bo
   h+='<div class="item" style="margin-top:8px"><div class="lbl">Off-world inventory — awaiting lift</div>';
   var any=false; BODIES.forEach(function(body){ var nb=S.nodes&&S.nodes[body],keys=nb?Object.keys(nb).filter(function(k){return nb[k]>1e-3;}):[]; if(!keys.length)return; any=true; var bn=LOCATIONS.find(function(l){return l.id===body;}); h+='<div style="margin-top:5px"><b style="color:#8fd6ff;font-size:11px;text-transform:uppercase;letter-spacing:.08em">'+(bn?bn.name:body)+'</b><div class="row" style="gap:6px;flex-wrap:wrap;margin-top:3px">'+keys.map(function(k){ return '<span class="chip" style="color:'+RESMETA[k].col+'">'+RESMETA[k].name+' '+fmt(nb[k])+'</span>'; }).join("")+'</div></div>'; });
   if(!any)h+='<div class="small" style="margin-top:3px">No off-world stockpiles yet. Build mines, refineries or harvesters on the Moon, in orbit or the belt — what they extract waits here until lift carries it home.</div>';
-  h+='</div>'; return h; }
+  h+='</div>';
+  // in-transit parcels between companies
+  if(S.shipments&&S.shipments.length){ h+='<div class="item" style="margin-top:8px"><div class="lbl">Freight in transit</div>'+S.shipments.slice().sort(function(a,b){return a.rem-b.rem;}).map(function(sh){ var dir=sh.dir==="in"?"◀ from":"▶ to",col=sh.dir==="in"?"#9dffb0":"#ffd27a"; return '<div class="small" style="margin-top:3px;color:'+col+'">'+dir+' '+companyName(sh.peer)+': '+fmt(sh.qty)+' '+(RESMETA[sh.res]?RESMETA[sh.res].name:sh.res)+' · ETA '+fmtClock(Math.max(0,sh.rem))+'</div>'; }).join("")+'</div>'; }
+  // inter-company physical delivery (multiplayer)
+  if(Net.inMatch()){ var co=Net.company(),myIdx=co?co.index:-1,targets=(S.rivals||[]).filter(function(rv){ return rv.human&&!rv.dead&&rv.index!==myIdx; });
+    h+='<div class="item" style="margin-top:8px"><div class="lbl">Deliver goods to a company</div><div class="small">Trading ownership doesn\'t move atoms — you must physically ship them (~4-day transit).</div>';
+    if(!targets.length)h+='<div class="small" style="margin-top:4px;opacity:.7">No rival companies to ship to yet.</div>';
+    else{ if(!UI.ship)UI.ship={target:null,res:null}; if(UI.ship.target===null||!targets.some(function(t){return t.index===UI.ship.target;}))UI.ship.target=targets[0].index;
+      h+='<div class="small" style="margin-top:5px">To:</div><div class="row" style="gap:4px;flex-wrap:wrap;margin-top:2px">'+targets.map(function(t){ var on=t.index===UI.ship.target; return '<button class="btn ui sm" style="width:auto;padding:4px 8px;'+(on?"background:rgba(57,255,20,.25);border-color:rgba(57,255,20,.6)":"")+'" data-act="shipsel" data-arg="target:'+t.index+'">'+companyName(t.index)+'</button>'; }).join("")+'</div>';
+      var holds=STOCKS.filter(function(k){ return PHYS[k]&&(S.resources[k]||0)>1; }).sort(function(a,b){ return (S.resources[b]||0)-(S.resources[a]||0); }).slice(0,8);
+      if(UI.ship.res===null||holds.indexOf(UI.ship.res)<0)UI.ship.res=holds[0]||null;
+      if(!holds.length)h+='<div class="small" style="margin-top:5px;opacity:.7">No physical goods on hand to ship.</div>';
+      else{ h+='<div class="small" style="margin-top:6px">Resource:</div><div class="row" style="gap:4px;flex-wrap:wrap;margin-top:2px">'+holds.map(function(k){ var on=k===UI.ship.res; return '<button class="btn ui sm" style="width:auto;padding:4px 8px;'+(on?"background:rgba(143,214,255,.22);border-color:rgba(143,214,255,.6)":"")+'" data-act="shipsel" data-arg="res:'+k+'"><span style="color:'+RESMETA[k].col+'">'+RESMETA[k].name+'</span> '+fmt(S.resources[k])+'</button>'; }).join("")+'</div>';
+        var held=S.resources[UI.ship.res]||0; h+='<div class="row" style="gap:5px;margin-top:7px;flex-wrap:wrap">'+[["0.1","10%"],["0.5","50%"],["1","All"]].map(function(q){ return '<button class="btn ui sm" style="width:auto" data-act="deliver" data-arg="'+q[0]+'">Ship '+q[1]+' ('+fmt(held*parseFloat(q[0]))+')</button>'; }).join("")+'</div>'; } }
+    h+='</div>'; }
+  return h; }
 function opsPanel(){ var sel=UI.sel,h="",r=rates(S),perDay=DAY_SECONDS;
   h+='<div class="item" style="margin-bottom:8px"><div class="lbl">Daily finances</div><div class="row" style="gap:7px;margin-top:4px;flex-wrap:wrap"><span class="chip" style="color:#2f8f43">Revenue +'+money((r.capInc||0)*perDay)+'</span><span class="chip" style="color:#ff7a6b">Payroll −'+money((r.payroll||0)*perDay)+'</span><span class="chip" style="color:#ffb14d">Tax −'+money((r.tax||0)*perDay)+'</span>'+((S.debt||0)>0?'<span class="chip" style="color:#ff7a6b">Interest −'+money((r.interest||0)*perDay)+'</span>':"")+'<span class="chip" style="color:'+(r.net.capital>=0?"#2f8f43":"#ff5d8f")+'">Net '+(r.net.capital>=0?"+":"−")+money(Math.abs(r.net.capital)*perDay)+'/day</span></div><div class="small" style="margin-top:3px;color:#5f8e68">'+fmt(S.resources.talent)+' talent on payroll at '+money(PAYROLL_WAGE*perDay)+'/head/day. Build revenue before you over-hire.</div></div>';
   if(sel)h+='<div class="small" style="margin-bottom:8px"><span class="ui" data-act="ops_all" style="cursor:pointer;color:#39ff14">‹ all locations</span></div>';
@@ -749,6 +769,8 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="cfset"){ if(!UI.cf)UI.cf={name:"CorpCoin",consensus:"pow",supply:"fixed",utility:"store"}; var pp=(arg||"").split(":"); if(pp.length===2)UI.cf[pp[0]]=pp[1]; render(); return; }
   if(act==="borrow"){ A.borrow(parseFloat(arg)); save(); render(); return; }
   if(act==="repay"){ A.repay(parseFloat(arg)); save(); render(); return; }
+  if(act==="shipsel"){ if(!UI.ship)UI.ship={target:null,res:null}; var ps=(arg||"").split(":"); if(ps[0]==="target")UI.ship.target=parseInt(ps[1],10); else if(ps[0]==="res")UI.ship.res=ps[1]; render(); return; }
+  if(act==="deliver"){ if(UI.ship&&UI.ship.target!==null&&UI.ship.res){ var frac=parseFloat(arg)||0,held=S.resources[UI.ship.res]||0,qty=Math.floor(held*frac); if(qty>0){ A.deliver(UI.ship.target,UI.ship.res,qty); save(); render(); } } return; }
   if(act==="launchCrypto"){ A.launchCrypto(); save(); render(); return; }
   if(act==="sellCrypto"){ A.sellCrypto(arg); save(); render(); return; }
   if(act==="buyCrypto"){ A.buyCrypto(arg); save(); render(); return; }
@@ -766,6 +788,7 @@ var SC=null;
 var EARTH_R=6; /* 1 Earth radius = 6 units */
 var AU=140000, SUN_R=654, MOON_DIST=362, MOON_R=1.6, STATION_R=40; /* real scale (1 Earth radius = 6 units): 1 AU≈23.5k R, Sun 109 R, Moon 60 R & 0.27 R, GEO 6.6 R */
 var DAY_SECONDS=60, MOON_PERIOD=27.3; /* 1 Earth day = 60s of game time at 1x; orbital periods are real */
+var SHIP_TRANSIT=DAY_SECONDS*4; /* physical delivery between companies takes ~4 days of freight transit */
 /* realistic relative orbit distances (AU), planet-size ratios, and orbital PERIODS (real days).
    Sun size and Moon distance are compressed; a literal 1:1 scale makes planets invisible specks. */
 var PLANETS=[
@@ -1092,6 +1115,7 @@ var Net=(function(){
     else if(m.t==="state"){ if(!isCompanyHost())applySnapshot(m.snapshot); return; }
     else if(m.t==="report"){ self.world[m.company]=m.pub; return; }
     else if(m.t==="attack"){ if(isCompanyHost()){ var myI=self.company?self.company.index:-1; if(m.target===undefined||m.target===myI)applyIncomingAttack(m); else if(WORLD.on())WORLD.applyAttack(m.target,m.kind,m.mag); } return; }
+    else if(m.t==="shipgoods"){ if(isCompanyHost()){ applyIncomingDelivery(m); save(); render(); } return; }
     else if(m.t==="worldroster"){ if(!isMatchHost())applyRoster(m.roster); return; }
     else if(m.t==="victory"){ applyVictory(m.index); return; }
     else if(m.t==="error"){ if(UI.mp)UI.mp.error=m.msg; }
@@ -1104,6 +1128,7 @@ var Net=(function(){
     isMirror:function(){ return matchActive&&self.connected&&!isCompanyHost(); },
     report:function(pub){ this.send({t:"report",pub:pub}); },
     attackCompany:function(target,kind,mag){ this.send({t:"attack",target:target,kind:kind,mag:mag}); },
+    deliverTo:function(target,res,qty){ this.send({t:"shipgoods",target:target,res:res,qty:qty}); },
     connect:function(url,account){ try{ ws=new WebSocket(url); }catch(e){ if(UI.mp){UI.mp.error="Invalid server URL";UI.mp.status="idle";} refresh(); return; }
       ws.onopen=function(){ self.connected=true; if(UI.mp)UI.mp.error=""; ws.send(JSON.stringify({t:"auth",account:account})); refresh(); };
       ws.onmessage=function(e){ try{ handle(JSON.parse(e.data)); }catch(_){} };
@@ -1122,7 +1147,7 @@ var Net=(function(){
   };
 })();
 /* route whitelisted player actions to my company host while mirroring its world */
-(function(){ var NETACT={research:1,trade:1,launchCrypto:1,sellCrypto:1,sabotage:1,steal:1,acqrival:1,pact:1,setSpeed:1,build:1,ship:1,placeRect:1,placeOrbit:1,borrow:1,repay:1},raw={}; Object.keys(NETACT).forEach(function(k){ if(typeof A[k]==="function"){ raw[k]=A[k]; A[k]=function(){ var args=Array.prototype.slice.call(arguments); if(Net.isMirror()){ Net.action({fn:k,args:args}); return; } if(MM.isViewer()){ MM.sendAction({fn:k,args:args}); return; } return raw[k].apply(A,arguments); }; } }); Net._apply=function(a){ if(a&&raw[a.fn])raw[a.fn].apply(A,a.args||[]); }; })();
+(function(){ var NETACT={research:1,trade:1,launchCrypto:1,sellCrypto:1,sabotage:1,steal:1,acqrival:1,pact:1,setSpeed:1,build:1,ship:1,deliver:1,placeRect:1,placeOrbit:1,borrow:1,repay:1},raw={}; Object.keys(NETACT).forEach(function(k){ if(typeof A[k]==="function"){ raw[k]=A[k]; A[k]=function(){ var args=Array.prototype.slice.call(arguments); if(Net.isMirror()){ Net.action({fn:k,args:args}); return; } if(MM.isViewer()){ MM.sendAction({fn:k,args:args}); return; } return raw[k].apply(A,arguments); }; } }); Net._apply=function(a){ if(a&&raw[a.fn])raw[a.fn].apply(A,a.args||[]); }; })();
 /* ---- cross-company shared world: real human companies become each other's rivals ---- */
 function mpPub(){ var pm=playerMetrics(S); return {eco:pm.eco,tech:pm.tech,inf:pm.inf,mil:pm.mil,share:Math.max(S.marketShare.consumer,S.marketShare.enterprise,S.marketShare.government),alive:!(S.gameOver.over&&!S.gameOver.won)}; }
 /* In a networked match the MATCH HOST is the world authority: it runs the one canonical AI
@@ -1201,7 +1226,7 @@ function multiMonitorHtml(){ var v=MM.view(); return '<div class="modal glass" s
 /* ============================================================ BOOT */
 loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); UI.menu=hadSave?"main":"setup"; initScene(); render(); renderMenu();
 (function(){ var mv=(location.hash.match(/mm=(system|earth|orbit|moon)/)||[])[1]; MM._init(mv); if(mv){ UI.menu=null; renderMenu(); render(); } })();
-setInterval(function(){ if(S.speed>0&&!UI.menu&&!Net.isMirror()&&!MM.isViewer()){ var total=0.2*S.speed,steps=Math.min(40,Math.max(1,Math.ceil(total/1.0))),dt=total/steps,k; for(k=0;k<steps;k++){ if(S.freeBuild>0)S.freeBuild=Math.max(0,S.freeBuild-dt); S.resources=advance(S,dt); haulTick(S,dt); econTick(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); if(Net.inMatch()&&Net.isMatchHost()&&WORLD.on())WORLD.tick(dt); } } patch();
+setInterval(function(){ if(S.speed>0&&!UI.menu&&!Net.isMirror()&&!MM.isViewer()){ var total=0.2*S.speed,steps=Math.min(40,Math.max(1,Math.ceil(total/1.0))),dt=total/steps,k; for(k=0;k<steps;k++){ if(S.freeBuild>0)S.freeBuild=Math.max(0,S.freeBuild-dt); S.resources=advance(S,dt); haulTick(S,dt); shipTick(S,dt); econTick(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); if(Net.inMatch()&&Net.isMatchHost()&&WORLD.on())WORLD.tick(dt); } } patch();
   if(UI.dirty&&UI.open&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); UI.dirty=false; }
   if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); updateMpBadge(); MM.tick(); },200);
 setInterval(function(){ if(UI.open&&!S.battleTarget){ var t=UI.tab; if(t==="markets"||t==="military"||t==="intel"||t==="industry"||t==="logistics"||t==="trade"||t==="bank"||t==="ops"||(t==="digital"&&S.crypto.launched)){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); } } syncScene(); if(!Net.isMirror()&&!MM.isViewer())save(); if(Net.inMatch()&&Net.isHost()){ Net.publishState(S); Net.report(mpPub()); } if(Net.inMatch()&&Net.isMatchHost()&&WORLD.on()){ var roster=WORLD.roster(); applyRoster(roster); Net.send({t:"worldroster",roster:roster}); var win=WORLD.checkVictory(roster); if(win!==null){ Net.send({t:"victory",index:win}); applyVictory(win); } } MM.broadcastState(); },900);
