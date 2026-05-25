@@ -528,7 +528,7 @@ function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=c
     copies.forEach(function(ox){ LAND.forEach(function(L){ c.fillText(L.name.toUpperCase(),px(L.c[0],ox),py(L.c[1])); }); }); }
   (S.earthPlacements||[]).forEach(function(pl){ if(!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; copies.forEach(function(ox){ var x=px(pl.lon,ox),y=py(pl.lat); if(x<-30||x>W+30)return; drawIcon(c,x,y,BSHAPE[pl.id]||"hub",hexCol(PCOLORS[0]),clamp(worldW/95,7,14)); }); });
 }
-function placeAtScreen(sx,sy){ if(!EM||!EM.tool)return; var cv=EM.canvas,worldW=cv.width*EM.zoom,worldH=worldW/2; var lon=(((sx+EM.camX)%worldW)/worldW)*360-180,lat=90-((sy-EM.camY)/worldH)*180; if(lat>85||lat<-85)return; if(A.placeEarth(EM.tool,lon,lat)){ save(); drawEarthMap(); render(); } }
+function placeAtScreen(sx,sy){ if(!EM||!EM.tool)return; var cv=EM.canvas,worldW=cv.width*EM.bw*EM.zoom,worldH=cv.height*EM.bh*EM.zoom; var lon=((((sx+EM.camX)%worldW)+worldW)%worldW)/worldW*360-180,lat=90-((sy-EM.camY)/worldH)*180; if(lat>85||lat<-85)return; if(A.placeEarth(EM.tool,lon,lat)){ save(); drawEarthMap(); render(); } }
 function paletteHtml(){ if(!EM)return ""; var ids=Object.keys(BUILDINGS).filter(function(id){ return BUILDINGS[id].loc===EM.loc&&bUnlocked(BUILDINGS[id],S.researched); });
   if(!ids.length)return '<span class="small">No '+(EM.loc==="moon"?"lunar ":"")+'structures available yet'+(EM.loc==="moon"?" — research Nuclear Propulsion.":".")+'</span>';
   return ids.map(function(id){ var b=BUILDINGS[id],o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o),ok=afford(S.resources,c),sel=EM.tool===id;
