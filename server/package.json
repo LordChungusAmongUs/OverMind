@@ -1,0 +1,16 @@
+{
+  "name": "solar-war-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multiplayer lobby + relay backend for Solar War 2040 (scaffold)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

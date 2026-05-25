@@ -206,6 +206,9 @@ var TECHS={
   gov_contracts:{name:"Government Contracts",br:"Government",ds:"+25% influence. Unlocks Gov Affairs.",cost:{compute:700,capital:5000},mult:{influence:1.25}},
   recommendation_engines:{name:"Recommendation Engines",br:"Media",ds:"+50% influence.",cost:{compute:950,capital:4000},req:["personal_ai"],mult:{influence:1.5}},
   ai_investing:{name:"AI Capital Markets",br:"Finance",ds:"+40% capital.",cost:{compute:1600,capital:10000},mult:{capital:1.4}},
+  economic_machine:{name:"The Economic Machine",br:"Abundance",ds:"Dalio's blueprint: master the credit/debt cycle and the productivity engine to ride the Big Cycle. +45% capital.",cost:{compute:2500,capital:30000},req:["ai_investing"],mult:{capital:1.45}},
+  demonetization:{name:"Demonetization",br:"Abundance",ds:"Diamandis's 6 D's — dematerialize, demonetize, democratize. Exponential tech drives build & ship costs toward zero (−30%).",cost:{compute:3000,capital:30000},req:["humanoid_robots"],mult:{capital:1.15}},
+  intelligent_economy:{name:"The Intelligent Economy",br:"Abundance",ds:"Mostaque's Intelligence Inversion — intelligence becomes abundant, non-metabolic capital. The last economy: +30% ALL, costs −30% more.",cost:{compute:22000,capital:220000,materials:2500},req:["agi","economic_machine","demonetization"],gm:1.3},
   orbital_logistics:{name:"Orbital Logistics",br:"Transportation",ds:"+10% materials. Gateway to deep space.",cost:{compute:500,capital:6000},mult:{materials:1.1}},
   lunar_logistics:{name:"Nuclear Propulsion",br:"Transportation",ds:"Opens the Moon.",cost:{compute:1500,capital:20000,materials:200},req:["orbital_logistics"],loc:"moon"},
   mass_drivers:{name:"Mass Drivers",br:"Transportation",ds:"Opens the Asteroid Belt.",cost:{compute:3200,capital:50000,materials:650},req:["lunar_logistics"],loc:"asteroids"},
@@ -292,10 +295,12 @@ function freshState(){ var sr=SETTINGS.startRes,r0=zero(); for(var k in sr)if(r0
 /* ============================================================ ENGINE */
 function techMult(r){ var m=zero(),k; for(k in m)m[k]=1; var g=1; r.forEach(function(id){ var t=TECHS[id]; if(!t)return; if(t.gm)g*=t.gm; if(t.mult)for(var kk in t.mult)if(m[kk]!==undefined)m[kk]*=t.mult[kk]; }); for(k in m)m[k]*=g; return m; }
 var RUNWIN=1.5;
-function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),eS=0,eD=0,k,rf;
+function extractionFactors(S){ var sum={},cnt={}; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit)return; var b=BUILDINGS[pl.id]; if(!b||!b.dep)return; var lon=pl.lon!==undefined?pl.lon:(pl.gx||0)*GRID_STEP,lat=pl.lat!==undefined?pl.lat:(pl.gy||0)*GRID_STEP,r=depRichness(lon,lat,b.dep)||1; sum[pl.id]=(sum[pl.id]||0)+r; cnt[pl.id]=(cnt[pl.id]||0)+1; }); var f={}; for(var id in sum)f[id]=sum[id]/cnt[id]; return f; }
+function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),eS=0,eD=0,k,rf,xf=extractionFactors(S);
   for(var id in S.buildings){ var c=S.buildings[id]; if(!c)continue; var b=BUILDINGS[id]; if(!b)continue;
     rf=1; if(b.con)for(k in b.con){ if(k==="energy")continue; var nd=b.con[k]*c,av=S.resources[k]||0,f=nd<=0?1:clamp(av/(nd*RUNWIN),0,1); if(f<rf)rf=f; }
-    if(b.prod)for(k in b.prod){ if(k==="energy")eS+=b.prod[k]*c*rf; else gross[k]+=b.prod[k]*c*rf; }
+    var xr=(b.dep&&xf[id]!==undefined)?xf[id]:1;
+    if(b.prod)for(k in b.prod){ if(k==="energy")eS+=b.prod[k]*c*rf; else gross[k]+=b.prod[k]*c*rf*xr; }
     if(b.gpu){ var gm=S.gpuMode||"ai"; if(gm==="ai")gross.compute+=14*c; else if(gm==="render")gross.capital+=10*c; }
     if(b.con)for(k in b.con){ if(k==="energy")eD+=b.con[k]*c*rf; else con[k]+=b.con[k]*c*rf; } }
   for(var fid in S.fleet){ var fc=S.fleet[fid]; if(!fc)continue; var sh=SHIPS[fid]; if(!sh||!sh.up)continue; for(k in sh.up){ if(k==="energy")eD+=sh.up[k]*fc; else con[k]+=sh.up[k]*fc; } }
@@ -335,8 +340,9 @@ function findFreeCell(b){ var occ=occupiedSet(b.loc),gx,gy,t; if(b.loc==="moon")
 function autoPlace(id){ var b=BUILDINGS[id]; if(!b)return; if(b.loc==="orbit"){ S.earthPlacements.push({id:id,orbit:true,fx:Math.random(),fy:0.28+Math.random()*0.44,lon:0,lat:0}); return; } var cell=findFreeCell(b); S.earthPlacements.push({id:id,gx:cell.gx,gy:cell.gy,w:1,h:1,lon:cell.gx*GRID_STEP,lat:cell.gy*GRID_STEP}); }
 function marketTick(S,dt){ for(var i=0;i<TRADABLE.length;i++){ var k=TRADABLE[i],base=MARKET_BASE[k],p=S.market[k]||base; p+=(Math.random()-0.5)*base*0.06*dt; p+=(base-p)*0.02*dt; S.market[k]=clamp(p,base*0.35,base*2.8); }
   S.contractClock+=dt; if(S.contractClock>22){ S.contractClock=0; S.contracts=S.contracts.filter(function(c){return (S.worldClock-c.t)<240;}); if(S.contracts.length<5){ var k=TRADABLE[(Math.random()*TRADABLE.length)|0],qty=Math.round((400+Math.random()*1600)/Math.max(0.3,Math.sqrt(MARKET_BASE[k]))),pay=qty*marketPrice(k)*(1.25+Math.random()*0.5); S.contracts.push({id:S.contractSeq++,res:k,qty:qty,pay:Math.round(pay),t:S.worldClock}); } } }
-function bcost(b,o){ var c={},g=b.g||1.15,m=SETTINGS.costMult.build; for(var k in b.cost)c[k]=b.cost[k]*Math.pow(g,o)*m; return c; }
-function scost(s,o){ var c={},g=s.g||1.1,m=SETTINGS.costMult.ship; for(var k in s.cost)c[k]=s.cost[k]*Math.pow(g,o)*m; return c; }
+function demoFactor(){ var f=1; if(typeof S!=="undefined"&&S&&S.researched){ if(S.researched.indexOf("demonetization")>=0)f*=0.7; if(S.researched.indexOf("intelligent_economy")>=0)f*=0.7; } return f; }
+function bcost(b,o){ var c={},g=b.g||1.15,m=SETTINGS.costMult.build*demoFactor(); for(var k in b.cost)c[k]=b.cost[k]*Math.pow(g,o)*m; return c; }
+function scost(s,o){ var c={},g=s.g||1.1,m=SETTINGS.costMult.ship*demoFactor(); for(var k in s.cost)c[k]=s.cost[k]*Math.pow(g,o)*m; return c; }
 function tcost(id){ var t=TECHS[id],c={},m=SETTINGS.costMult.tech; for(var k in t.cost)c[k]=t.cost[k]*m; return c; }
 function cocost(co){ var c={},m=SETTINGS.costMult.build; for(var k in co.acq)c[k]=co.acq[k]*m; return c; }
 function freeBuild(){ return (S&&S.freeBuild>0); }
@@ -560,6 +566,26 @@ function openTab(t){ if(UI.open&&UI.tab===t)UI.open=false; else{ UI.tab=t; UI.op
 
 /* ---- pause / settings / main menu ---- */
 function menuBtn(act,label,cls){ return '<button class="btn ui '+(cls||"")+'" data-act="'+act+'" style="margin:6px 0">'+label+'</button>'; }
+function multiplayerHtml(){ var mp=UI.mp,st=mp.status,err=mp.error?'<div class="small" style="color:#ff7a6b;margin:6px 0">'+mp.error+'</div>':"";
+  var head='<div class="modal glass" style="max-width:440px;text-align:left"><div class="row between" style="align-items:center"><h1 style="font-size:22px">🌐 Multiplayer <span class="small" style="color:#8fd6ff">Beta</span></h1><button class="btn ui sm" style="width:auto" data-act="mp_back">↩ Menu</button></div>';
+  if(st==="idle"||st==="connecting"){ return head+'<div class="small" style="margin:8px 0">Run the server in <code>/server</code> (<code>npm start</code>), then connect. See server/README.md.</div>'+err+
+    '<label class="lbl">Server URL</label><input type="text" data-set="mp.url" value="'+esc(mp.url)+'" style="width:100%;margin:3px 0 8px" placeholder="ws://localhost:8090">'+
+    '<label class="lbl">Your name</label><input type="text" data-set="mp.name" value="'+esc(mp.name)+'" style="width:100%;margin:3px 0 12px" maxlength="24">'+
+    menuBtn("mp_connect",st==="connecting"?"Connecting…":"Connect")+'</div>'; }
+  if(st==="connected"){ return head+'<div class="small" style="color:#9dffb0;margin:8px 0">Connected as <b>'+esc(mp.name)+'</b>.</div>'+err+
+    '<div class="item"><div class="lbl">Create a match</div><div class="small" style="margin:4px 0">Uses your New Game counts: '+SETTINGS.rivalCount+' rivals · '+SETTINGS.neutralCount+' neutral.</div>'+menuBtn("mp_create","✦ Create Room")+'</div>'+
+    '<div class="item" style="margin-top:8px"><div class="lbl">Join a match</div><div class="row" style="gap:6px;margin-top:4px"><input type="text" data-set="mp.code" value="'+esc(mp.code)+'" maxlength="4" placeholder="CODE" style="flex:1;text-transform:uppercase"><button class="btn ui" style="width:auto" data-act="mp_join">Join</button></div></div>'+
+    '<div style="margin-top:8px">'+menuBtn("mp_disconnect","Disconnect","red")+'</div></div>'; }
+  // in a room
+  var r=mp.room||{players:[],settings:{}},host=Net.isHost(),me=Net.id;
+  var roster=r.players.map(function(p){ return '<div class="row between" style="padding:2px 0"><span>'+(p.host?"👑 ":"")+'<b style="color:'+(p.id===me?"#9dffb0":"#cdeccf")+'">'+esc(p.name)+'</b>'+(p.id===me?" (you)":"")+'</span><span class="chip" style="color:#8fd6ff">'+companyName(p.company)+'</span></div>'; }).join("");
+  var chat=mp.chat.map(function(c){ return '<div class="small"><b style="color:#8fd6ff">'+esc(c.from)+':</b> '+esc(c.text)+'</div>'; }).join("");
+  return head+'<div class="row between"><div class="small">Room <b style="color:#ffe14d;font-size:15px;letter-spacing:.2em">'+esc(r.code||mp.code)+'</b> · '+r.players.length+' player(s)</div><button class="btn ui sm red" style="width:auto" data-act="mp_leave">Leave</button></div>'+err+
+    '<div class="item" style="margin-top:6px"><div class="lbl">Players</div>'+roster+'</div>'+
+    '<div class="item" style="margin-top:6px"><div class="row between"><span class="lbl">Your company</span><div class="row" style="gap:5px"><input type="number" min="0" max="63" data-set="mp.company" value="'+esc(mp.company)+'" style="width:64px"><button class="btn ui sm" style="width:auto" data-act="mp_claim">Claim</button></div></div></div>'+
+    '<div class="item" style="margin-top:6px"><div class="lbl">Chat</div><div style="max-height:120px;overflow:auto;margin:4px 0">'+(chat||'<div class="small" style="opacity:.5">No messages yet.</div>')+'</div><div class="row" style="gap:6px"><input type="text" data-set="mp.chat_text" value="'+esc(mp.chat_text||"")+'" placeholder="message…" style="flex:1" maxlength="280"><button class="btn ui sm" style="width:auto" data-act="mp_chat_send">Send</button></div></div>'+
+    (r.started?'<div class="small" style="color:#9dffb0;margin-top:8px">Match started. Live board sync between players is the next milestone — your local match is running with the room settings.</div>':(host?'<div style="margin-top:8px">'+menuBtn("mp_start","▶ Start Match (host)")+'</div><div class="small" style="opacity:.7">Starting launches the match locally with the room settings; cross-player board sync is the next milestone.</div>':'<div class="small" style="margin-top:8px;opacity:.7">Waiting for the host to start…</div>'))+'</div>'; }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
 function settingsHtml(){ var s=SETTINGS,h='<div class="modal glass" style="max-width:470px"><div class="dhead"><b style="color:#9dffb0">⚙ Settings</b><span class="x" data-act="menu_back">‹ back</span></div>';
   h+='<div class="lbl" style="margin-top:6px">Starting resources <span class="small" style="text-transform:none">(applies on Restart / New Game)</span></div><div class="grid g2" style="margin-top:6px">';
   HEADLINE.forEach(function(k){ h+='<label class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+RES[k].name+'<input type="number" min="0" step="100" value="'+s.startRes[k]+'" data-set="start.'+k+'" style="width:120px"></label>'; });
@@ -579,7 +605,8 @@ function setupHtml(){ var nR=clamp(SETTINGS.rivalCount,0,MAX_COMPANIES-1),nN=cla
 function renderMenu(){ var m=el("menu"); if(!UI.menu){ m.innerHTML=""; return; } var h='<div class="overlay" style="z-index:70">';
   if(UI.menu==="setup")h+=setupHtml();
   else if(UI.menu==="settings")h+=settingsHtml();
-  else if(UI.menu==="main")h+='<div class="modal glass" style="max-width:340px;text-align:center"><h1 style="font-size:26px">SOLAR WAR 2040</h1><div class="small" style="margin:6px 0 16px">main menu</div>'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_new","✦ New Game")+menuBtn("menu_settings","⚙ Settings")+'</div>';
+  else if(UI.menu==="main")h+='<div class="modal glass" style="max-width:340px;text-align:center"><h1 style="font-size:26px">SOLAR WAR 2040</h1><div class="small" style="margin:6px 0 16px">main menu</div>'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_new","✦ New Game")+menuBtn("menu_mp","🌐 Multiplayer (Beta)","cyan")+menuBtn("menu_settings","⚙ Settings")+'</div>';
+  else if(UI.menu==="mp")h+=multiplayerHtml();
   else h+='<div class="modal glass" style="max-width:320px;text-align:center"><h1 style="font-size:24px">PAUSED</h1><div style="margin-top:14px">'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_settings","⚙ Settings")+menuBtn("menu_restart","↺ Restart")+menuBtn("menu_quit","⏏ Quit to Menu","red")+'</div>';
   m.innerHTML=h+'</div>'; }
 
@@ -601,6 +628,16 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="cnt"){ var pp=(arg||"").split(":"),d=parseInt(pp[1],10)||0; if(pp[0]==="rival")SETTINGS.rivalCount=clamp(SETTINGS.rivalCount+d,0,MAX_COMPANIES-1); else SETTINGS.neutralCount=clamp(SETTINGS.neutralCount+d,0,MAX_COMPANIES-1); if(SETTINGS.rivalCount+SETTINGS.neutralCount>MAX_COMPANIES-1){ if(pp[0]==="rival")SETTINGS.neutralCount=Math.max(0,MAX_COMPANIES-1-SETTINGS.rivalCount); else SETTINGS.rivalCount=Math.max(0,MAX_COMPANIES-1-SETTINGS.neutralCount); } saveSettings(); renderMenu(); return; }
   if(act==="setup_start"){ doNewGame(); syncScene(); renderMenu(); render(); return; }
   if(act==="menu_restart"||act==="menu_new"){ UI.menu="setup"; renderMenu(); return; }
+  if(act==="menu_mp"){ if(!UI.mp)UI.mp={url:"ws://localhost:8090",name:"Player",code:"",company:"0",chat:[],chat_text:"",status:"idle",room:null,started:false,error:""}; UI.menu="mp"; renderMenu(); return; }
+  if(act==="mp_back"){ UI.menu="main"; renderMenu(); return; }
+  if(act==="mp_connect"){ UI.mp.error=""; UI.mp.status="connecting"; renderMenu(); Net.connect(UI.mp.url,UI.mp.name); return; }
+  if(act==="mp_disconnect"){ Net.disconnect(); UI.mp.status="idle"; UI.mp.room=null; renderMenu(); return; }
+  if(act==="mp_create"){ Net.create({rivalCount:SETTINGS.rivalCount,neutralCount:SETTINGS.neutralCount}); return; }
+  if(act==="mp_join"){ Net.join((UI.mp.code||"").toUpperCase()); return; }
+  if(act==="mp_claim"){ Net.claim(parseInt(UI.mp.company,10)||0); return; }
+  if(act==="mp_chat_send"){ var tx=(UI.mp.chat_text||"").trim(); if(tx){ Net.chat(tx); UI.mp.chat_text=""; renderMenu(); } return; }
+  if(act==="mp_start"){ Net.start(); return; }
+  if(act==="mp_leave"){ Net.leave(); renderMenu(); return; }
   if(act==="reset"){ if(confirm("Reset? All progress lost.")){ try{localStorage.removeItem(SAVE_KEY);}catch(e){} doNewGame(); syncScene(); renderMenu(); render(); } return; }
   if(act==="build"){ var bb=BUILDINGS[id]; if(bb&&(bb.loc==="earth"||bb.loc==="moon")&&locUnlocked(bb.loc,S.researched)){ if(!EM||EM.loc!==bb.loc){ if(EM)closeEarthMap(); openEarthMap(bb.loc); } if(EM)EM.tool=id; render(); return; } if(bb&&bb.loc==="orbit"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; } A.build(id); save(); syncScene(); render(); return; }
   if(act==="ship"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; }
@@ -617,7 +654,7 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="contract"){ A.contract(id); save(); syncScene(); render(); return; }
   if(act==="acceptContract"){ A.acceptContract(parseInt(id,10)); save(); render(); return; }
   if(A[act]){ A[act](id); save(); syncScene(); render(); } });
-document.addEventListener("input",function(e){ var t=e.target,cf=t.getAttribute&&t.getAttribute("data-cf"); if(cf){ if(!UI.cf)UI.cf={name:"CorpCoin",consensus:"pow",supply:"fixed",utility:"store"}; UI.cf[cf]=t.value.slice(0,18); return; } var k=t.getAttribute&&t.getAttribute("data-set"); if(!k)return; var v=parseFloat(t.value); if(isNaN(v))return; var p=k.split("."); if(p[0]==="start")SETTINGS.startRes[p[1]]=Math.max(0,v); else if(p[0]==="cost")SETTINGS.costMult[p[1]]=Math.max(0,v); else if(p[0]==="time")SETTINGS.timeMult=Math.max(0.01,v); saveSettings(); });
+document.addEventListener("input",function(e){ var t=e.target,cf=t.getAttribute&&t.getAttribute("data-cf"); if(cf){ if(!UI.cf)UI.cf={name:"CorpCoin",consensus:"pow",supply:"fixed",utility:"store"}; UI.cf[cf]=t.value.slice(0,18); return; } var k=t.getAttribute&&t.getAttribute("data-set"); if(!k)return; var p=k.split("."); if(p[0]==="mp"){ if(UI.mp)UI.mp[p[1]]=t.value; return; } var v=parseFloat(t.value); if(isNaN(v))return; if(p[0]==="start")SETTINGS.startRes[p[1]]=Math.max(0,v); else if(p[0]==="cost")SETTINGS.costMult[p[1]]=Math.max(0,v); else if(p[0]==="time")SETTINGS.timeMult=Math.max(0.01,v); saveSettings(); });
 document.addEventListener("keydown",function(e){ if(e.target&&e.target.tagName==="INPUT")return; if(e.key==="p"||e.key==="P"){ UI.menu=UI.menu?null:"pause"; renderMenu(); render(); } else if(e.key==="Escape"){ if(EM)closeEarthMap(); else if(OM)closeOrbitMap(); else if(UI.menu){ UI.menu=null; renderMenu(); render(); } } });
 
 /* ============================================================ 3D SOLAR SYSTEM (Earth-centred) */
@@ -729,14 +766,18 @@ function lnorm(lon){ return ((lon+180)%360+360)%360-180; }
 function pointInPoly(lon,lat,pts){ var inside=false,n=pts.length,i,j,xi,yi,xj,yj; for(i=0,j=n-1;i<n;j=i++){ xi=pts[i][0];yi=pts[i][1];xj=pts[j][0];yj=pts[j][1]; if(((yi>lat)!==(yj>lat))&&(lon<(xj-xi)*(lat-yi)/(yj-yi)+xi))inside=!inside; } return inside; }
 function isLandLL(lon,lat){ lon=lnorm(lon); for(var i=0;i<LAND.length;i++)if(pointInPoly(lon,lat,LAND[i].pts))return true; return false; }
 function cellTerrain(gx,gy){ var lon=gx*GRID_STEP,lat=gy*GRID_STEP,d=GRID_STEP,land=isLandLL(lon,lat),coast; if(land)coast=!(isLandLL(lon+d,lat)&&isLandLL(lon-d,lat)&&isLandLL(lon,lat+d)&&isLandLL(lon,lat-d)); else coast=isLandLL(lon+d,lat)||isLandLL(lon-d,lat)||isLandLL(lon,lat+d)||isLandLL(lon,lat-d); return {land:land,coast:coast}; }
-/* oil/gas, metals (Fe/Cu/coal/U), rare earths — sited at real-world extraction regions */
+/* oil/gas, metals (Fe/Cu/coal/U), rare earths — sited at real-world extraction regions. r = ore richness (yield multiplier). */
 var DEPOSITS=[
- {t:"oil",lon:49,lat:25,n:"Ghawar"},{t:"oil",lon:47,lat:31,n:"Persian Gulf"},{t:"oil",lon:-102,lat:32,n:"Permian"},{t:"oil",lon:-91,lat:27,n:"Gulf of Mexico"},{t:"oil",lon:2,lat:58,n:"North Sea"},{t:"oil",lon:73,lat:62,n:"W. Siberia"},{t:"oil",lon:-67,lat:9,n:"Orinoco"},{t:"oil",lon:6,lat:4,n:"Niger Delta"},{t:"oil",lon:51,lat:45,n:"Caspian"},
- {t:"metals",lon:118,lat:-22,n:"Pilbara"},{t:"metals",lon:-69,lat:-24,n:"Atacama"},{t:"metals",lon:26,lat:-10,n:"Copperbelt"},{t:"metals",lon:-50,lat:-6,n:"Carajás"},{t:"metals",lon:-81,lat:38,n:"Appalachia"},{t:"metals",lon:112,lat:37,n:"Shanxi"},{t:"metals",lon:20,lat:67,n:"Kiruna"},{t:"metals",lon:-112,lat:40,n:"Bingham"},
- {t:"rare",lon:110,lat:41,n:"Bayan Obo"},{t:"rare",lon:-115,lat:35,n:"Mountain Pass"},{t:"rare",lon:-67,lat:-22,n:"Lithium Triangle"}
+ {t:"oil",lon:49,lat:25,n:"Ghawar",r:1.6},{t:"oil",lon:47,lat:31,n:"Persian Gulf",r:1.4},{t:"oil",lon:-102,lat:32,n:"Permian",r:1.2},{t:"oil",lon:-91,lat:27,n:"Gulf of Mexico",r:1.0},{t:"oil",lon:2,lat:58,n:"North Sea",r:0.85},{t:"oil",lon:73,lat:62,n:"W. Siberia",r:1.15},{t:"oil",lon:-67,lat:9,n:"Orinoco",r:1.1},{t:"oil",lon:6,lat:4,n:"Niger Delta",r:0.95},{t:"oil",lon:51,lat:45,n:"Caspian",r:1.05},
+ {t:"metals",lon:118,lat:-22,n:"Pilbara",r:1.5},{t:"metals",lon:-69,lat:-24,n:"Atacama",r:1.4},{t:"metals",lon:26,lat:-10,n:"Copperbelt",r:1.25},{t:"metals",lon:-50,lat:-6,n:"Carajás",r:1.45},{t:"metals",lon:-81,lat:38,n:"Appalachia",r:0.9},{t:"metals",lon:112,lat:37,n:"Shanxi",r:1.1},{t:"metals",lon:20,lat:67,n:"Kiruna",r:1.2},{t:"metals",lon:-112,lat:40,n:"Bingham",r:1.0},
+ {t:"rare",lon:110,lat:41,n:"Bayan Obo",r:1.6},{t:"rare",lon:-115,lat:35,n:"Mountain Pass",r:1.1},{t:"rare",lon:-67,lat:-22,n:"Lithium Triangle",r:1.35}
 ];
 function nearDeposit(lon,lat,type){ for(var i=0;i<DEPOSITS.length;i++){ var d=DEPOSITS[i]; if(d.t!==type)continue; if(Math.abs(lnorm(lon-d.lon))<=DEP_R&&Math.abs(lat-d.lat)<=DEP_R)return true; } return false; }
-var POP=[{n:"New York",lon:-74,lat:41},{n:"Los Angeles",lon:-118,lat:34},{n:"Mexico City",lon:-99,lat:19},{n:"São Paulo",lon:-46,lat:-23},{n:"London",lon:0,lat:51},{n:"Paris",lon:2,lat:49},{n:"Lagos",lon:3,lat:6},{n:"Cairo",lon:31,lat:30},{n:"Moscow",lon:37,lat:55},{n:"Mumbai",lon:73,lat:19},{n:"Delhi",lon:77,lat:28},{n:"Beijing",lon:116,lat:40},{n:"Shanghai",lon:121,lat:31},{n:"Tokyo",lon:139,lat:35},{n:"Seoul",lon:127,lat:37},{n:"Jakarta",lon:107,lat:-6},{n:"Sydney",lon:151,lat:-33},{n:"Johannesburg",lon:28,lat:-26},{n:"Istanbul",lon:29,lat:41},{n:"Karachi",lon:67,lat:25},{n:"Manila",lon:121,lat:14},{n:"Bangkok",lon:100,lat:14},{n:"Tehran",lon:51,lat:35},{n:"Buenos Aires",lon:-58,lat:-34},{n:"Lima",lon:-77,lat:-12},{n:"Bogotá",lon:-74,lat:4},{n:"Kinshasa",lon:15,lat:-4},{n:"Toronto",lon:-79,lat:43},{n:"Chicago",lon:-88,lat:42},{n:"Singapore",lon:104,lat:1}];
+function depRichness(lon,lat,type){ var best=0; for(var i=0;i<DEPOSITS.length;i++){ var d=DEPOSITS[i]; if(d.t!==type)continue; if(Math.abs(lnorm(lon-d.lon))<=DEP_R&&Math.abs(lat-d.lat)<=DEP_R&&(d.r||1)>best)best=d.r||1; } return best; }
+/* metro population (millions) — weights neutral company siting toward big markets */
+var POP=[{n:"New York",lon:-74,lat:41,p:19},{n:"Los Angeles",lon:-118,lat:34,p:13},{n:"Mexico City",lon:-99,lat:19,p:22},{n:"São Paulo",lon:-46,lat:-23,p:22},{n:"London",lon:0,lat:51,p:14},{n:"Paris",lon:2,lat:49,p:11},{n:"Lagos",lon:3,lat:6,p:16},{n:"Cairo",lon:31,lat:30,p:22},{n:"Moscow",lon:37,lat:55,p:17},{n:"Mumbai",lon:73,lat:19,p:24},{n:"Delhi",lon:77,lat:28,p:33},{n:"Beijing",lon:116,lat:40,p:22},{n:"Shanghai",lon:121,lat:31,p:29},{n:"Tokyo",lon:139,lat:35,p:37},{n:"Seoul",lon:127,lat:37,p:26},{n:"Jakarta",lon:107,lat:-6,p:34},{n:"Sydney",lon:151,lat:-33,p:5},{n:"Johannesburg",lon:28,lat:-26,p:10},{n:"Istanbul",lon:29,lat:41,p:16},{n:"Karachi",lon:67,lat:25,p:17},{n:"Manila",lon:121,lat:14,p:25},{n:"Bangkok",lon:100,lat:14,p:18},{n:"Tehran",lon:51,lat:35,p:14},{n:"Buenos Aires",lon:-58,lat:-34,p:15},{n:"Lima",lon:-77,lat:-12,p:11},{n:"Bogotá",lon:-74,lat:4,p:11},{n:"Kinshasa",lon:15,lat:-4,p:16},{n:"Toronto",lon:-79,lat:43,p:6},{n:"Chicago",lon:-88,lat:42,p:9},{n:"Singapore",lon:104,lat:1,p:6}];
+var POP_TOTAL=(function(){ var t=0; POP.forEach(function(c){ t+=c.p; }); return t; })();
+function pickCity(rnd){ var x=rnd()*POP_TOTAL,acc=0,i; for(i=0;i<POP.length;i++){ acc+=POP[i].p; if(x<=acc)return POP[i]; } return POP[POP.length-1]; }
 function terrOK(b,gx,gy){ if(!b)return false; if(b.loc!=="earth")return true; var ter=cellTerrain(gx,gy),req=b.terr||"land"; if(req==="land"&&!ter.land)return false; if(req==="sea"&&ter.land)return false; if(req==="coast"&&!ter.coast)return false; if(b.dep&&!nearDeposit(gx*GRID_STEP,gy*GRID_STEP,b.dep))return false; return true; }
 function terrInfo(b){ if(!b||b.loc!=="earth")return null; var req=b.terr||"land",gl={land:"⛰",sea:"🌊",coast:"⚓"}[req],lbl={land:"land",sea:"open sea",coast:"coastline"}[req],dep=b.dep?{oil:"oil field",metals:"metals deposit",rare:"rare-earth deposit"}[b.dep]:""; return {glyph:gl+(b.dep?"⛏":""),label:"Build on "+lbl+(dep?" · on a "+dep:"")}; }
 var BSHAPE={ground_dc:"dc",orbital_data_center:"dc",oceanic_data_center:"dc",dyson_node:"solar",solar_farm:"solar",orbital_solar_array:"solar",ai_cluster:"ai",comms_satellite:"sat",operations_center:"hub",recruitment_hub:"station",consumer_division:"dc",enterprise_division:"dc",gov_relations:"station",fusion_reactor:"ai",mine:"mine",rare_metals_mine:"mine",oil_well:"station",offshore_platform:"station",military_shipyard:"hub",seaport:"hub",logistics_hub:"hub",mining_outpost:"mine",robotic_factory:"dc",asteroid_harvester:"mine",sovereign_colony:"hub"};
@@ -746,9 +787,9 @@ function rseed(id){ var h=2166136261; for(var i=0;i<id.length;i++){ h^=id.charCo
 /* deterministic rival presence so every corporation shares the same maps */
 function rivalEarthSites(loc){ var out=[],shapes=["dc","hub","solar","mine","station","ai"],alive=S.rivals.filter(function(r){return !r.dead;}).length,capN=clamp(Math.round(120/Math.max(1,alive)),1,12);
   S.rivals.forEach(function(r){ if(r.dead||(r.neutral&&loc==="moon"))return; var rnd=seedRand(rseed(r.id)+(loc==="moon"?99:0)),n=loc==="moon"?clamp(Math.round(Math.log10(Math.max(10,r.eco))-1),0,Math.min(4,capN)):clamp(Math.round(Math.log10(Math.max(10,r.eco))*2.2),1,capN),clon,clat,spread;
-    if(r.neutral){ var city=POP[Math.floor(rnd()*POP.length)]; clon=city.lon; clat=city.lat; spread=9; } else { clon=rnd()*340-170; clat=loc==="moon"?(rnd()*120-60):(rnd()*110-55); spread=22; }
+    if(r.neutral){ var city=pickCity(rnd); clon=city.lon; clat=city.lat; spread=9; } else { clon=rnd()*340-170; clat=loc==="moon"?(rnd()*120-60):(rnd()*110-55); spread=22; }
     for(var i=0;i<n;i++)out.push({lon:clon+(rnd()*spread*2-spread),lat:clamp(clat+(rnd()*spread*1.4-spread*0.7),-78,78),color:r.color,shape:shapes[i%shapes.length],intel:r.intel||0}); });
-  NEUTRAL.forEach(function(co,ci){ var st=S.neutral[co.id]||"none"; if(st==="none"||loc==="moon")return; var rnd=seedRand(rseed(co.id)),city=POP[ci%POP.length]; out.push({lon:city.lon+(rnd()*6-3),lat:city.lat+(rnd()*5-2.5),color:st==="owned"?PCOLORS[0]:0xbfc7cf,shape:"hub",intel:100}); });
+  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; if(st==="none"||loc==="moon")return; var rnd=seedRand(rseed(co.id)),city=pickCity(rnd); out.push({lon:city.lon+(rnd()*6-3),lat:city.lat+(rnd()*5-2.5),color:st==="owned"?PCOLORS[0]:0xbfc7cf,shape:"hub",intel:100}); });
   return out; }
 function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=cv.height,worldW=W*EM.bw*EM.zoom,worldH=H*EM.bh*EM.zoom,lon,lat,moon=EM.loc==="moon";
   if(worldH<=H)EM.camY=(H-worldH)/2; else EM.camY=clamp(EM.camY,H-worldH,0); EM.camX=((EM.camX%worldW)+worldW)%worldW;
@@ -764,8 +805,8 @@ function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=c
     c.textAlign="center"; c.font="bold "+clamp(worldW/72,9,15)+"px monospace"; c.fillStyle="rgba(225,245,228,0.45)";
     copies.forEach(function(ox){ LAND.forEach(function(L){ c.fillText(L.name.toUpperCase(),px(L.c[0],ox),py(L.c[1])); }); }); }
   if(!moon){ var depTool=(EM.tool&&BUILDINGS[EM.tool])?BUILDINGS[EM.tool].dep:null,dcol={oil:"#e8b34a",metals:"#bcc6d0",rare:"#c08bff"};
-    copies.forEach(function(ox){ POP.forEach(function(p){ var x=px(p.lon,ox),y=py(p.lat); if(x<-12||x>W+12)return; c.globalAlpha=0.5; c.fillStyle="#ffe6a0"; c.beginPath(); c.arc(x,y,Math.max(1.3,worldW/720),0,6.28); c.fill(); c.globalAlpha=1; }); });
-    copies.forEach(function(ox){ DEPOSITS.forEach(function(d){ var x=px(d.lon,ox),y=py(d.lat); if(x<-14||x>W+14)return; var hot=depTool===d.t; c.globalAlpha=hot?1:0.5; drawIcon(c,x,y,"mine",dcol[d.t],(hot?1.35:0.95)*clamp(worldW/360,5,15)); c.globalAlpha=1; }); }); }
+    copies.forEach(function(ox){ POP.forEach(function(p){ var x=px(p.lon,ox),y=py(p.lat); if(x<-12||x>W+12)return; c.globalAlpha=0.5; c.fillStyle="#ffe6a0"; c.beginPath(); c.arc(x,y,Math.max(1.2,(worldW/820)*(0.7+p.p/26)),0,6.28); c.fill(); c.globalAlpha=1; }); });
+    copies.forEach(function(ox){ DEPOSITS.forEach(function(d){ var x=px(d.lon,ox),y=py(d.lat); if(x<-14||x>W+14)return; var hot=depTool===d.t; c.globalAlpha=hot?1:0.5; drawIcon(c,x,y,"mine",dcol[d.t],(hot?1.35:0.95)*(0.7+(d.r||1)*0.45)*clamp(worldW/360,5,14)); c.globalAlpha=1; }); }); }
   var isz=moon?12:clamp(worldW/300,4,400);
   rivalEarthSites(EM.loc).forEach(function(s){ var a=clamp(0.22+(s.intel/100)*0.78,0.22,1); copies.forEach(function(ox){ var x=px(s.lon,ox),y=py(s.lat); if(x<-30||x>W+30)return; c.globalAlpha=a; drawIcon(c,x,y,s.shape,hexCol(s.color),isz*0.92); c.globalAlpha=1; }); });
   (S.earthPlacements||[]).forEach(function(pl){ if(!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; copies.forEach(function(ox){ var x=px(pl.lon,ox),y=py(pl.lat); if(x<-30||x>W+30)return; drawIcon(c,x,y,BSHAPE[pl.id]||"hub",hexCol(PCOLORS[0]),isz); }); });
@@ -773,7 +814,7 @@ function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=c
     if(cw>3){ c.strokeStyle="rgba(57,255,20,0.10)"; c.lineWidth=1; for(var gl=-180;gl<=180;gl+=GRID_STEP){ var xx=px(gl,0); c.beginPath(); c.moveTo(xx,0); c.lineTo(xx,H); c.stroke(); } for(var gt=-84;gt<=84;gt+=GRID_STEP){ var yy=py(gt); c.beginPath(); c.moveTo(0,yy); c.lineTo(W,yy); c.stroke(); } }
     if(EM.build){ var a=emCell(EM.build.x0,EM.build.y0),bb=emCell(EM.build.x1,EM.build.y1),gx0=Math.min(a.gx,bb.gx),gy0=Math.min(a.gy,bb.gy),w=Math.abs(a.gx-bb.gx)+1,h=Math.abs(a.gy-bb.gy)+1,gx,gy;
       var tb=BUILDINGS[EM.tool]; for(gx=gx0;gx<gx0+w;gx++)for(gy=gy0;gy<gy0+h;gy++){ var blocked=occ[gx+","+gy]||Math.abs(gy*GRID_STEP)>85||(EM.loc==="earth"&&!terrOK(tb,gx,gy)),cx=px(gx*GRID_STEP,0),cy=py(gy*GRID_STEP); c.fillStyle=blocked?"rgba(255,60,40,0.30)":"rgba(57,255,20,0.28)"; c.fillRect(cx-cw/2,cy-ch/2,cw-1,ch-1); }
-      var ti=terrInfo(tb); c.fillStyle="#9dffb0"; c.font="bold 12px monospace"; c.textAlign="center"; c.fillText("×"+(w*h)+" "+(tb?tb.name:"")+(ti?"  "+ti.glyph:""),px(((gx0+w/2-0.5)*GRID_STEP),0),py(gy0*GRID_STEP)-ch/2-6); }
+      var ti=terrInfo(tb),yr=(tb&&tb.dep)?depRichness(gx0*GRID_STEP,gy0*GRID_STEP,tb.dep):0; c.fillStyle="#9dffb0"; c.font="bold 12px monospace"; c.textAlign="center"; c.fillText("×"+(w*h)+" "+(tb?tb.name:"")+(ti?"  "+ti.glyph:"")+(yr>0?"  yield ×"+yr.toFixed(2):""),px(((gx0+w/2-0.5)*GRID_STEP),0),py(gy0*GRID_STEP)-ch/2-6); }
   }
 }
 function emCell(sx,sy){ var cv=EM.canvas,worldW=cv.width*EM.bw*EM.zoom,worldH=cv.height*EM.bh*EM.zoom,lon=((((sx+EM.camX)%worldW)+worldW)%worldW)/worldW*360-180,lat=90-((sy-EM.camY)/worldH)*180; return {gx:Math.round(lon/GRID_STEP),gy:Math.round(lat/GRID_STEP)}; }
@@ -905,6 +946,48 @@ function mountOrbitMap(){ var d=document.createElement("div"); d.id="orbitmap"; 
   if(pendingTool){ OM.tool=pendingTool; pendingTool=null; render(); } if(pendingBattle){ startOrbitBattle(pendingBattle); pendingBattle=null; } }
 function openOrbitMap(){ if(OM||EM)return; var f=el("fade"); if(f)f.style.opacity="1"; if(SC){ SC.transStart=SC.cam0.r; SC.trans={t:0,dur:0.42}; } setTimeout(function(){ mountOrbitMap(); if(f)f.style.opacity="0"; },460); }
 function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; render(); },300); }
+
+/* ============================================================ MULTIPLAYER CLIENT (scaffold)
+   Inert until Net.connect() is called from the Multiplayer lobby. Offline play is unaffected.
+   Protocol matches /server/server.js (host-authoritative relay). In-match board sync is the
+   next milestone — the hooks (onAction/onState) are stubbed and clearly marked. */
+var Net=(function(){
+  var ws=null,self={id:null,connected:false,room:null};
+  function refresh(){ if(UI.menu==="mp")renderMenu(); }
+  function handle(m){
+    if(m.t==="welcome")self.id=m.id;
+    else if(m.t==="joined"){ if(UI.mp)UI.mp.code=m.code; }
+    else if(m.t==="room"){ self.room=m.room; if(UI.mp){ UI.mp.room=m.room; UI.mp.status="inroom"; } }
+    else if(m.t==="host"){ if(self.room)self.room.hostId=m.hostId; if(UI.mp&&UI.mp.room)UI.mp.room.hostId=m.hostId; }
+    else if(m.t==="chat"){ if(UI.mp){ UI.mp.chat.push({from:m.from,text:m.text}); if(UI.mp.chat.length>60)UI.mp.chat.shift(); } }
+    else if(m.t==="start"){ if(UI.mp){ UI.mp.room=m.room; if(UI.mp.room)UI.mp.room.started=true; } startMatch(m.room); }
+    else if(m.t==="action"){ /* milestone 2: host applies a relayed player action */ }
+    else if(m.t==="state"){ /* milestone 2: non-host renders an authoritative snapshot */ }
+    else if(m.t==="error"){ if(UI.mp)UI.mp.error=m.msg; }
+    refresh();
+  }
+  function startMatch(room){ /* scaffold: launch the local match using the room's settings */
+    if(room&&room.settings){ SETTINGS.rivalCount=clamp(room.settings.rivalCount||0,0,MAX_COMPANIES-1); SETTINGS.neutralCount=clamp(room.settings.neutralCount||0,0,MAX_COMPANIES-1); } }
+  return {
+    get id(){ return self.id; }, get room(){ return self.room; }, get connected(){ return self.connected; },
+    isHost:function(){ return !!(self.room&&self.id&&self.room.hostId===self.id); },
+    connect:function(url,name){ try{ ws=new WebSocket(url); }catch(e){ if(UI.mp){UI.mp.error="Invalid server URL";UI.mp.status="idle";} refresh(); return; }
+      ws.onopen=function(){ self.connected=true; if(UI.mp){UI.mp.status="connected";UI.mp.error="";} ws.send(JSON.stringify({t:"hello",name:name})); refresh(); };
+      ws.onmessage=function(e){ try{ handle(JSON.parse(e.data)); }catch(_){} };
+      ws.onclose=function(){ self.connected=false; self.room=null; if(UI.mp){ UI.mp.status="idle"; UI.mp.room=null; } refresh(); };
+      ws.onerror=function(){ if(UI.mp){UI.mp.error="Connection error — is the server running?";} refresh(); }; },
+    send:function(o){ if(ws&&ws.readyState===1)ws.send(JSON.stringify(o)); },
+    create:function(s){ this.send({t:"create",settings:s}); },
+    join:function(code){ this.send({t:"join",code:code}); },
+    claim:function(i){ this.send({t:"claim",company:i}); },
+    chat:function(t){ this.send({t:"chat",text:t}); },
+    start:function(){ this.send({t:"start"}); },
+    action:function(a){ this.send({t:"action",action:a}); },
+    publishState:function(snap){ this.send({t:"state",snapshot:snap}); },
+    leave:function(){ this.send({t:"leave"}); self.room=null; if(UI.mp){ UI.mp.room=null; UI.mp.status="connected"; } refresh(); },
+    disconnect:function(){ if(ws){ try{ws.close();}catch(_){}} ws=null; self.connected=false; self.room=null; }
+  };
+})();
 
 /* ============================================================ BOOT */
 loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); UI.menu=hadSave?"main":"setup"; initScene(); render(); renderMenu();
