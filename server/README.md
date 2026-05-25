@@ -96,9 +96,16 @@ terminate TLS at the platform's load balancer.
 3b. **Networked map placement** — teammates' earth/moon (`placeRect`) and orbit
    (`placeOrbit`) builds relay to the company host by cell, get built there, and
    mirror back. ✅ (orbit ship/unit spawning is part of the combat-networking milestone)
-4. **Cross-company shared world** — today each company team co-runs its own
-   instance (others appear as AI). Next: one authoritative world where all 64
-   companies are real entities competing in shared markets and combat. 🔜
+4. **Cross-company shared world (presence + combat)** — every company host
+   broadcasts a public report (`report`), so other companies appear in each
+   other's standings/markets/intel as REAL entities with live economies, and
+   offensive actions relay to the real target: sabotage/steal/raid (`attack`)
+   hit the actual company. Colliding AI duplicates are suppressed; live players
+   are tagged. ✅
+4b. **One authoritative world** — today each company still runs its own AI
+   backdrop locally (AI may differ per host) and human elimination/conquest
+   isn't synced. Next: a single authoritative world where the AI population and
+   shared markets/combat resolution are computed once. 🔜
 5. **Server-authoritative tick** — port `rates/advance/worldTick` into `./engine`
    and run the sim here for cheat-resistance, delta snapshots, and headless/AI matches.
 6. **Persistence & verified auth** — durable matches + accounts (e.g. Supabase,

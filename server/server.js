@@ -204,6 +204,20 @@ wss.on("connection", (ws) => {
         toTeam(co, { t: "state", companyIndex: co.index, snapshot: m.snapshot }, client.id);
         break;
       }
+      case "report": {                                       // company host publishes public metrics to all companies
+        const match = client.match; if (!match) break;
+        const co = memberCompany(match, client.id); if (!co || co.hostId !== client.id) break;
+        co.pub = m.pub;
+        toMatch(match, { t: "report", company: co.index, pub: m.pub }, client.id);
+        break;
+      }
+      case "attack": {                                       // route an offensive action to the target company's host
+        const match = client.match; if (!match) break;
+        const me = memberCompany(match, client.id);
+        const target = [...match.companies.values()].find((c) => c.index === (m.target | 0));
+        if (target) { const th = target.members.find((x) => x.id === target.hostId); if (th) send(th.ws, { t: "attack", from: me ? me.index : -1, kind: m.kind, mag: m.mag }); }
+        break;
+      }
       case "leave": leaveMatch(client); break;
     }
   });
