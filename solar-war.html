@@ -331,7 +331,7 @@ function applyUIScale(){ try{ document.documentElement.style.setProperty("--uisc
 function setUIScale(v){ SETTINGS.uiScale=clamp(+v||0.9,0.6,1.6); saveSettings(); applyUIScale(); }
 function nudgeUIScale(dir){ var i=0,best=9,cur=SETTINGS.uiScale||0.9; UISCALES.forEach(function(u,j){ var d=Math.abs(u[1]-cur); if(d<best){best=d;i=j;} }); i=clamp(i+dir,0,UISCALES.length-1); setUIScale(UISCALES[i][1]); }
 var SETTINGS=defaultSettings();
-function loadSettings(){ try{ var raw=localStorage.getItem(SET_KEY); if(!raw)return; var p=JSON.parse(raw),k; if(p.startRes)for(k in SETTINGS.startRes){ if(typeof p.startRes[k]==="number")SETTINGS.startRes[k]=p.startRes[k]; } if(p.costMult)for(k in SETTINGS.costMult){ if(typeof p.costMult[k]==="number")SETTINGS.costMult[k]=p.costMult[k]; } if(typeof p.timeMult==="number")SETTINGS.timeMult=p.timeMult; if(typeof p.rivalCount==="number")SETTINGS.rivalCount=clamp(Math.round(p.rivalCount),0,MAX_COMPANIES-1); else if(typeof p.aiCount==="number")SETTINGS.rivalCount=clamp(Math.round(p.aiCount),0,MAX_COMPANIES-1); if(typeof p.neutralCount==="number")SETTINGS.neutralCount=clamp(Math.round(p.neutralCount),0,MAX_COMPANIES-1-SETTINGS.rivalCount); if(typeof p.uiScale==="number")SETTINGS.uiScale=clamp(p.uiScale,0.6,1.6); }catch(e){} }
+function loadSettings(){ try{ var raw=localStorage.getItem(SET_KEY); if(!raw)return; var p=JSON.parse(raw),k; if(p.startRes)for(k in SETTINGS.startRes){ if(typeof p.startRes[k]==="number")SETTINGS.startRes[k]=p.startRes[k]; } if(p.costMult)for(k in SETTINGS.costMult){ if(typeof p.costMult[k]==="number")SETTINGS.costMult[k]=p.costMult[k]; } if(typeof p.timeMult==="number")SETTINGS.timeMult=p.timeMult; if(typeof p.rivalCount==="number")SETTINGS.rivalCount=clamp(Math.round(p.rivalCount),0,MAX_COMPANIES-1); else if(typeof p.aiCount==="number")SETTINGS.rivalCount=clamp(Math.round(p.aiCount),0,MAX_COMPANIES-1); if(typeof p.neutralCount==="number")SETTINGS.neutralCount=clamp(Math.round(p.neutralCount),0,MAX_COMPANIES-1-SETTINGS.rivalCount); if(typeof p.uiScale==="number")SETTINGS.uiScale=clamp(p.uiScale,0.6,1.6); if(!(SETTINGS.startRes.capital>=1e12))SETTINGS.startRes.capital=1e12; /* a new company begins with $1T — migrate stale saved settings */ }catch(e){} }
 function saveSettings(){ try{ localStorage.setItem(SET_KEY,JSON.stringify(SETTINGS)); }catch(e){} }
 
 /* ============================================================ HELPERS */
@@ -917,10 +917,10 @@ function ringMarks(group,n,rad,col){ group.clear(); n=Math.min(n,12); for(var i=
 /* orbital structures in the system view: one mesh per orbit-map placement, all at the SAME distance
    from Earth, angle from the placement's fx and height from its fy, and ≥8× smaller than a surface mark. */
 function orbitMarks3D(group,col){ group.clear(); var rad=S.orbitAround==="moon"?4:STATION_R,pls=(S.earthPlacements||[]).filter(function(p){return p.orbit;}),m=Math.min(pls.length,48),i; for(i=0;i<m;i++){ var p=pls[i],an=(p.fx||0)*Math.PI*2,lat=(0.5-(p.fy==null?0.5:p.fy))*0.7,cl=Math.cos(lat),mk=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.16,0.16),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.65})); mk.position.set(Math.cos(an)*cl*rad,Math.sin(lat)*rad,Math.sin(an)*cl*rad); group.add(mk); } }
-function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene"),renderer; try{ renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true,powerPreference:"high-performance"}); }catch(e){ return; }
-  /* recover from WebGL context loss instead of leaving a grey screen */
-  canvas.addEventListener("webglcontextlost",function(e){ e.preventDefault(); },false);
-  canvas.addEventListener("webglcontextrestored",function(){ try{ renderer.setSize(window.innerWidth,window.innerHeight,false); if(EARTH_TEX){ EARTH_TEX.needsUpdate=true; } if(SC){ SC.dirtyTex=true; } }catch(_){} },false);
+function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene"),renderer; try{ renderer=new THREE.WebGLRenderer({canvas:canvas,antialias:true}); }catch(e){ return; }
+  /* recover from WebGL context loss instead of leaving a grey screen (e.g. GPU switch, tab backgrounding, driver reset) */
+  canvas.addEventListener("webglcontextlost",function(e){ e.preventDefault(); if(SC)SC.lost=true; },false);
+  canvas.addEventListener("webglcontextrestored",function(){ try{ renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1)); renderer.setSize(window.innerWidth,window.innerHeight,false); if(EARTH_TEX)EARTH_TEX.needsUpdate=true; if(SC){ SC.lost=false; SC.dirtyTex=true; SC.cam.updateProjectionMatrix(); SC.renderer.render(SC.scene,SC.cam); } }catch(_){} },false);
   renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1)); renderer.setSize(window.innerWidth,window.innerHeight,false); renderer.setClearColor(0x02040a,1);
   var scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,1,4000000);
   scene.add(new THREE.AmbientLight(0x8899bb,0.55)); var sunlight=new THREE.PointLight(0xffffff,2.4,0); scene.add(sunlight);
@@ -952,8 +952,9 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   var dev={earth:new THREE.Group(),moon:new THREE.Group(),asteroids:new THREE.Group(),deep:new THREE.Group(),orbit:new THREE.Group()};
   earthGroup.add(dev.earth); moonMesh.add(dev.moon); ast.add(dev.asteroids); deep.add(dev.deep); earthGroup.add(dev.orbit);
   var rivalGrp=new THREE.Group(); earthGroup.add(rivalGrp); var neutralGrp=new THREE.Group(); earthGroup.add(neutralGrp);
-  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,earthGroup:earthGroup,ast:ast,deep:deep,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0};
+  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,earthGroup:earthGroup,ast:ast,deep:deep,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0,lost:false};
   attachControls(canvas); window.addEventListener("resize",onResize);
+  document.addEventListener("visibilitychange",function(){ if(!document.hidden&&SC){ SC.dirtyTex=true; try{ SC.renderer.render(SC.scene,SC.cam); }catch(_){} } });
   canvas.addEventListener("dblclick",function(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false); if(hit.length){ var lc=hit[0].object.userData.loc; if(lc==="earth")openEarthMap(); else if(lc==="orbit")openOrbitMap(); else if(lc==="moon")openEarthMap("moon"); } });
   syncScene(); loopScene();
 }
@@ -979,11 +980,14 @@ function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S
   // neutral companies — also Earth-based
   SC.neutralGrp.clear(); NEUTRAL.forEach(function(co,ci){ var st=S.neutral[co.id]||"none",col=st==="owned"?PC:0xbfc7cf,a=ci*1.02+0.4,rad=56+ci*10,m=new THREE.Mesh(new THREE.BoxGeometry(3,3,3),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:st==="none"?0.25:0.55})); m.position.set(Math.cos(a)*rad,-12,Math.sin(a)*rad); SC.neutralGrp.add(m); if(st!=="none"){ var lab=makeLabel(co.name.split(" ")[0],hexCol(col),44,11); lab.position.set(Math.cos(a)*rad,-5,Math.sin(a)*rad); SC.neutralGrp.add(lab); } });
   updateEarthTexture(SC.dirtyTex); SC.dirtyTex=false; }
-function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene); var c=SC.cam0; SC.t+=0.016;
+function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene);
+  var gl=SC.renderer.getContext?SC.renderer.getContext():null;
+  if(SC.lost){ if(gl&&!gl.isContextLost()){ SC.lost=false; SC.dirtyTex=true; } else return; }      /* skip while context is gone; auto-resume even if the restore event was missed */
+  var c=SC.cam0; SC.t+=0.016;
   if(SC.trans){ SC.trans.t+=0.016; var tk=Math.min(1,SC.trans.t/SC.trans.dur); c.r=SC.transStart+(26-SC.transStart)*tk; if(tk>=1)SC.trans=null; }
   var wc=S.worldClock; SC.pivots.forEach(function(p){ p.piv.rotation.y=p.phase+p.omega*wc; p.mesh.rotation.y=p.spin*wc; }); if(SC.moonPivot)SC.moonPivot.rotation.y=SC.moonPhase+SC.moonOmega*wc; SC.fleetGrp.rotation.y+=0.012; if(SC.glow)SC.glow.material.opacity=0.14+Math.sin(SC.t*2)*0.04;
   var obj=SC.focusObj[SC.focus]||SC.earthGroup; obj.getWorldPosition(SC.tmp); c.tx=SC.tmp.x; c.ty=SC.tmp.y; c.tz=SC.tmp.z;
-  SC.cam.position.set(c.tx+Math.sin(c.phi)*Math.cos(c.theta)*c.r,c.ty+Math.cos(c.phi)*c.r,c.tz+Math.sin(c.phi)*Math.sin(c.theta)*c.r); SC.cam.lookAt(c.tx,c.ty,c.tz); try{ SC.renderer.render(SC.scene,SC.cam); }catch(e){} }
+  SC.cam.position.set(c.tx+Math.sin(c.phi)*Math.cos(c.theta)*c.r,c.ty+Math.cos(c.phi)*c.r,c.tz+Math.sin(c.phi)*Math.sin(c.theta)*c.r); SC.cam.lookAt(c.tx,c.ty,c.tz); try{ SC.renderer.render(SC.scene,SC.cam); }catch(e){ if(gl&&gl.isContextLost())SC.lost=true; } }
 
 
 /* ============================================================ EARTH SURFACE MAP (2D, wraps) */
