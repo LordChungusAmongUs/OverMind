@@ -93,6 +93,7 @@ var RESMETA={
   aluminum:{name:"Aluminum",code:"ALU",tier:"industrial",col:"#d8dfe8"},
   concrete:{name:"Concrete",code:"CNC",tier:"industrial",col:"#a6a69c"},
   copper:{name:"Copper",code:"CU",tier:"industrial",col:"#e08a55"},
+  equipment:{name:"Construction Equipment",code:"EQP",tier:"industrial",col:"#d9a84a"},
   silicon:{name:"Silicon",code:"SI",tier:"hitech",col:"#8fa2b3"},
   chips:{name:"Semiconductors",code:"CHP",tier:"hitech",col:"#5fffd2"},
   rare_earths:{name:"Rare Earths",code:"REE",tier:"hitech",col:"#caa0ff"},
@@ -142,6 +143,7 @@ var BUILDINGS={
   mine:{name:"Mining Complex",loc:"earth",cat:"Extraction",terr:"land",dep:"metals",ds:"Iron, copper, coal and trace uranium — must sit on a metals deposit.",cost:{capital:1500,materials:10},g:1.16,days:540,prod:{iron_ore:4,copper:1.5,coal:3,uranium:0.04},con:{energy:6}},
   rare_metals_mine:{name:"Rare-Metals Mine",loc:"earth",cat:"Extraction",terr:"land",dep:"rare",ds:"Rare earths & high-tech minerals — must sit on a rare-earth deposit.",cost:{capital:9000,steel:60,materials:40},g:1.17,days:600,prod:{rare_earths:1,lithium:0.8,cobalt:0.5,nickel:0.7,tungsten:0.4,gallium:0.2,germanium:0.2},con:{energy:10},req:"advanced_materials"},
   steel_mill:{name:"Steel Mill",loc:"earth",cat:"Industry",ds:"Smelts ore + coal into steel & aluminum.",cost:{capital:8000,materials:60},g:1.16,days:540,prod:{steel:3,aluminum:1.5},con:{iron_ore:4,coal:2,energy:8}},
+  equipment_plant:{name:"Heavy Equipment Plant",loc:"earth",cat:"Industry",ds:"Capital goods: forges steel, aluminum & chips into construction equipment — machinery that speeds every build.",cost:{capital:16000,steel:120,chips:20},g:1.17,days:540,prod:{equipment:3},con:{steel:3,aluminum:1.5,chips:0.3,energy:14},req:"industrial_robotics"},
   chemical_plant:{name:"Chemical Plant",loc:"earth",cat:"Industry",ds:"Refines oil into materials, concrete, silicon.",cost:{capital:7000,materials:40},g:1.16,days:450,prod:{materials:5,concrete:3,silicon:1},con:{oil:3,energy:6}},
   solar_farm:{name:"Solar Farm",loc:"earth",cat:"Power",ds:"Cheap reliable energy capacity.",cost:{capital:1100,materials:8},g:1.15,days:120,prod:{energy:45}},
   gas_plant:{name:"Natural Gas Power Plant",loc:"earth",cat:"Power",ds:"Burns gas for dispatchable power.",cost:{capital:5000,steel:30,concrete:40},g:1.16,days:540,prod:{energy:120},con:{gas:3}},
@@ -271,7 +273,7 @@ var AFFINITY={industrialist:{consumer:1,enterprise:1.2,government:1},researcher:
 var SAVE_KEY="solarwar.standalone.v1", SET_KEY="solarwar.settings.v1";
 var FREE_BUILD_SECS=900; /* 15-minute grace window: construction is instant */
 /* commodity market base prices (capital per unit) — grounded in real relative values */
-var MARKET_BASE={materials:2,oil:0.6,gas:0.4,coal:0.2,uranium:40,iron_ore:0.5,steel:3,aluminum:4,concrete:0.3,copper:6,silicon:8,chips:60,rare_earths:30,lithium:15,cobalt:25,nickel:8,gallium:50,germanium:60,tungsten:20,water_ice:2,titanium:12,platinum:200,helium3:500,asteroid_metals:5};
+var MARKET_BASE={materials:2,oil:0.6,gas:0.4,coal:0.2,uranium:40,iron_ore:0.5,steel:3,aluminum:4,concrete:0.3,copper:6,equipment:18,silicon:8,chips:60,rare_earths:30,lithium:15,cobalt:25,nickel:8,gallium:50,germanium:60,tungsten:20,water_ice:2,titanium:12,platinum:200,helium3:500,asteroid_metals:5};
 var TRADABLE=Object.keys(MARKET_BASE);
 var GRID_STEP=0.25; /* surface build grid: degrees per cell (fine, square cells via 2:1 map) */
 
@@ -385,7 +387,8 @@ function tcost(id){ var t=TECHS[id],c={},m=SETTINGS.costMult.tech; for(var k in 
 function cocost(co){ var c={},m=SETTINGS.costMult.build; for(var k in co.acq)c[k]=co.acq[k]*m; return c; }
 function freeBuild(){ return (S&&S.freeBuild>0); }
 function buildSpeed(S){ var s=1,has=function(t){return S.researched.indexOf(t)>=0;};
-  if(has("industrial_robotics"))s*=1.4; if(has("humanoid_robots"))s*=1.5; if(has("ai_construction"))s*=1.8; if(has("autonomous_construction"))s*=2; if(has("agi"))s*=1.8; if(has("nanofabrication"))s*=2.2; if(has("self_replicating"))s*=2.5; return s; }
+  if(has("industrial_robotics"))s*=1.4; if(has("humanoid_robots"))s*=1.5; if(has("ai_construction"))s*=1.8; if(has("autonomous_construction"))s*=2; if(has("agi"))s*=1.8; if(has("nanofabrication"))s*=2.2; if(has("self_replicating"))s*=2.5;
+  var ep=S.buildings.equipment_plant||0; if(ep>0)s*=1+Math.min(0.6,ep*0.04); /* construction equipment (capital goods) speeds builds */ return s; }
 function btime(b){ if(freeBuild())return 0.1; var days=b.days||60,sp=buildSpeed(S),sl=b.loc;
   if(sl==="orbit"||sl==="moon"||sl==="asteroids"||sl==="deep_space"){ if((S.buildings.launch_complex||0)>0)sp*=1.5; if(S.researched.indexOf("space_manufacturing")>=0)sp*=2.5; if((S.buildings.orbital_manufacturing||0)>0)sp*=2; }
   return Math.max(2,days*DAY_SECONDS*SETTINGS.timeMult/sp); }
