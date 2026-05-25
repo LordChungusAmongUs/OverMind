@@ -447,10 +447,8 @@ function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(fu
   h+='<div id="ticker" class="panelglass ui"><span class="lbl">intel</span> <span class="k-'+(S.events[0]?S.events[0].kind:"info")+'">'+(S.events[0]?S.events[0].text:"")+'</span></div>'; }
   h+='<div id="drawer" class="panelglass ui'+(UI.open?" open":"")+'"><div class="dhead"><b style="color:#9dffb0">'+tabTitle()+'</b><span class="x" data-act="closepanel">✕</span></div><div id="paneltext">'+(UI.open?panelHtml():"")+'</div></div>';
   if(EM||OM)h+='<div id="mapbar" class="panelglass ui" style="position:absolute;top:62px;left:50%;transform:translateX(-50%);padding:6px 12px;display:flex;gap:10px;align-items:center"><b style="color:#9dffb0">'+(EM?(EM.loc==="moon"?"🌑 Moon Surface":"🌍 Earth Surface"):"🛰 Earth Orbit")+'</b><button class="btn ui sm" style="width:auto" data-act="'+(OM?"orbitmap_close":"earthmap_close")+'">↩ Back to System</button></div>';
-  if(EM)h+='<div id="empal" class="panelglass ui" style="position:absolute;left:12px;right:12px;bottom:10px;padding:8px;display:flex;gap:6px;overflow-x:auto">'+paletteHtml()+'</div>';
-  if(OM){ var oids=Object.keys(BUILDINGS).filter(function(id){return BUILDINGS[id].loc==="orbit"&&bUnlocked(BUILDINGS[id],S.researched);}).concat(Object.keys(SHIPS).filter(function(id){return !SHIPS[id].req||S.researched.indexOf(SHIPS[id].req)>=0;}));
-    h+='<div id="empal" class="panelglass ui" style="position:absolute;left:12px;right:12px;bottom:10px;padding:8px;display:flex;gap:6px;overflow-x:auto">'+(oids.length?oids.map(function(id){ var isShip=!!SHIPS[id],b=isShip?SHIPS[id]:BUILDINGS[id],o=isShip?((S.fleet[id]||0)+S.units.filter(function(u){return u.type===id&&u.side==="p";}).length):((S.buildings[id]||0)+queued("build",id)),c=isShip?scost(SHIPS[id],o):bcost(BUILDINGS[id],o),ok=afford(S.resources,c),sel=OM.tool===id; return '<button class="btn ui sm'+(isShip?" org":"")+'" data-act="omtool" data-id="'+id+'" style="width:auto;flex:0 0 auto;'+(sel?"background:rgba(0,255,65,.32);border-color:rgba(0,255,65,.7)":ok?"":"opacity:.5")+'">'+(isShip?"⚔ ":"")+b.name+' <span class="small">'+cost$(c,S.resources)+'</span></button>'; }).join(""):'<span class="small">Research orbital tech to build here.</span>')+'</div>';
-    h+='<div class="panelglass ui" style="position:absolute;left:150px;top:62px;padding:6px 10px;font-size:11px"><div class="lbl">Selected: <span style="color:#39ff14">'+((OM.sel&&OM.sel.length)||0)+'</span>'+(OM.battleActive?' · <span style="color:#ff7a6b">BATTLE</span>':"")+'</div><div class="small">drag-box select · right-click move/attack · 1-0 groups · Ctrl+F1-F12 cam · arrows pan</div></div>'; }
+  if(EM||OM)h+=gridCard();
+  if(OM)h+='<div class="panelglass ui" style="position:absolute;left:150px;top:62px;padding:6px 10px;font-size:11px"><div class="lbl">Selected: <span style="color:#39ff14">'+((OM.sel&&OM.sel.length)||0)+'</span>'+(OM.battleActive?' · <span style="color:#ff7a6b">BATTLE</span>':"")+'</div><div class="small">drag-box select · right-click move/attack · 1-0 groups · Q-T/A-G/Z-B build grid</div></div>';
   if(!UI.open&&!EM&&!OM)h+='<div id="hint">⟲ drag to orbit · scroll to zoom · double-click Earth, the orbit ring, or the Moon · P to pause</div>';
   el("hud").innerHTML=h;
 }
@@ -502,6 +500,8 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="build"){ var bb=BUILDINGS[id]; if(bb&&(bb.loc==="earth"||bb.loc==="moon")&&locUnlocked(bb.loc,S.researched)){ if(!EM||EM.loc!==bb.loc){ if(EM)closeEarthMap(); openEarthMap(bb.loc); } if(EM)EM.tool=id; render(); return; } if(bb&&bb.loc==="orbit"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; } A.build(id); save(); syncScene(); render(); return; }
   if(act==="ship"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; }
   if(act==="omtool"){ if(OM){ OM.tool=OM.tool===id?null:id; render(); } return; }
+  if(act==="gridcell"){ if(EM)EM.tool=EM.tool===id?null:id; else if(OM)OM.tool=OM.tool===id?null:id; render(); return; }
+  if(act==="gridmore"){ var po=EM||OM; if(po){ var g=gridList(),pages=Math.max(1,Math.ceil(g.items.length/14)); po.gridPage=((po.gridPage||0)+1)%pages; render(); } return; }
   if(A[act]){ A[act](id); save(); syncScene(); render(); } });
 document.addEventListener("input",function(e){ var t=e.target,k=t.getAttribute&&t.getAttribute("data-set"); if(!k)return; var v=parseFloat(t.value); if(isNaN(v))return; var p=k.split("."); if(p[0]==="start")SETTINGS.startRes[p[1]]=Math.max(0,v); else if(p[0]==="cost")SETTINGS.costMult[p[1]]=Math.max(0,v); else if(p[0]==="time")SETTINGS.timeMult=Math.max(0.01,v); saveSettings(); });
 document.addEventListener("keydown",function(e){ if(e.target&&e.target.tagName==="INPUT")return; if(e.key==="p"||e.key==="P"){ UI.menu=UI.menu?null:"pause"; renderMenu(); render(); } else if(e.key==="Escape"){ if(EM)closeEarthMap(); else if(OM)closeOrbitMap(); else if(UI.menu){ UI.menu=null; renderMenu(); render(); } } });
@@ -636,10 +636,27 @@ function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=c
   (S.earthPlacements||[]).forEach(function(pl){ if(!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; copies.forEach(function(ox){ var x=px(pl.lon,ox),y=py(pl.lat); if(x<-30||x>W+30)return; drawIcon(c,x,y,BSHAPE[pl.id]||"hub",hexCol(PCOLORS[0]),isz); }); });
 }
 function placeAtScreen(sx,sy){ if(!EM||!EM.tool)return; var cv=EM.canvas,worldW=cv.width*EM.bw*EM.zoom,worldH=cv.height*EM.bh*EM.zoom; var lon=((((sx+EM.camX)%worldW)+worldW)%worldW)/worldW*360-180,lat=90-((sy-EM.camY)/worldH)*180; if(lat>85||lat<-85)return; if(A.placeEarth(EM.tool,lon,lat)){ save(); drawEarthMap(); render(); } }
-function paletteHtml(){ if(!EM)return ""; var ids=Object.keys(BUILDINGS).filter(function(id){ return BUILDINGS[id].loc===EM.loc&&bUnlocked(BUILDINGS[id],S.researched); });
-  if(!ids.length)return '<span class="small">No '+(EM.loc==="moon"?"lunar ":"")+'structures available yet'+(EM.loc==="moon"?" — research Nuclear Propulsion.":".")+'</span>';
-  return ids.map(function(id){ var b=BUILDINGS[id],o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o),ok=afford(S.resources,c),sel=EM.tool===id;
-    return '<button class="btn ui sm" data-act="emtool" data-id="'+id+'" style="width:auto;flex:0 0 auto;'+(sel?"background:rgba(0,255,65,.32);border-color:rgba(0,255,65,.7)":ok?"":"opacity:.5")+'">'+b.name+' <span class="small">'+cost$(c,S.resources)+'· '+fmtDur(btime(b))+'</span></button>'; }).join(""); }
+var GRID_KEYS=["q","w","e","r","t","a","s","d","f","g","z","x","c","v","b"];
+function shortName(n){ return n.replace(/\(.*\)/,"").replace(/Communications/,"Comms").replace(/Manufacturing/,"Mfg").replace(/Headquarters/,"HQ").trim(); }
+function gridList(){ var kind,items=[];
+  if(EM){ kind="emtool"; Object.keys(BUILDINGS).forEach(function(id){ var b=BUILDINGS[id]; if(b.loc!==EM.loc||!bUnlocked(b,S.researched))return; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); items.push({id:id,name:b.name,cost:c,ok:afford(S.resources,c),armed:EM.tool===id}); }); }
+  else if(OM){ kind="omtool"; Object.keys(BUILDINGS).forEach(function(id){ var b=BUILDINGS[id]; if(b.loc!=="orbit"||!bUnlocked(b,S.researched))return; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); items.push({id:id,name:b.name,cost:c,ok:afford(S.resources,c),armed:OM.tool===id}); }); Object.keys(SHIPS).forEach(function(id){ var s=SHIPS[id]; if(s.req&&S.researched.indexOf(s.req)<0)return; var o=(S.fleet[id]||0)+S.units.filter(function(u){return u.type===id&&u.side==="p";}).length,c=scost(s,o); items.push({id:id,name:s.name,cost:c,ok:afford(S.resources,c),armed:OM.tool===id,ship:true}); }); }
+  else return null;
+  return {kind:kind,items:items}; }
+function gridCard(){ var g=gridList(); if(!g)return ""; var po=EM||OM,n=g.items.length,paged=n>15,per=paged?14:15,pages=Math.max(1,Math.ceil(n/per)),pg=clamp(po.gridPage||0,0,pages-1),start=pg*per,h='<div id="gridcard" class="panelglass ui" style="position:absolute;right:12px;bottom:10px;padding:6px;display:grid;grid-template-columns:repeat(5,62px);grid-auto-rows:44px;gap:4px">';
+  for(var i=0;i<15;i++){ var key=GRID_KEYS[i].toUpperCase();
+    if(paged&&i===14){ h+='<button class="btn ui" data-act="gridmore" style="height:44px;width:auto;padding:2px;font-size:10px;position:relative"><span style="position:absolute;top:2px;left:4px;color:#ffe14d;font-weight:900;font-size:9px">B</span><div style="margin-top:6px">▼ More</div><div class="small">'+(pg+1)+"/"+pages+'</div></button>'; continue; }
+    var cell=g.items[start+i];
+    if(!cell){ h+='<div style="border:1px solid rgba(0,255,65,.08);border-radius:6px"></div>'; continue; }
+    var st=cell.armed?"background:rgba(0,255,65,.34);border-color:rgba(0,255,65,.75)":cell.ok?"":"opacity:.42";
+    h+='<button class="btn ui'+(cell.ship?" org":"")+'" data-act="gridcell" data-id="'+cell.id+'" title="'+cell.name+'  ['+key+']" style="position:relative;height:44px;width:auto;padding:3px 2px 2px;font-size:8.5px;line-height:1.04;overflow:hidden;'+st+'"><span style="position:absolute;top:1px;left:3px;color:#ffe14d;font-weight:900;font-size:9px">'+key+'</span><div style="margin-top:8px">'+(cell.ship?"⚔ ":"")+shortName(cell.name)+'</div></button>';
+  }
+  return h+'</div>'; }
+function gridArm(id){ if(EM){ EM.tool=id; render(); } else if(OM){ OM.tool=id; render(); } }
+function gridKey(e){ if(e.ctrlKey||e.metaKey||e.altKey)return; if(e.target&&e.target.tagName==="INPUT")return; if(!EM&&!OM)return; var k=(e.key||"").toLowerCase(),gi=GRID_KEYS.indexOf(k); if(gi<0)return; var g=gridList(); if(!g){return;} var po=EM||OM,n=g.items.length,paged=n>15,per=paged?14:15,pages=Math.max(1,Math.ceil(n/per)),pg=clamp(po.gridPage||0,0,pages-1);
+  if(paged&&gi===14){ po.gridPage=(pg+1)%pages; render(); e.preventDefault(); return; }
+  var cell=g.items[pg*per+gi]; if(cell){ gridArm(cell.id); e.preventDefault(); } }
+document.addEventListener("keydown",gridKey);
 function openEarthMap(loc){ if(EM)return; loc=loc||"earth"; var d=document.createElement("div"); d.id="earthmap"; d.innerHTML='<canvas id="emcanvas"></canvas>';
   document.body.appendChild(d); var cv=d.querySelector("#emcanvas"); EM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,drag:false,moved:false,tool:null,loc:loc,bw:loc==="moon"?1:2,bh:1,maxZoom:loc==="moon"?1:8};
   EM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; EM.camX=(cv.width*EM.bw*EM.zoom-cv.width)/2; drawEarthMap(); }; window.addEventListener("resize",EM.resize); EM.resize();
