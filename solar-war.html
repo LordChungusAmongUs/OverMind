@@ -584,7 +584,7 @@ function multiplayerHtml(){ var mp=UI.mp,st=mp.status,err=mp.error?'<div class="
     '<div class="item" style="margin-top:6px"><div class="lbl">Players</div>'+roster+'</div>'+
     '<div class="item" style="margin-top:6px"><div class="row between"><span class="lbl">Your company</span><div class="row" style="gap:5px"><input type="number" min="0" max="63" data-set="mp.company" value="'+esc(mp.company)+'" style="width:64px"><button class="btn ui sm" style="width:auto" data-act="mp_claim">Claim</button></div></div></div>'+
     '<div class="item" style="margin-top:6px"><div class="lbl">Chat</div><div style="max-height:120px;overflow:auto;margin:4px 0">'+(chat||'<div class="small" style="opacity:.5">No messages yet.</div>')+'</div><div class="row" style="gap:6px"><input type="text" data-set="mp.chat_text" value="'+esc(mp.chat_text||"")+'" placeholder="message…" style="flex:1" maxlength="280"><button class="btn ui sm" style="width:auto" data-act="mp_chat_send">Send</button></div></div>'+
-    (r.started?'<div class="small" style="color:#9dffb0;margin-top:8px">Match started. Live board sync between players is the next milestone — your local match is running with the room settings.</div>':(host?'<div style="margin-top:8px">'+menuBtn("mp_start","▶ Start Match (host)")+'</div><div class="small" style="opacity:.7">Starting launches the match locally with the room settings; cross-player board sync is the next milestone.</div>':'<div class="small" style="margin-top:8px;opacity:.7">Waiting for the host to start…</div>'))+'</div>'; }
+    (r.started?'<div class="small" style="color:#9dffb0;margin-top:8px">Match live — '+(host?"you are the host; your world is authoritative and streamed to guests.":"mirroring the host's world in real time. Your economy actions are sent to the host.")+'</div>':(host?'<div style="margin-top:8px">'+menuBtn("mp_start","▶ Start Match (host)")+'</div><div class="small" style="opacity:.7">The host runs the authoritative match; guests mirror it live and can act. Map-placed builds are host-side for now.</div>':'<div class="small" style="margin-top:8px;opacity:.7">Waiting for the host to start…</div>'))+'</div>'; }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
 function settingsHtml(){ var s=SETTINGS,h='<div class="modal glass" style="max-width:470px"><div class="dhead"><b style="color:#9dffb0">⚙ Settings</b><span class="x" data-act="menu_back">‹ back</span></div>';
   h+='<div class="lbl" style="margin-top:6px">Starting resources <span class="small" style="text-transform:none">(applies on Restart / New Game)</span></div><div class="grid g2" style="margin-top:6px">';
@@ -949,32 +949,37 @@ function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity=
 
 /* ============================================================ MULTIPLAYER CLIENT (scaffold)
    Inert until Net.connect() is called from the Multiplayer lobby. Offline play is unaffected.
-   Protocol matches /server/server.js (host-authoritative relay). In-match board sync is the
-   next milestone — the hooks (onAction/onState) are stubbed and clearly marked. */
+   Protocol matches /server/server.js (host-authoritative relay).
+   Milestone 2 (live): the host streams full state snapshots; guests mirror them and relay their
+   whitelisted economy actions back to the host, which applies them. Map-placed builds are
+   host-side for now (see server/README.md roadmap). */
 var Net=(function(){
-  var ws=null,self={id:null,connected:false,room:null};
+  var ws=null,self={id:null,connected:false,room:null},matchActive=false;
   function refresh(){ if(UI.menu==="mp")renderMenu(); }
+  function isHost(){ return !!(self.room&&self.id&&self.room.hostId===self.id); }
+  function applySnapshot(snap){ if(!snap)return; S=snap; if(!S.gameOver)S.gameOver={over:false,won:false,type:"",text:""}; UI.dirty=true; try{ syncScene(); }catch(e){} render(); patch(); }
+  function begin(room){ matchActive=true; if(room&&room.settings){ SETTINGS.rivalCount=clamp(room.settings.rivalCount||0,0,MAX_COMPANIES-1); SETTINGS.neutralCount=clamp(room.settings.neutralCount||0,0,MAX_COMPANIES-1); } if(isHost())doNewGame(); UI.menu=null; renderMenu(); render(); }
   function handle(m){
     if(m.t==="welcome")self.id=m.id;
     else if(m.t==="joined"){ if(UI.mp)UI.mp.code=m.code; }
     else if(m.t==="room"){ self.room=m.room; if(UI.mp){ UI.mp.room=m.room; UI.mp.status="inroom"; } }
     else if(m.t==="host"){ if(self.room)self.room.hostId=m.hostId; if(UI.mp&&UI.mp.room)UI.mp.room.hostId=m.hostId; }
     else if(m.t==="chat"){ if(UI.mp){ UI.mp.chat.push({from:m.from,text:m.text}); if(UI.mp.chat.length>60)UI.mp.chat.shift(); } }
-    else if(m.t==="start"){ if(UI.mp){ UI.mp.room=m.room; if(UI.mp.room)UI.mp.room.started=true; } startMatch(m.room); }
-    else if(m.t==="action"){ /* milestone 2: host applies a relayed player action */ }
-    else if(m.t==="state"){ /* milestone 2: non-host renders an authoritative snapshot */ }
+    else if(m.t==="start"){ self.room=m.room||self.room; if(UI.mp){ UI.mp.room=self.room; if(UI.mp.room)UI.mp.room.started=true; } begin(m.room); return; }
+    else if(m.t==="action"){ if(isHost()&&Net._apply){ Net._apply(m.action); save(); } }
+    else if(m.t==="state"){ if(!isHost())applySnapshot(m.snapshot); return; }
     else if(m.t==="error"){ if(UI.mp)UI.mp.error=m.msg; }
     refresh();
   }
-  function startMatch(room){ /* scaffold: launch the local match using the room's settings */
-    if(room&&room.settings){ SETTINGS.rivalCount=clamp(room.settings.rivalCount||0,0,MAX_COMPANIES-1); SETTINGS.neutralCount=clamp(room.settings.neutralCount||0,0,MAX_COMPANIES-1); } }
   return {
     get id(){ return self.id; }, get room(){ return self.room; }, get connected(){ return self.connected; },
-    isHost:function(){ return !!(self.room&&self.id&&self.room.hostId===self.id); },
+    isHost:isHost,
+    inMatch:function(){ return matchActive&&self.connected; },
+    isMirror:function(){ return matchActive&&self.connected&&!isHost(); },
     connect:function(url,name){ try{ ws=new WebSocket(url); }catch(e){ if(UI.mp){UI.mp.error="Invalid server URL";UI.mp.status="idle";} refresh(); return; }
       ws.onopen=function(){ self.connected=true; if(UI.mp){UI.mp.status="connected";UI.mp.error="";} ws.send(JSON.stringify({t:"hello",name:name})); refresh(); };
       ws.onmessage=function(e){ try{ handle(JSON.parse(e.data)); }catch(_){} };
-      ws.onclose=function(){ self.connected=false; self.room=null; if(UI.mp){ UI.mp.status="idle"; UI.mp.room=null; } refresh(); };
+      ws.onclose=function(){ self.connected=false; self.room=null; matchActive=false; if(UI.mp){ UI.mp.status="idle"; UI.mp.room=null; } refresh(); };
       ws.onerror=function(){ if(UI.mp){UI.mp.error="Connection error — is the server running?";} refresh(); }; },
     send:function(o){ if(ws&&ws.readyState===1)ws.send(JSON.stringify(o)); },
     create:function(s){ this.send({t:"create",settings:s}); },
@@ -984,18 +989,21 @@ var Net=(function(){
     start:function(){ this.send({t:"start"}); },
     action:function(a){ this.send({t:"action",action:a}); },
     publishState:function(snap){ this.send({t:"state",snapshot:snap}); },
-    leave:function(){ this.send({t:"leave"}); self.room=null; if(UI.mp){ UI.mp.room=null; UI.mp.status="connected"; } refresh(); },
-    disconnect:function(){ if(ws){ try{ws.close();}catch(_){}} ws=null; self.connected=false; self.room=null; }
+    leave:function(){ this.send({t:"leave"}); self.room=null; matchActive=false; if(UI.mp){ UI.mp.room=null; UI.mp.status="connected"; } refresh(); },
+    disconnect:function(){ if(ws){ try{ws.close();}catch(_){}} ws=null; self.connected=false; self.room=null; matchActive=false; }
   };
 })();
+/* route whitelisted player actions to the host while mirroring its world */
+(function(){ var NETACT={research:1,trade:1,launchCrypto:1,sellCrypto:1,sabotage:1,steal:1,acqrival:1,pact:1,setSpeed:1,build:1,ship:1},raw={}; Object.keys(NETACT).forEach(function(k){ if(typeof A[k]==="function"){ raw[k]=A[k]; A[k]=function(){ if(Net.isMirror()){ Net.action({fn:k,args:Array.prototype.slice.call(arguments)}); return; } return raw[k].apply(A,arguments); }; } }); Net._apply=function(a){ if(a&&raw[a.fn])raw[a.fn].apply(A,a.args||[]); }; })();
 
 /* ============================================================ BOOT */
 loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); UI.menu=hadSave?"main":"setup"; initScene(); render(); renderMenu();
-setInterval(function(){ if(S.speed>0&&!UI.menu){ var dt=0.2*S.speed; if(S.freeBuild>0)S.freeBuild=Math.max(0,S.freeBuild-0.2); S.resources=advance(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); } patch();
+setInterval(function(){ if(S.speed>0&&!UI.menu&&!Net.isMirror()){ var dt=0.2*S.speed; if(S.freeBuild>0)S.freeBuild=Math.max(0,S.freeBuild-0.2); S.resources=advance(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); } patch();
   if(UI.dirty&&UI.open&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); UI.dirty=false; }
-  if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); },200);
-setInterval(function(){ if(UI.open&&!S.battleTarget){ var t=UI.tab; if(t==="markets"||t==="military"||t==="intel"||t==="industry"||t==="trade"||(t==="digital"&&S.crypto.launched)){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); } } syncScene(); save(); },900);
+  if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); updateMpBadge(); },200);
+setInterval(function(){ if(UI.open&&!S.battleTarget){ var t=UI.tab; if(t==="markets"||t==="military"||t==="intel"||t==="industry"||t==="trade"||(t==="digital"&&S.crypto.launched)){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); } } syncScene(); if(!Net.isMirror())save(); if(Net.inMatch()&&Net.isHost())Net.publishState(S); },900);
 function showEnd(){ var g=S.gameOver; el("end").innerHTML='<div class="overlay" style="z-index:60"><div class="modal glass" style="max-width:440px;text-align:center;border-color:'+(g.won?"rgba(0,255,65,.4)":"rgba(255,40,40,.5)")+'"><div style="font-size:40px">🏆</div><h1 style="font-size:24px">'+(g.won?"VICTORY":"DEFEAT")+'</h1>'+(g.type?'<div class="lbl">'+g.type+(g.won?" victory":"")+'</div>':"")+'<p style="color:#9dffb0;font-size:14px;line-height:1.6;margin:14px 0">'+g.text+'</p><button class="btn sm" style="width:auto;margin:0 auto" data-act="reset">↺ New Game</button></div></div>'; }
+function updateMpBadge(){ var b=el("mpbadge"); if(Net.inMatch()){ if(!b){ b=document.createElement("div"); b.id="mpbadge"; b.className="panelglass ui"; b.style.cssText="position:fixed;bottom:8px;right:12px;z-index:40;padding:4px 9px;font-size:12px;display:flex;gap:8px;align-items:center"; document.body.appendChild(b); } var lbl=Net.isHost()?"Hosting":"Guest · live mirror"; if(b.getAttribute("data-l")!==lbl){ b.setAttribute("data-l",lbl); b.innerHTML='<span style="color:#8fd6ff">🌐 '+lbl+'</span><button class="btn ui sm" style="width:auto;padding:2px 8px" data-act="menu_mp">Lobby</button><button class="btn ui sm red" style="width:auto;padding:2px 8px" data-act="mp_leave">Leave</button>'; } } else if(b){ b.remove(); } }
 window.addEventListener("beforeunload",save);
 </script>
 </body>

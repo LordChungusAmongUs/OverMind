@@ -81,9 +81,16 @@ terminate TLS at the platform's load balancer.
 
 ## Roadmap
 
-1. **Lobby** — rooms, codes, company claims, chat, host hand-off. ✅ (this scaffold)
-2. **Relay match** — host broadcasts snapshots; clients render + send actions. 🔜 (client `Net` layer is wired; in-match sync is the next milestone)
-3. **Server-authoritative tick** — port `rates/advance/worldTick` into `./engine`
-   and run the sim here for cheat-resistance and headless/AI-only matches.
-4. **Persistence & auth** — durable rooms + accounts (e.g. Supabase, already a
+1. **Lobby** — rooms, codes, company claims, chat, host hand-off. ✅
+2. **Relay match** — host broadcasts full-state snapshots (~1 Hz); guests mirror
+   them live and relay their whitelisted economy actions (research, trade, crypto,
+   sabotage/steal/acquire, pact, set-speed, space builds) back to the host, which
+   applies them. ✅ Map-placed earth/orbit builds are still host-side — networking
+   placement (send the chosen cell, not the mutation) is the immediate follow-up.
+3. **Per-player companies** — today a room co-operatively drives the host's
+   company. Next: give each claimed company its own detailed economy so players
+   compete head-to-head across the 64 slots. 🔜
+4. **Server-authoritative tick** — port `rates/advance/worldTick` into `./engine`
+   and run the sim here for cheat-resistance, delta snapshots, and headless/AI matches.
+5. **Persistence & auth** — durable rooms + accounts (e.g. Supabase, already a
    repo dependency) for reconnection and ranked play.
