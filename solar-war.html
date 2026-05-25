@@ -161,6 +161,14 @@ var BUILDINGS={
   drone_facility:{name:"Drone Production Facility",loc:"earth",cat:"Military",ds:"Autonomous drones. Revenue + materiel.",cost:{capital:12000,steel:60,chips:30},g:1.17,days:365,prod:{materials:3,capital:6},con:{chips:0.4,energy:10},req:"corporate_military"},
   missile_facility:{name:"Missile Facility",loc:"earth",cat:"Military",ds:"Strategic deterrent. Static defense.",cost:{capital:18000,steel:150,materials:80},g:1.18,days:730,con:{energy:8,materials:0.5},req:"directed_energy"},
   military_shipyard:{name:"Military Shipyard",loc:"earth",cat:"Military",ds:"Builds warships. Major ship-speed boost.",cost:{capital:50000,steel:600,chips:80},g:1.19,days:1460,con:{energy:30,steel:1},req:"corporate_military"},
+  /* --- Earth: blockchain & digital assets (backed by real energy + compute + hardware) --- */
+  asic_farm:{name:"ASIC Mining Farm",loc:"earth",cat:"Blockchain",ds:"Proof-of-work hashpower. Hungry for energy & chips.",cost:{capital:8000,chips:30,steel:20},g:1.16,days:120,con:{energy:40},mine:10,req:"blockchain"},
+  gpu_farm:{name:"GPU Compute Farm",loc:"earth",cat:"Blockchain",ds:"Switchable: mine crypto, train AI (compute), or render (capital).",cost:{capital:12000,chips:50},g:1.16,days:120,con:{energy:30},gpu:true,req:"blockchain"},
+  validator_node:{name:"Validator Node",loc:"earth",cat:"Blockchain",ds:"Proof-of-stake validation. Low power; stakes capital.",cost:{capital:15000,chips:20},g:1.16,days:90,con:{energy:5},validator:true,req:"blockchain"},
+  crypto_exchange:{name:"Digital Asset Exchange",loc:"earth",cat:"Blockchain",ds:"Earns trading fees from network volume. Boosts adoption.",cost:{capital:20000,chips:40},g:1.18,days:180,con:{energy:8},exchange:true,req:"blockchain"},
+  smart_contract_platform:{name:"Smart Contract Platform",loc:"earth",cat:"Blockchain",ds:"App hosting & corporate automation. Revenue + adoption.",cost:{capital:18000,chips:60},g:1.17,days:180,prod:{capital:8},con:{energy:12,compute:0.5},sc:true,req:"defi"},
+  decentralized_ai_net:{name:"Decentralized AI Network",loc:"earth",cat:"Blockchain",ds:"Token-incentivised distributed compute. Backs your token.",cost:{capital:60000,chips:200},g:1.18,days:540,prod:{compute:15},con:{energy:40},dai:true,req:"decentralized_ai"},
+  quantum_miner:{name:"Quantum Mining Rig",loc:"earth",cat:"Blockchain",ds:"Quantum hashpower. Enormous, efficient.",cost:{capital:90000,chips:300},g:1.2,days:730,con:{energy:60},mine:80,req:"quantum_computing"},
   /* --- Orbit --- */
   comms_satellite:{name:"Communications Satellite",loc:"orbit",cat:"Orbital",ds:"Global mesh. Projects influence.",cost:{capital:1600,steel:6,chips:2},g:1.16,days:30,prod:{influence:0.55},con:{energy:2}},
   orbital_data_center:{name:"Orbital Data Center",loc:"orbit",cat:"Orbital",ds:"In-house compute. Needs real power.",cost:{capital:2800,steel:25,chips:10},g:1.16,days:365,prod:{compute:6},con:{energy:8}},
@@ -213,7 +221,11 @@ var TECHS={
   space_manufacturing:{name:"Space Manufacturing",br:"Transportation",ds:"Orbital industry — fast space builds. Unlocks orbital factories & shipyards.",cost:{compute:3000,capital:40000,materials:400},req:["orbital_logistics"]},
   space_science:{name:"Orbital Science",br:"Compute",ds:"Unlocks Orbital Research Stations.",cost:{compute:3500,capital:30000},req:["space_manufacturing"]},
   space_habitation:{name:"Space Habitation",br:"Transportation",ds:"Unlocks Orbital Habitats.",cost:{compute:4000,capital:60000,materials:600},req:["space_manufacturing"]},
-  lunar_industry:{name:"Lunar Industrialization",br:"Transportation",ds:"Unlocks lunar refineries & factories.",cost:{compute:5000,capital:80000,materials:1000},req:["lunar_logistics","space_manufacturing"]}
+  lunar_industry:{name:"Lunar Industrialization",br:"Transportation",ds:"Unlocks lunar refineries & factories.",cost:{compute:5000,capital:80000,materials:1000},req:["lunar_logistics","space_manufacturing"]},
+  blockchain:{name:"Blockchain Infrastructure",br:"Blockchain",ds:"Launch cryptocurrencies; build mining, validators & exchanges.",cost:{compute:1500,capital:10000}},
+  defi:{name:"Decentralized Finance",br:"Blockchain",ds:"Smart-contract platforms. Network fee revenue.",cost:{compute:3000,capital:25000},req:["blockchain"]},
+  decentralized_ai:{name:"Decentralized AI",br:"Blockchain",ds:"Token-incentivised compute networks. Big compute, backs your token.",cost:{compute:8000,capital:80000},req:["defi","ai_models"]},
+  quantum_computing:{name:"Quantum Computing",br:"Blockchain",ds:"Quantum miners — enormous, efficient hashrate.",cost:{compute:30000,capital:250000},req:["decentralized_ai"]}
 };
 var SHIPS={
   corvette:{name:"Corvette",cls:"Escort",cost:{capital:3000,materials:40},g:1.08,fp:10,hull:25,up:{energy:4,capital:0.5},req:"security_forces"},
@@ -265,7 +277,8 @@ function freshState(){ var sr=SETTINGS.startRes,r0=zero(); for(var k in sr)if(r0
   rivals:RIVAL_SEEDS.slice(0,clamp(SETTINGS.aiCount,1,RIVAL_SEEDS.length)).map(function(s,i){return {id:s.id,name:s.name,pers:s.pers,eco:s.eco,tech:s.tech,inf:s.inf,mil:s.mil,gr:s.gr,host:10,crip:0,dead:false,treaty:"none",intel:8,color:PCOLORS[(i+1)%PCOLORS.length]};}),
   marketShare:{consumer:0.12,enterprise:0.1,government:0.08}, marketSize:{consumer:60000,enterprise:40000,government:28000},
   regulation:8, events:[{id:0,t:0,kind:"info",text:"Incorporation complete. The Solar War begins."}], eventSeq:1, worldClock:0, eventClock:0,
-  gameOver:{over:false,won:false,type:"",text:""}, speed:1, battleTarget:null, freeBuild:FREE_BUILD_SECS }; }
+  gameOver:{over:false,won:false,type:"",text:""}, speed:1, battleTarget:null, freeBuild:FREE_BUILD_SECS,
+  crypto:{launched:false,name:"",consensus:"pow",supply:"fixed",utility:"store",price:1,held:0,adoption:0,peak:1,vol:0}, gpuMode:"ai" }; }
 
 /* ============================================================ ENGINE */
 function techMult(r){ var m=zero(),k; for(k in m)m[k]=1; var g=1; r.forEach(function(id){ var t=TECHS[id]; if(!t)return; if(t.gm)g*=t.gm; if(t.mult)for(var kk in t.mult)if(m[kk]!==undefined)m[kk]*=t.mult[kk]; }); for(k in m)m[k]*=g; return m; }
@@ -274,6 +287,7 @@ function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),eS=0,eD=
   for(var id in S.buildings){ var c=S.buildings[id]; if(!c)continue; var b=BUILDINGS[id]; if(!b)continue;
     rf=1; if(b.con)for(k in b.con){ if(k==="energy")continue; var nd=b.con[k]*c,av=S.resources[k]||0,f=nd<=0?1:clamp(av/(nd*RUNWIN),0,1); if(f<rf)rf=f; }
     if(b.prod)for(k in b.prod){ if(k==="energy")eS+=b.prod[k]*c*rf; else gross[k]+=b.prod[k]*c*rf; }
+    if(b.gpu){ var gm=S.gpuMode||"ai"; if(gm==="ai")gross.compute+=14*c; else if(gm==="render")gross.capital+=10*c; }
     if(b.con)for(k in b.con){ if(k==="energy")eD+=b.con[k]*c*rf; else con[k]+=b.con[k]*c*rf; } }
   for(var fid in S.fleet){ var fc=S.fleet[fid]; if(!fc)continue; var sh=SHIPS[fid]; if(!sh||!sh.up)continue; for(k in sh.up){ if(k==="energy")eD+=sh.up[k]*fc; else con[k]+=sh.up[k]*fc; } }
   var ext=zero(); NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]; if(st==="leased"){ for(var k in co.lease){ if(k==="energy")eS+=co.lease[k]; else ext[k]+=co.lease[k]; } con.capital+=co.rent; } else if(st==="owned"){ for(var k in co.own){ if(k==="energy")eS+=co.own[k]; else ext[k]+=co.own[k]; } } });
@@ -284,6 +298,22 @@ function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),eS=0,eD=
   net.capital=capInc-con.capital-tax; net.influence=pg.influence+mInf+ext.influence-con.influence;
   return {eS:eS,eD:eD,pr:pr,net:net}; }
 function advance(S,dt){ var r=rates(S),o={}; STOCKS.forEach(function(k){ o[k]=Math.max(0,S.resources[k]+r.net[k]*dt); }); return o; }
+function cryptoHash(S){ var h=0,b=S.buildings; for(var id in b){ var bd=BUILDINGS[id]; if(!bd||!b[id])continue; if(bd.mine)h+=bd.mine*b[id]; if(bd.gpu&&S.gpuMode==="mine")h+=5*b[id]; if(bd.validator)h+=8*b[id]; if(bd.dai)h+=20*b[id]; } return h; }
+function cryptoStats(S){ var cr=S.crypto,b=S.buildings,exch=b.crypto_exchange||0,sc=b.smart_contract_platform||0,dai=b.decentralized_ai_net||0,hash=cryptoHash(S),
+  mkt=(S.marketShare.consumer+S.marketShare.enterprise+S.marketShare.government)*20,
+  adoptTarget=clamp(mkt+exch*12+sc*8+dai*6+Math.log10(1+hash)*4,0,100),
+  backing=hash*0.6+(cr?cr.adoption:0)*3+exch*8+sc*6+dai*10,
+  utilMult=!cr?1:cr.utility==="store"?1.3:cr.utility==="governance"?1.1:cr.utility==="compute"?1.2:cr.utility==="energy"?1.15:1,
+  dilution=!cr?0.008:cr.supply==="deflationary"?0.002:cr.supply==="inflationary"?0.02:0.008,
+  target=clamp(backing*utilMult/(1+(cr?cr.held:0)*dilution),0.05,1e6);
+  return {hash:hash,exch:exch,sc:sc,dai:dai,adoptTarget:adoptTarget,backing:backing,target:target}; }
+function cryptoTick(S,dt){ var cr=S.crypto; if(!cr||!cr.launched)return; var pr=rates(S).pr,st=cryptoStats(S),hash=st.hash*pr;
+  cr.adoption+=(st.adoptTarget-cr.adoption)*Math.min(1,0.05*dt);
+  var supplyMult=cr.supply==="inflationary"?1.6:cr.supply==="deflationary"?0.5:1; cr.held+=hash*0.02*dt*supplyMult;
+  var st2=cryptoStats(S),target=st2.target,volK=cr.consensus==="pow"?0.12:cr.consensus==="pos"?0.05:0.08;
+  cr.vol+=(Math.random()-0.5)*volK*dt; cr.vol*=Math.max(0,1-0.4*dt);
+  cr.price+=(target-cr.price)*Math.min(1,0.08*dt)+cr.price*cr.vol*dt; cr.price=clamp(cr.price,0.05,1e6); if(cr.price>cr.peak)cr.peak=cr.price;
+  if(st.exch>0)S.resources.capital+=Math.sqrt(Math.max(0,cr.price*hash*cr.adoption))*0.02*st.exch*dt; }
 function bcost(b,o){ var c={},g=b.g||1.15,m=SETTINGS.costMult.build; for(var k in b.cost)c[k]=b.cost[k]*Math.pow(g,o)*m; return c; }
 function scost(s,o){ var c={},g=s.g||1.1,m=SETTINGS.costMult.ship; for(var k in s.cost)c[k]=s.cost[k]*Math.pow(g,o)*m; return c; }
 function tcost(id){ var t=TECHS[id],c={},m=SETTINGS.costMult.tech; for(var k in t.cost)c[k]=t.cost[k]*m; return c; }
@@ -339,6 +369,7 @@ function worldTick(S,dt){ S.worldClock+=dt; var pp=milPower(S.fleet),pm=playerMe
   S.rivals.forEach(function(r){ if(r.dead||S.gameOver.over||r.treaty==="pact")return; if(r.host>55&&r.mil>pp.fp*1.25&&Math.random()<(dt/30)*(r.host/100)){ var dmg=Math.min(S.resources.capital*0.12,r.mil*200); S.resources.capital=Math.max(0,S.resources.capital-dmg); for(var id in S.fleet)S.fleet[id]=Math.max(0,Math.floor(S.fleet[id]*0.75)); S.regulation=clamp(S.regulation+4,0,100); r.host=clamp(r.host-15,0,100); pushEvent(S,"war",r.name+" raided your assets — lost "+fmt(dmg)+" capital."); if(pp.fp===0&&S.resources.capital<r.eco*0.05&&r.mil>60)S.gameOver={over:true,won:false,type:"defeated",text:r.name+" has absorbed your corporation. Game over."}; } });
   MARKETS.forEach(function(mk){ S.marketSize[mk.id]*=1+MARKET_GROWTH*dt; }); var tgt=targetShare(S); MARKETS.forEach(function(mk){ S.marketShare[mk.id]=clamp(S.marketShare[mk.id]+(tgt[mk.id]-S.marketShare[mk.id])*Math.min(1,SHARE_EASE*dt),0,0.95); });
   var econ=playerMetrics(S).eco,gov=S.buildings.gov_relations||0,regT=clamp(6+Math.log10(Math.max(10,econ))*7+pp.fp*0.008-gov*5,0,100); S.regulation=clamp(S.regulation+(regT-S.regulation)*Math.min(1,0.02*dt),0,100);
+  cryptoTick(S,dt);
   if(!S.gameOver.over){ var v=checkVictory(S); if(v){ S.gameOver={over:true,won:true,type:v.type,text:v.text}; pushEvent(S,"good",v.text); } } }
 function objectives(S){ var pm=playerMetrics(S),st=currentStage(S),ms=Math.max(S.marketShare.consumer,S.marketShare.enterprise,S.marketShare.government),anyN=Object.keys(S.neutral).some(function(k){return S.neutral[k]==="leased"||S.neutral[k]==="owned";}),def=S.rivals.some(function(r){return r.dead;});
   return [{l:"Reach Stage 3",d:st>=3,p:clamp(st/3,0,1)},{l:"Capture 25% of a market",d:ms>=0.25,p:clamp(ms/0.25,0,1)},{l:"Use a neutral company",d:anyN},{l:"Research AGI",d:S.researched.indexOf("agi")>=0},{l:"War fleet (FP ≥ 200)",d:pm.mil>=200,p:clamp(pm.mil/200,0,1)},{l:"Expand to the Moon",d:S.researched.indexOf("lunar_logistics")>=0},{l:"Defeat a rival",d:def},{l:"Eliminate EVERY rival to win",d:S.rivals.every(function(r){return r.dead;})}]; }
@@ -353,7 +384,7 @@ function completeJob(j){ if(j.kind==="build")S.buildings[j.id]=(S.buildings[j.id
 function processJobs(dt){ if(!S.jobs.length)return false; var done=[],i; for(i=0;i<S.jobs.length;i++){ S.jobs[i].rem-=dt; if(S.jobs[i].rem<=0)done.push(i); }
   for(i=done.length-1;i>=0;i--){ var j=S.jobs[done[i]]; S.jobs.splice(done[i],1); completeJob(j); } return done.length>0; }
 function save(){ try{ S.lastSaved=Date.now(); localStorage.setItem(SAVE_KEY,JSON.stringify(S)); }catch(e){} }
-function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; STOCKS.forEach(function(k){ if(typeof p.resources[k]!=="number")p.resources[k]=0; }); if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.earthPlacements)p.earthPlacements=[]; if(!p.units)p.units=[]; if(!p.groups)p.groups={}; if(!p.bookmarks)p.bookmarks={}; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; if(typeof p.freeBuild!=="number")p.freeBuild=0; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=PCOLORS[(i+1)%PCOLORS.length]; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
+function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; STOCKS.forEach(function(k){ if(typeof p.resources[k]!=="number")p.resources[k]=0; }); if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.earthPlacements)p.earthPlacements=[]; if(!p.units)p.units=[]; if(!p.groups)p.groups={}; if(!p.bookmarks)p.bookmarks={}; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; if(typeof p.freeBuild!=="number")p.freeBuild=0; if(!p.crypto)p.crypto={launched:false,name:"",consensus:"pow",supply:"fixed",utility:"store",price:1,held:0,adoption:0,peak:1,vol:0}; if(!p.gpuMode)p.gpuMode="ai"; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=PCOLORS[(i+1)%PCOLORS.length]; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
 var A={
   build:function(id){ var b=BUILDINGS[id]; if(!b)return; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); },
   placeEarth:function(id,lon,lat){ var b=BUILDINGS[id]; if(!b||(b.loc!=="earth"&&b.loc!=="moon"))return false; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return false; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); S.earthPlacements.push({id:id,lon:lon,lat:lat}); return true; },
@@ -368,6 +399,10 @@ var A={
   lobby:function(){ if(S.resources.influence<150||S.resources.capital<3000)return; S.resources.influence-=150; S.resources.capital-=3000; S.regulation=clamp(S.regulation-12,0,100); pushEvent(S,"good","Lobbying eased regulation."); },
   orbitwhere:function(){ S.orbitAround=S.orbitAround==="moon"?"earth":"moon"; },
   engage:function(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r||r.dead)return; if(milPower(S.fleet).fp<=0)return; startOrbitBattle(id); },
+  launchCrypto:function(){ var cr=S.crypto,cf=UI.cf||{}; if(cr.launched||S.researched.indexOf("blockchain")<0)return; if(S.resources.capital<5000||S.resources.compute<500)return; S.resources.capital-=5000; S.resources.compute-=500; cr.launched=true; cr.name=cf.name||"CorpCoin"; cr.consensus=cf.consensus||"pow"; cr.supply=cf.supply||"fixed"; cr.utility=cf.utility||"store"; cr.price=1; cr.held=0; cr.adoption=2; cr.peak=1; cr.vol=0; pushEvent(S,"good","Launched "+cr.name+" — "+cr.consensus.toUpperCase()+" / "+cr.supply+"."); },
+  sellCrypto:function(frac){ var cr=S.crypto; if(!cr.launched||cr.held<=0)return; var amt=cr.held*clamp(parseFloat(frac)||1,0.01,1),slip=clamp(amt/(cr.held+1),0,0.4),gain=amt*cr.price*(1-slip-0.01); S.resources.capital+=gain; cr.held-=amt; cr.price*=(1-slip*0.5); pushEvent(S,"good","Sold "+fmt(amt)+" "+cr.name+" → +"+fmt(gain)+" CAP."); },
+  buyCrypto:function(frac){ var cr=S.crypto; if(!cr.launched)return; var spend=S.resources.capital*clamp(parseFloat(frac)||0.1,0.01,1); if(spend<=0||cr.price<=0)return; var amt=spend/cr.price; S.resources.capital-=spend; cr.held+=amt; cr.price*=(1+clamp(amt/(cr.held+1),0,0.3)*0.4); pushEvent(S,"info","Treasury acquired "+fmt(amt)+" "+cr.name+"."); },
+  setGpu:function(mode){ if(["ai","mine","render"].indexOf(mode)>=0)S.gpuMode=mode; },
   setSpeed:function(v){ S.speed=v; }
 };
 function doNewGame(){ S=freshState(); UI.menu=null; UI.open=false; UI.sel=null; save(); }
@@ -383,7 +418,7 @@ function resBar(){ var r=rates(S),h='<div class="panelglass ui" id="resbar">';
   HEADLINE.forEach(function(k){ var d=RES[k],nv=r.net[k]; h+='<div class="res"><div class="lbl" style="color:'+d.col+'">'+d.name+'</div><div class="v" style="color:'+d.col+'" id="res-'+k+'">'+fmt(S.resources[k])+'</div><div class="r" id="rate-'+k+'" style="color:'+(nv>0?"#2f8f43":nv<0?"#ff5d8f":"#456")+'">'+fmtRate(nv)+'</div></div>'; });
   var pw=r.pr>=1; h+='<div class="res"><div class="lbl enr">Energy</div><div class="v enr" id="res-energy">'+fmt(r.eS)+'<span style="color:#456;font-size:11px">/'+fmt(r.eD)+'</span></div><div class="r" id="rate-energy" style="color:'+(pw?"#2f8f43":"#ff5d8f")+'">'+(pw?"powered":Math.round(r.pr*100)+"% deficit")+'</div></div>';
   return h+'</div>'; }
-var TABS=[["ops","⚙","Operations"],["industry","🏭","Industry"],["research","🧪","Research"],["markets","👑","Markets"],["partners","🤝","Partners"],["military","⚔","Military"],["intel","📡","Intel"]];
+var TABS=[["ops","⚙","Operations"],["industry","🏭","Industry"],["digital","💠","Digital"],["research","🧪","Research"],["markets","👑","Markets"],["partners","🤝","Partners"],["military","⚔","Military"],["intel","📡","Intel"]];
 function industryPanel(){ var r=rates(S),h='<div class="small" style="margin-bottom:6px">Supply chain — extraction → refining → high-tech & space. Refineries idle without inputs.</div>';
   RESGROUPS.forEach(function(grp){ if(grp[0]==="core")return; var keys=STOCKS.filter(function(k){return RESMETA[k].tier===grp[0];}); if(!keys.length)return;
     h+='<div style="margin-top:8px"><b style="color:#9dffb0;text-transform:uppercase;letter-spacing:.1em;font-size:11px">'+grp[1]+'</b><div class="grid g2" style="margin-top:6px">';
@@ -435,7 +470,27 @@ function intelPanel(){ var h=""; S.events.forEach(function(e){ h+='<div class="e
 function ageStr(t){ var d=Math.max(0,Math.floor(S.worldClock-t)); return d<60?d+"s":d<3600?Math.floor(d/60)+"m":Math.floor(d/3600)+"h"; }
 function fogTier(v){ return v>=80?3:v>=50?2:v>=25?1:0; }
 function gameClock(){ var td=S.worldClock/DAY_SECONDS,d=new Date(Date.UTC(2040,0,1)+Math.floor(td)*86400000),fr=td-Math.floor(td),mins=Math.floor(fr*1440),hh=("0"+Math.floor(mins/60)).slice(-2),mm=("0"+(mins%60)).slice(-2),ds=d.getUTCFullYear()+"-"+("0"+(d.getUTCMonth()+1)).slice(-2)+"-"+("0"+d.getUTCDate()).slice(-2); return {day:Math.floor(td),txt:ds+" "+hh+":"+mm}; }
-function panelHtml(){ return UI.tab==="ops"?opsPanel():UI.tab==="industry"?industryPanel():UI.tab==="research"?researchPanel():UI.tab==="markets"?marketsPanel():UI.tab==="partners"?partnersPanel():UI.tab==="military"?militaryPanel():intelPanel(); }
+function digitalPanel(){ var cr=S.crypto,has=S.researched.indexOf("blockchain")>=0;
+  if(!has)return '<div class="item">🔒 Research <b style="color:#39ff14">Blockchain Infrastructure</b> (Research → Blockchain) to launch digital assets.</div>';
+  if(!cr.launched){ var cf=UI.cf||(UI.cf={name:"CorpCoin",consensus:"pow",supply:"fixed",utility:"store"});
+    var opt=function(field,arr){ return arr.map(function(o){ var sel=cf[field]===o[0]; return '<button class="btn ui sm" data-act="cfset" data-arg="'+field+':'+o[0]+'" style="width:auto;'+(sel?"background:rgba(0,255,65,.3);border-color:rgba(0,255,65,.7)":"")+'">'+o[1]+'</button>'; }).join(" "); };
+    var canL=S.resources.capital>=5000&&S.resources.compute>=500;
+    return '<div class="small" style="margin-bottom:8px">Found a cryptocurrency. Its value is backed by the energy, compute, hardware and adoption you bring — never printed for free.</div>'+
+      '<div class="item"><label class="lbl">Ticker / Name</label><input type="text" data-cf="name" value="'+(cf.name||"CorpCoin")+'" style="margin-top:4px">'+
+      '<div class="lbl" style="margin-top:10px">Consensus</div><div class="row" style="gap:6px;margin-top:4px">'+opt("consensus",[["pow","Proof of Work"],["pos","Proof of Stake"],["hybrid","Hybrid"]])+'</div>'+
+      '<div class="lbl" style="margin-top:8px">Supply Model</div><div class="row" style="gap:6px;margin-top:4px">'+opt("supply",[["fixed","Fixed"],["inflationary","Inflationary"],["deflationary","Deflationary"],["algorithmic","Algorithmic"]])+'</div>'+
+      '<div class="lbl" style="margin-top:8px">Utility</div><div class="row" style="gap:6px;margin-top:4px">'+opt("utility",[["store","Store of Value"],["governance","Governance"],["compute","AI Compute"],["energy","Energy"]])+'</div>'+
+      '<button class="btn ui'+(canL?"":" dis")+'" style="margin-top:12px" data-act="launchCrypto">🚀 Launch Token <span class="small">· 5K CAP · 500 CMP</span></button></div>';
+  }
+  var st=cryptoStats(S),tv=cr.held*cr.price,gm=S.gpuMode||"ai";
+  return '<div class="item"><div class="row between"><div><span class="nm" style="font-size:16px">💠 '+cr.name+'</span><div class="small">'+cr.consensus.toUpperCase()+' · '+cr.supply+' · '+cr.utility+'</div></div><div style="text-align:right"><div style="font-size:20px;font-weight:900;color:#39ff14">'+fmt(cr.price)+'</div><div class="small">CAP / token</div></div></div>'+
+    '<div class="row" style="gap:7px;margin-top:6px"><span class="chip cap">Treasury '+fmt(tv)+' CAP</span><span class="chip cmp">Held '+fmt(cr.held)+'</span><span class="chip" style="color:#ffb14d">Hashrate '+fmt(st.hash)+'</span></div>'+
+    '<div style="margin-top:4px"><div class="row between"><span class="small">Adoption</span><span class="small">'+Math.round(cr.adoption)+'%</span></div><div class="bar"><i style="width:'+cr.adoption+'%"></i></div></div>'+
+    '<div class="small">Backing '+fmt(st.backing)+' · fair value '+fmt(st.target)+' · peak '+fmt(cr.peak)+'</div>'+
+    '<div class="row" style="gap:6px;margin-top:6px"><button class="btn ui sm'+(cr.held>0?"":" dis")+'" data-act="sellCrypto" data-arg="0.25">Sell 25%</button><button class="btn ui sm'+(cr.held>0?"":" dis")+'" data-act="sellCrypto" data-arg="1">Sell All</button><button class="btn vio ui sm" data-act="buyCrypto" data-arg="0.1">Buy 10% CAP</button></div></div>'+
+    '<div class="item" style="margin-top:8px"><div class="lbl">GPU Farms — workload</div><div class="row" style="gap:6px;margin-top:4px">'+[["ai","🧠 AI Compute"],["mine","⛏ Mine "+cr.name],["render","🎬 Render"]].map(function(o){return '<button class="btn ui sm" data-act="setGpu" data-arg="'+o[0]+'" style="width:auto;'+(gm===o[0]?"background:rgba(0,255,65,.3);border-color:rgba(0,255,65,.7)":"")+'">'+o[1]+'</button>';}).join(" ")+'</div><div class="small" style="margin-top:6px">⛏ ASIC '+(S.buildings.asic_farm||0)+' · GPU '+(S.buildings.gpu_farm||0)+' · Quantum '+(S.buildings.quantum_miner||0)+' · ✅ Validators '+(S.buildings.validator_node||0)+' · 💱 Exchanges '+(S.buildings.crypto_exchange||0)+' · 📜 Contracts '+(S.buildings.smart_contract_platform||0)+'</div></div>'+
+    '<div class="small" style="margin-top:8px">Build blockchain infrastructure in <b>Operations → Earth → Blockchain</b>. More backing (hashrate, compute, exchanges, adoption) raises fair value; over-minting dilutes it.</div>'; }
+function panelHtml(){ return UI.tab==="ops"?opsPanel():UI.tab==="industry"?industryPanel():UI.tab==="digital"?digitalPanel():UI.tab==="research"?researchPanel():UI.tab==="markets"?marketsPanel():UI.tab==="partners"?partnersPanel():UI.tab==="military"?militaryPanel():intelPanel(); }
 function tabTitle(){ var t=TABS.find(function(x){return x[0]===UI.tab;}); return t?t[1]+" "+t[2]:""; }
 function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(function(o){return o.d;}).length;
   var h='<div id="topbar">'+resBar()+'<div class="panelglass ui" style="padding:5px"><div class="speed" style="display:flex;align-items:center"><span class="lbl" style="margin:0 6px">SPD</span>'+
@@ -502,8 +557,13 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="omtool"){ if(OM){ OM.tool=OM.tool===id?null:id; render(); } return; }
   if(act==="gridcell"){ if(EM)EM.tool=EM.tool===id?null:id; else if(OM)OM.tool=OM.tool===id?null:id; render(); return; }
   if(act==="gridmore"){ var po=EM||OM; if(po){ var g=gridList(),pages=Math.max(1,Math.ceil(g.items.length/14)); po.gridPage=((po.gridPage||0)+1)%pages; render(); } return; }
+  if(act==="cfset"){ if(!UI.cf)UI.cf={name:"CorpCoin",consensus:"pow",supply:"fixed",utility:"store"}; var pp=(arg||"").split(":"); if(pp.length===2)UI.cf[pp[0]]=pp[1]; render(); return; }
+  if(act==="launchCrypto"){ A.launchCrypto(); save(); render(); return; }
+  if(act==="sellCrypto"){ A.sellCrypto(arg); save(); render(); return; }
+  if(act==="buyCrypto"){ A.buyCrypto(arg); save(); render(); return; }
+  if(act==="setGpu"){ A.setGpu(arg); save(); render(); return; }
   if(A[act]){ A[act](id); save(); syncScene(); render(); } });
-document.addEventListener("input",function(e){ var t=e.target,k=t.getAttribute&&t.getAttribute("data-set"); if(!k)return; var v=parseFloat(t.value); if(isNaN(v))return; var p=k.split("."); if(p[0]==="start")SETTINGS.startRes[p[1]]=Math.max(0,v); else if(p[0]==="cost")SETTINGS.costMult[p[1]]=Math.max(0,v); else if(p[0]==="time")SETTINGS.timeMult=Math.max(0.01,v); saveSettings(); });
+document.addEventListener("input",function(e){ var t=e.target,cf=t.getAttribute&&t.getAttribute("data-cf"); if(cf){ if(!UI.cf)UI.cf={name:"CorpCoin",consensus:"pow",supply:"fixed",utility:"store"}; UI.cf[cf]=t.value.slice(0,18); return; } var k=t.getAttribute&&t.getAttribute("data-set"); if(!k)return; var v=parseFloat(t.value); if(isNaN(v))return; var p=k.split("."); if(p[0]==="start")SETTINGS.startRes[p[1]]=Math.max(0,v); else if(p[0]==="cost")SETTINGS.costMult[p[1]]=Math.max(0,v); else if(p[0]==="time")SETTINGS.timeMult=Math.max(0.01,v); saveSettings(); });
 document.addEventListener("keydown",function(e){ if(e.target&&e.target.tagName==="INPUT")return; if(e.key==="p"||e.key==="P"){ UI.menu=UI.menu?null:"pause"; renderMenu(); render(); } else if(e.key==="Escape"){ if(EM)closeEarthMap(); else if(OM)closeOrbitMap(); else if(UI.menu){ UI.menu=null; renderMenu(); render(); } } });
 
 /* ============================================================ 3D SOLAR SYSTEM (Earth-centred) */
@@ -762,7 +822,7 @@ loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY)
 setInterval(function(){ if(S.speed>0&&!UI.menu){ var dt=0.2*S.speed; if(S.freeBuild>0)S.freeBuild=Math.max(0,S.freeBuild-0.2); S.resources=advance(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); } patch();
   if(UI.dirty&&UI.open&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); UI.dirty=false; }
   if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); },200);
-setInterval(function(){ if(UI.open&&(UI.tab==="markets"||UI.tab==="military"||UI.tab==="intel")&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); } syncScene(); save(); },900);
+setInterval(function(){ if(UI.open&&!S.battleTarget){ var t=UI.tab; if(t==="markets"||t==="military"||t==="intel"||t==="industry"||(t==="digital"&&S.crypto.launched)){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); } } syncScene(); save(); },900);
 function showEnd(){ var g=S.gameOver; el("end").innerHTML='<div class="overlay" style="z-index:60"><div class="modal glass" style="max-width:440px;text-align:center;border-color:'+(g.won?"rgba(0,255,65,.4)":"rgba(255,40,40,.5)")+'"><div style="font-size:40px">🏆</div><h1 style="font-size:24px">'+(g.won?"VICTORY":"DEFEAT")+'</h1>'+(g.type?'<div class="lbl">'+g.type+(g.won?" victory":"")+'</div>':"")+'<p style="color:#9dffb0;font-size:14px;line-height:1.6;margin:14px 0">'+g.text+'</p><button class="btn sm" style="width:auto;margin:0 auto" data-act="reset">↺ New Game</button></div></div>'; }
 window.addEventListener("beforeunload",save);
 </script>
