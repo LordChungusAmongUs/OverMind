@@ -17,7 +17,8 @@
   *{ box-sizing:border-box; }
   html,body{ margin:0; height:100%; overflow:hidden; background:#02040a; color:#bdf5c4; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
   #scene{ position:fixed; inset:0; z-index:0; display:block; width:100%; height:100%; }
-  #hud{ position:fixed; inset:0; z-index:2; pointer-events:none; } #hud .ui{ pointer-events:auto; }
+  #hud{ position:fixed; top:0; left:0; width:calc(100vw / var(--uiscale,0.9)); height:calc(100vh / var(--uiscale,0.9)); z-index:2; pointer-events:none; zoom:var(--uiscale,0.9); } #hud .ui{ pointer-events:auto; }
+  .modal{ zoom:var(--uiscale,0.9); } /* adjustable UI scale — #hud is inverse-sized so zoom resolves to the viewport; edges stay anchored */
   h1{ font-size:20px; margin:0; font-weight:900; background:linear-gradient(90deg,#00ff41,#39ff14,#00cc33,#ff1a1a,#ff6600,#00ff41); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
   .lbl{ font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:#2f8f43; } .small{ font-size:11px; color:#5f8e68; }
   .panelglass{ background:rgba(2,10,5,.82); backdrop-filter:blur(7px); border:1px solid rgba(0,255,65,.2); border-radius:12px; }
@@ -279,9 +280,13 @@ var TRADABLE=Object.keys(MARKET_BASE);
 var GRID_STEP=0.25; /* surface build grid: degrees per cell (fine, square cells via 2:1 map) */
 
 /* ============================================================ SETTINGS */
-function defaultSettings(){ return {startRes:{capital:1e12,compute:300,talent:12,materials:200,influence:0},costMult:{build:1,ship:1,tech:1},timeMult:1,rivalCount:7,neutralCount:10}; }
+function defaultSettings(){ return {startRes:{capital:1e12,compute:300,talent:12,materials:200,influence:0},costMult:{build:1,ship:1,tech:1},timeMult:1,rivalCount:7,neutralCount:10,uiScale:0.9}; }
+var UISCALES=[["Compact",0.78],["Laptop",0.9],["Desktop",1.0],["Large",1.15],["TV / XL",1.32]]; /* laptop-medium is the default */
+function applyUIScale(){ try{ document.documentElement.style.setProperty("--uiscale",(SETTINGS.uiScale||0.9)); }catch(e){} }
+function setUIScale(v){ SETTINGS.uiScale=clamp(+v||0.9,0.6,1.6); saveSettings(); applyUIScale(); }
+function nudgeUIScale(dir){ var i=0,best=9,cur=SETTINGS.uiScale||0.9; UISCALES.forEach(function(u,j){ var d=Math.abs(u[1]-cur); if(d<best){best=d;i=j;} }); i=clamp(i+dir,0,UISCALES.length-1); setUIScale(UISCALES[i][1]); }
 var SETTINGS=defaultSettings();
-function loadSettings(){ try{ var raw=localStorage.getItem(SET_KEY); if(!raw)return; var p=JSON.parse(raw),k; if(p.startRes)for(k in SETTINGS.startRes){ if(typeof p.startRes[k]==="number")SETTINGS.startRes[k]=p.startRes[k]; } if(p.costMult)for(k in SETTINGS.costMult){ if(typeof p.costMult[k]==="number")SETTINGS.costMult[k]=p.costMult[k]; } if(typeof p.timeMult==="number")SETTINGS.timeMult=p.timeMult; if(typeof p.rivalCount==="number")SETTINGS.rivalCount=clamp(Math.round(p.rivalCount),0,MAX_COMPANIES-1); else if(typeof p.aiCount==="number")SETTINGS.rivalCount=clamp(Math.round(p.aiCount),0,MAX_COMPANIES-1); if(typeof p.neutralCount==="number")SETTINGS.neutralCount=clamp(Math.round(p.neutralCount),0,MAX_COMPANIES-1-SETTINGS.rivalCount); }catch(e){} }
+function loadSettings(){ try{ var raw=localStorage.getItem(SET_KEY); if(!raw)return; var p=JSON.parse(raw),k; if(p.startRes)for(k in SETTINGS.startRes){ if(typeof p.startRes[k]==="number")SETTINGS.startRes[k]=p.startRes[k]; } if(p.costMult)for(k in SETTINGS.costMult){ if(typeof p.costMult[k]==="number")SETTINGS.costMult[k]=p.costMult[k]; } if(typeof p.timeMult==="number")SETTINGS.timeMult=p.timeMult; if(typeof p.rivalCount==="number")SETTINGS.rivalCount=clamp(Math.round(p.rivalCount),0,MAX_COMPANIES-1); else if(typeof p.aiCount==="number")SETTINGS.rivalCount=clamp(Math.round(p.aiCount),0,MAX_COMPANIES-1); if(typeof p.neutralCount==="number")SETTINGS.neutralCount=clamp(Math.round(p.neutralCount),0,MAX_COMPANIES-1-SETTINGS.rivalCount); if(typeof p.uiScale==="number")SETTINGS.uiScale=clamp(p.uiScale,0.6,1.6); }catch(e){} }
 function saveSettings(){ try{ localStorage.setItem(SET_KEY,JSON.stringify(SETTINGS)); }catch(e){} }
 
 /* ============================================================ HELPERS */
@@ -703,7 +708,8 @@ function multiplayerHtml(){ var mp=UI.mp,st=mp.status,err=mp.error?'<div class="
     (mt.started?'<div class="small" style="color:#9dffb0;margin-top:8px">Match live — '+(host?"your company\'s world is authoritative and streams to your teammates.":"mirroring your company host in real time; your actions are sent to them.")+'</div>':(Net.isMatchHost()?'<div style="margin-top:8px">'+menuBtn("mp_start","▶ Start Match")+'</div><div class="small" style="opacity:.7">Each company is co-run by its team; cross-company shared-world competition is the next milestone.</div>':'<div class="small" style="margin-top:8px;opacity:.7">Waiting for the match host to start…</div>'))+'</div>'; }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
 function settingsHtml(){ var s=SETTINGS,h='<div class="modal glass" style="max-width:470px"><div class="dhead"><b style="color:#9dffb0">⚙ Settings</b><span class="x" data-act="menu_back">‹ back</span></div>';
-  h+='<div class="lbl" style="margin-top:6px">Starting resources <span class="small" style="text-transform:none">(applies on Restart / New Game)</span></div><div class="grid g2" style="margin-top:6px">';
+  h+='<div class="lbl" style="margin-top:6px">Display · interface scale <span class="small" style="text-transform:none">(or press [ and ])</span></div><div class="row" style="gap:5px;margin-top:6px;flex-wrap:wrap">'+UISCALES.map(function(u){ var on=Math.abs((s.uiScale||0.9)-u[1])<0.001; return '<button class="btn ui sm" style="width:auto;'+(on?"background:rgba(0,255,65,.28);border-color:rgba(0,255,65,.6);color:#9dffb0":"")+'" data-act="uiscale" data-arg="'+u[1]+'">'+u[0]+'</button>'; }).join("")+'</div><div class="small" style="margin-top:4px;opacity:.7">Resizes the whole interface to fit your screen. Laptop is the default.</div>';
+  h+='<div class="lbl" style="margin-top:14px">Starting resources <span class="small" style="text-transform:none">(applies on Restart / New Game)</span></div><div class="grid g2" style="margin-top:6px">';
   HEADLINE.forEach(function(k){ h+='<label class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+RES[k].name+'<input type="number" min="0" step="100" value="'+s.startRes[k]+'" data-set="start.'+k+'" style="width:120px"></label>'; });
   h+='</div><div class="lbl" style="margin-top:14px">Cost multipliers <span class="small" style="text-transform:none">(live)</span></div><div class="grid g2" style="margin-top:6px">';
   [["build","Structures"],["ship","Units"],["tech","Research"]].forEach(function(p){ h+='<label class="small" style="display:flex;justify-content:space-between;align-items:center;gap:8px">'+p[1]+' ×<input type="number" min="0" step="0.1" value="'+s.costMult[p[0]]+'" data-set="cost.'+p[0]+'" style="width:120px"></label>'; });
@@ -724,7 +730,7 @@ function renderMenu(){ var m=el("menu"); if(!UI.menu){ m.innerHTML=""; return; }
   else if(UI.menu==="main")h+='<div class="modal glass" style="max-width:340px;text-align:center"><h1 style="font-size:26px">SOLAR WAR 2040</h1><div class="small" style="margin:6px 0 16px">main menu</div>'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_new","✦ New Game")+menuBtn("menu_mp","🌐 Multiplayer (Beta)","cyan")+menuBtn("menu_multimon","🖥 Multi-Monitor")+menuBtn("menu_settings","⚙ Settings")+'</div>';
   else if(UI.menu==="mp")h+=multiplayerHtml();
   else if(UI.menu==="multimon")h+=multiMonitorHtml();
-  else h+='<div class="modal glass" style="max-width:320px;text-align:center"><h1 style="font-size:24px">PAUSED</h1><div style="margin-top:14px">'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_multimon","🖥 Multi-Monitor")+menuBtn("menu_settings","⚙ Settings")+menuBtn("menu_restart","↺ Restart")+menuBtn("menu_quit","⏏ Quit to Menu","red")+'</div>';
+  else h+='<div class="modal glass" style="max-width:320px;text-align:center"><h1 style="font-size:24px">PAUSED</h1><div style="margin-top:14px">'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_multimon","🖥 Multi-Monitor")+menuBtn("menu_settings","⚙ Settings")+menuBtn("menu_restart","↺ Restart")+menuBtn("menu_quit","⏏ Quit to Menu","red")+'</div><div class="lbl" style="margin-top:12px">UI scale</div><div class="row" style="gap:4px;justify-content:center;margin-top:5px;flex-wrap:wrap">'+UISCALES.map(function(u){ var on=Math.abs((SETTINGS.uiScale||0.9)-u[1])<0.001; return '<button class="btn ui sm" style="width:auto;padding:4px 7px;'+(on?"background:rgba(0,255,65,.28);border-color:rgba(0,255,65,.6);color:#9dffb0":"")+'" data-act="uiscale" data-arg="'+u[1]+'">'+u[0]+'</button>'; }).join("")+'</div>';
   m.innerHTML=h+'</div>'; }
 
 document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-act]"); if(!b)return; var act=b.getAttribute("data-act"),id=b.getAttribute("data-id"),arg=b.getAttribute("data-arg");
@@ -741,7 +747,8 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="menu_settings"){ UI.menu="settings"; renderMenu(); return; }
   if(act==="menu_back"){ UI.menu="pause"; renderMenu(); return; }
   if(act==="menu_quit"){ UI.menu="main"; renderMenu(); return; }
-  if(act==="settings_default"){ SETTINGS=defaultSettings(); saveSettings(); renderMenu(); return; }
+  if(act==="settings_default"){ SETTINGS=defaultSettings(); saveSettings(); applyUIScale(); renderMenu(); return; }
+  if(act==="uiscale"){ setUIScale(parseFloat(arg)); renderMenu(); return; }
   if(act==="cnt"){ var pp=(arg||"").split(":"),d=parseInt(pp[1],10)||0; if(pp[0]==="rival")SETTINGS.rivalCount=clamp(SETTINGS.rivalCount+d,0,MAX_COMPANIES-1); else SETTINGS.neutralCount=clamp(SETTINGS.neutralCount+d,0,MAX_COMPANIES-1); if(SETTINGS.rivalCount+SETTINGS.neutralCount>MAX_COMPANIES-1){ if(pp[0]==="rival")SETTINGS.neutralCount=Math.max(0,MAX_COMPANIES-1-SETTINGS.rivalCount); else SETTINGS.rivalCount=Math.max(0,MAX_COMPANIES-1-SETTINGS.neutralCount); } saveSettings(); renderMenu(); return; }
   if(act==="setup_start"){ doNewGame(); syncScene(); renderMenu(); render(); return; }
   if(act==="menu_restart"||act==="menu_new"){ UI.menu="setup"; renderMenu(); return; }
@@ -785,7 +792,7 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="acceptContract"){ A.acceptContract(parseInt(id,10)); save(); render(); return; }
   if(A[act]){ A[act](id); save(); syncScene(); render(); } });
 document.addEventListener("input",function(e){ var t=e.target,cf=t.getAttribute&&t.getAttribute("data-cf"); if(cf){ if(!UI.cf)UI.cf={name:"CorpCoin",consensus:"pow",supply:"fixed",utility:"store"}; UI.cf[cf]=t.value.slice(0,18); return; } var k=t.getAttribute&&t.getAttribute("data-set"); if(!k)return; var p=k.split("."); if(p[0]==="mp"){ if(UI.mp)UI.mp[p[1]]=t.value; return; } var v=parseFloat(t.value); if(isNaN(v))return; if(p[0]==="start")SETTINGS.startRes[p[1]]=Math.max(0,v); else if(p[0]==="cost")SETTINGS.costMult[p[1]]=Math.max(0,v); else if(p[0]==="time")SETTINGS.timeMult=Math.max(0.01,v); saveSettings(); });
-document.addEventListener("keydown",function(e){ if(e.target&&e.target.tagName==="INPUT")return; if(e.key==="p"||e.key==="P"){ UI.menu=UI.menu?null:"pause"; renderMenu(); render(); } else if(e.key==="Escape"){ if(EM)closeEarthMap(); else if(OM)closeOrbitMap(); else if(UI.menu){ UI.menu=null; renderMenu(); render(); } } });
+document.addEventListener("keydown",function(e){ if(e.target&&e.target.tagName==="INPUT")return; if(e.key==="p"||e.key==="P"){ UI.menu=UI.menu?null:"pause"; renderMenu(); render(); } else if(e.key==="["){ nudgeUIScale(-1); if(UI.menu)renderMenu(); } else if(e.key==="]"){ nudgeUIScale(1); if(UI.menu)renderMenu(); } else if(e.key==="Escape"){ if(EM)closeEarthMap(); else if(OM)closeOrbitMap(); else if(UI.open){ UI.open=false; render(); } else if(UI.menu){ UI.menu=null; renderMenu(); render(); } } });
 
 /* ============================================================ 3D SOLAR SYSTEM (Earth-centred) */
 var SC=null;
@@ -1228,7 +1235,7 @@ function multiMonitorHtml(){ var v=MM.view(); return '<div class="modal glass" s
   (MM.isActive()?'<div style="margin-top:6px">'+menuBtn("mm_disable","Disable multi-monitor","red")+'</div>':"")+'</div>'; }
 
 /* ============================================================ BOOT */
-loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); UI.menu=hadSave?"main":"setup"; initScene(); render(); renderMenu();
+loadSettings(); applyUIScale(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); UI.menu=hadSave?"main":"setup"; initScene(); render(); renderMenu();
 (function(){ var mv=(location.hash.match(/mm=(system|earth|orbit|moon)/)||[])[1]; MM._init(mv); if(mv){ UI.menu=null; renderMenu(); render(); } })();
 setInterval(function(){ if(S.speed>0&&!UI.menu&&!Net.isMirror()&&!MM.isViewer()){ var total=0.2*S.speed,steps=Math.min(40,Math.max(1,Math.ceil(total/1.0))),dt=total/steps,k; for(k=0;k<steps;k++){ if(S.freeBuild>0)S.freeBuild=Math.max(0,S.freeBuild-dt); S.resources=advance(S,dt); haulTick(S,dt); shipTick(S,dt); econTick(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); if(Net.inMatch()&&Net.isMatchHost()&&WORLD.on())WORLD.tick(dt); } } patch();
   if(UI.dirty&&UI.open&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); UI.dirty=false; }
