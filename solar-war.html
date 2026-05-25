@@ -241,14 +241,10 @@ var EVENTS=[
   function(S){ if(S.researched.indexOf("cyberwarfare")>=0)return ["info","Cyber-defenses repel an intrusion."]; var l=S.resources.compute*0.08; S.resources.compute=Math.max(0,S.resources.compute-l); return ["bad","Cyber-intrusion siphons "+fmt(l)+" compute."]; },
   function(S){ S.marketSize.consumer*=1.22; S.resources.influence+=20; return ["good","A product goes viral."]; }
 ];
-function checkVictory(S){ var m=playerMetrics(S),al=S.rivals.filter(function(r){return !r.dead;}),te=al.reduce(function(a,r){return Math.max(a,r.eco);},0),ti=al.reduce(function(a,r){return Math.max(a,r.inf);},0);
-  if(S.researched.indexOf("singularity")>=0)return {type:"technological",text:"You reached the Technological Singularity."};
-  if(al.length===0)return {type:"military",text:"Every rival has been destroyed or absorbed. The Solar System is yours."};
-  if(m.eco>=5e6&&m.eco>=te*2)return {type:"economic",text:"Your corporation commands the Solar economy."};
-  if(m.inf>=100000&&m.inf>=ti*2)return {type:"influence",text:"Humanity now depends on you. You are indispensable."};
-  if((S.buildings.sovereign_colony||0)>=1){ var r=rates(S); if(r.pr>=1&&r.net.materials>0&&r.net.capital>0)return {type:"sovereignty",text:"Your colony is fully self-sufficient."}; } return null; }
-function worldTick(S,dt){ S.worldClock+=dt; var pp=milPower(S.fleet); var recon=0.3+(S.buildings.comms_satellite||0)*0.5+(S.researched.indexOf("cyberwarfare")>=0?0.6:0);
+function checkVictory(S){ var al=S.rivals.filter(function(r){return !r.dead;}); if(al.length===0)return {type:"conquest",text:"Every rival corporation has been destroyed, forced out, or absorbed. You rule the Solar System."}; return null; }
+function worldTick(S,dt){ S.worldClock+=dt; var pp=milPower(S.fleet),pm=playerMetrics(S); var recon=0.3+(S.buildings.comms_satellite||0)*0.5+(S.researched.indexOf("cyberwarfare")>=0?0.6:0);
   S.rivals.forEach(function(r){ if(r.dead)return; var crip=r.crip>0?0.4:1; r.crip=Math.max(0,r.crip-dt); r.eco*=1+RIVAL_GROWTH*r.gr*crip*dt; r.tech+=dt*(r.pers==="researcher"?0.02:0.012)*crip; r.inf+=dt*(r.pers==="influencer"?0.9:0.3)*crip; r.mil+=dt*(r.pers==="militarist"?0.7:0.15)*crip*(0.5+Math.log10(Math.max(10,r.eco))/4);
+    if(r.mil<2&&r.crip>0&&r.eco<pm.eco*0.06&&Math.random()<dt*0.06){ r.dead=true; r.deadby="forfeit"; S.resources.capital+=r.eco*0.2; pushEvent(S,"good",r.name+" has forfeited and dissolved its operations."); return; }
     if(r.treaty==="pact")r.host=clamp(r.host-dt*0.5,0,100); else{ var rel=S.neutral.vanguard==="owned"?0.3:1; r.host=clamp(r.host+dt*(r.pers==="militarist"?0.06:0.025)*rel,0,100); } r.intel=clamp((r.intel||0)+dt*recon,0,100); });
   S.rivals.forEach(function(r){ if(r.dead||S.gameOver.over||r.treaty==="pact")return; if(r.host>55&&r.mil>pp.fp*1.25&&Math.random()<(dt/30)*(r.host/100)){ var dmg=Math.min(S.resources.capital*0.12,r.mil*200); S.resources.capital=Math.max(0,S.resources.capital-dmg); for(var id in S.fleet)S.fleet[id]=Math.max(0,Math.floor(S.fleet[id]*0.75)); S.regulation=clamp(S.regulation+4,0,100); r.host=clamp(r.host-15,0,100); pushEvent(S,"war",r.name+" raided your assets — lost "+fmt(dmg)+" capital."); if(pp.fp===0&&S.resources.capital<r.eco*0.05&&r.mil>60)S.gameOver={over:true,won:false,type:"defeated",text:r.name+" has absorbed your corporation. Game over."}; } });
   MARKETS.forEach(function(mk){ S.marketSize[mk.id]*=1+MARKET_GROWTH*dt; }); var tgt=targetShare(S); MARKETS.forEach(function(mk){ S.marketShare[mk.id]=clamp(S.marketShare[mk.id]+(tgt[mk.id]-S.marketShare[mk.id])*Math.min(1,SHARE_EASE*dt),0,0.95); });
@@ -256,7 +252,7 @@ function worldTick(S,dt){ S.worldClock+=dt; var pp=milPower(S.fleet); var recon=
   S.eventClock+=dt; var fires=dt<=2?(Math.random()<dt/EVENT_INTERVAL?1:0):Math.min(3,Math.floor(dt/EVENT_INTERVAL)); for(var i=0;i<fires;i++){ var o=EVENTS[(Math.random()*EVENTS.length)|0](S); pushEvent(S,o[0],o[1]); }
   if(!S.gameOver.over){ var v=checkVictory(S); if(v){ S.gameOver={over:true,won:true,type:v.type,text:v.text}; pushEvent(S,"good",v.text); } } }
 function objectives(S){ var pm=playerMetrics(S),st=currentStage(S),ms=Math.max(S.marketShare.consumer,S.marketShare.enterprise,S.marketShare.government),anyN=Object.keys(S.neutral).some(function(k){return S.neutral[k]==="leased"||S.neutral[k]==="owned";}),def=S.rivals.some(function(r){return r.dead;});
-  return [{l:"Reach Stage 3",d:st>=3,p:clamp(st/3,0,1)},{l:"Capture 25% of a market",d:ms>=0.25,p:clamp(ms/0.25,0,1)},{l:"Use a neutral company",d:anyN},{l:"Research AGI",d:S.researched.indexOf("agi")>=0},{l:"War fleet (FP ≥ 200)",d:pm.mil>=200,p:clamp(pm.mil/200,0,1)},{l:"Expand to the Moon",d:S.researched.indexOf("lunar_logistics")>=0},{l:"Defeat a rival",d:def},{l:"Win the game",d:S.gameOver.won}]; }
+  return [{l:"Reach Stage 3",d:st>=3,p:clamp(st/3,0,1)},{l:"Capture 25% of a market",d:ms>=0.25,p:clamp(ms/0.25,0,1)},{l:"Use a neutral company",d:anyN},{l:"Research AGI",d:S.researched.indexOf("agi")>=0},{l:"War fleet (FP ≥ 200)",d:pm.mil>=200,p:clamp(pm.mil/200,0,1)},{l:"Expand to the Moon",d:S.researched.indexOf("lunar_logistics")>=0},{l:"Defeat a rival",d:def},{l:"Eliminate EVERY rival to win",d:S.rivals.every(function(r){return r.dead;})}]; }
 
 /* ============================================================ STATE + ACTIONS + JOBS */
 var S=freshState();
@@ -282,7 +278,7 @@ var A={
   lobby:function(){ if(S.resources.influence<150||S.resources.capital<3000)return; S.resources.influence-=150; S.resources.capital-=3000; S.regulation=clamp(S.regulation-12,0,100); pushEvent(S,"good","Lobbying eased regulation."); },
   orbitwhere:function(){ S.orbitAround=S.orbitAround==="moon"?"earth":"moon"; },
   engage:function(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r||r.dead)return; if(milPower(S.fleet).fp<=0)return; S.battleTarget=id; openBattle(); },
-  resolveBattle:function(id,res){ for(var sid in res.losses)S.fleet[sid]=Math.max(0,(S.fleet[sid]||0)-res.losses[sid]); var r=S.rivals.find(function(x){return x.id===id;}); if(r){ r.mil=res.milAfter; r.crip+=res.crip; r.host=clamp(r.host+25,0,100); r.treaty="none"; r.intel=100; } pushEvent(S,"war",res.text); S.battleTarget=null; },
+  resolveBattle:function(id,res){ for(var sid in res.losses)S.fleet[sid]=Math.max(0,(S.fleet[sid]||0)-res.losses[sid]); var r=S.rivals.find(function(x){return x.id===id;}); if(r){ r.mil=res.milAfter; r.crip+=res.crip; r.host=clamp(r.host+25,0,100); r.treaty="none"; r.intel=100; if((res.outcome==="VICTORY"||res.outcome==="PYRRHIC VICTORY")&&r.mil<6){ r.eco*=0.45; if(r.eco<800){ r.dead=true; r.deadby="destroyed"; pushEvent(S,"war",r.name+" has been destroyed — every structure razed."); } } } pushEvent(S,"war",res.text); S.battleTarget=null; },
   setSpeed:function(v){ S.speed=v; }
 };
 function doNewGame(){ S=freshState(); UI.menu=null; UI.open=false; UI.sel=null; save(); }
@@ -603,7 +599,7 @@ function openOrbitMap(){ if(OM||EM)return; var f=el("fade"); if(f)f.style.opacit
 function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; },300); }
 
 /* ============================================================ BOOT */
-loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); if(!hadSave)UI.menu="setup"; initScene(); render(); renderMenu();
+loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); UI.menu=hadSave?"main":"setup"; initScene(); render(); renderMenu();
 setInterval(function(){ if(S.speed>0&&!S.battleTarget&&!UI.menu){ var dt=0.2*S.speed; S.resources=advance(S,dt); if(processJobs(dt))UI.dirty=true; worldTick(S,dt); } patch();
   if(UI.dirty&&UI.open&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); UI.dirty=false; }
   if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); },200);
