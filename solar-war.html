@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Solar War 2040</title>
-<script>/* three.js r128 (inlined) */
+<script>
 /**
  * @license
  * Copyright 2010-2021 Three.js Authors
@@ -53,7 +53,6 @@
   .k-good{color:#9dffb0}.k-bad{color:#ff7a6b}.k-war{color:#ff9d4d}.k-tech{color:#5fd6ff}.k-market{color:#c89dff}.k-info{color:#4caf6a}
   .overlay{ position:fixed; inset:0; background:rgba(0,0,0,.82); display:flex; align-items:center; justify-content:center; z-index:50; padding:14px; }
   .modal{ width:100%; max-width:860px; } .modal.glass{ background:rgba(2,10,5,.97); border:1px solid rgba(0,255,65,.3); border-radius:16px; padding:18px; }
-  #battleCanvas{ width:100%; height:440px; border-radius:10px; border:1px solid rgba(0,255,65,.2); background:#02060a; display:block; cursor:grab; }
   #earthmap{ position:fixed; inset:0; z-index:1; background:#02060a; }
   #earthmap canvas{ display:block; width:100%; height:100%; cursor:grab; }
   #emtop{ position:absolute; top:10px; left:12px; right:12px; display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
@@ -72,7 +71,6 @@
 <body>
 <canvas id="scene"></canvas>
 <div id="hud"></div>
-<div id="battle"></div>
 <div id="menu"></div>
 <div id="end"></div>
 <div id="fade"></div>
@@ -182,7 +180,7 @@ function fmt(n){ var a=Math.abs(n); if(a>=1e12)return (n/1e12).toFixed(2)+"T"; i
 function fmtRate(n){ return (n>0?"+":n<0?"−":"")+fmt(Math.abs(n))+"/s"; }
 function freshState(){ var sr=SETTINGS.startRes; return {
   resources:{capital:sr.capital,compute:sr.compute,talent:sr.talent,materials:sr.materials,influence:sr.influence},
-  buildings:{ground_dc:1}, researched:[], fleet:{}, neutral:{}, jobs:[], orbitAround:"earth", earthPlacements:[{id:"ground_dc",lon:-74,lat:40.7}],
+  buildings:{ground_dc:1}, researched:[], fleet:{}, neutral:{}, jobs:[], orbitAround:"earth", earthPlacements:[{id:"ground_dc",lon:-74,lat:40.7}], units:[], groups:{}, bookmarks:{},
   rivals:RIVAL_SEEDS.slice(0,clamp(SETTINGS.aiCount,1,RIVAL_SEEDS.length)).map(function(s,i){return {id:s.id,name:s.name,pers:s.pers,eco:s.eco,tech:s.tech,inf:s.inf,mil:s.mil,gr:s.gr,host:10,crip:0,dead:false,treaty:"none",intel:8,color:PCOLORS[(i+1)%PCOLORS.length]};}),
   marketShare:{consumer:0.12,enterprise:0.1,government:0.08}, marketSize:{consumer:60000,enterprise:40000,government:28000},
   regulation:8, events:[{id:0,t:0,kind:"info",text:"Incorporation complete. The Solar War begins."}], eventSeq:1, worldClock:0, eventClock:0,
@@ -266,7 +264,7 @@ function completeJob(j){ if(j.kind==="build")S.buildings[j.id]=(S.buildings[j.id
 function processJobs(dt){ if(!S.jobs.length)return false; var done=[],i; for(i=0;i<S.jobs.length;i++){ S.jobs[i].rem-=dt; if(S.jobs[i].rem<=0)done.push(i); }
   for(i=done.length-1;i>=0;i--){ var j=S.jobs[done[i]]; S.jobs.splice(done[i],1); completeJob(j); } return done.length>0; }
 function save(){ try{ S.lastSaved=Date.now(); localStorage.setItem(SAVE_KEY,JSON.stringify(S)); }catch(e){} }
-function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.earthPlacements)p.earthPlacements=[]; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=PCOLORS[(i+1)%PCOLORS.length]; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
+function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.earthPlacements)p.earthPlacements=[]; if(!p.units)p.units=[]; if(!p.groups)p.groups={}; if(!p.bookmarks)p.bookmarks={}; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=PCOLORS[(i+1)%PCOLORS.length]; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
 var A={
   build:function(id){ var b=BUILDINGS[id]; if(!b)return; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); },
   placeEarth:function(id,lon,lat){ var b=BUILDINGS[id]; if(!b||(b.loc!=="earth"&&b.loc!=="moon"))return false; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return false; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); S.earthPlacements.push({id:id,lon:lon,lat:lat}); return true; },
@@ -280,8 +278,7 @@ var A={
   acqrival:function(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r||r.dead)return; var p=milPower(S.fleet); if(!(r.crip>0||r.mil<p.fp*0.25))return; var price=r.eco*0.6; if(S.resources.capital<price)return; S.resources.capital+=r.eco*0.3-price; S.resources.influence+=r.inf*0.5; r.dead=true; r.mil=0; pushEvent(S,"good","Acquired "+r.name+" for "+fmt(price)+" capital."); },
   lobby:function(){ if(S.resources.influence<150||S.resources.capital<3000)return; S.resources.influence-=150; S.resources.capital-=3000; S.regulation=clamp(S.regulation-12,0,100); pushEvent(S,"good","Lobbying eased regulation."); },
   orbitwhere:function(){ S.orbitAround=S.orbitAround==="moon"?"earth":"moon"; },
-  engage:function(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r||r.dead)return; if(milPower(S.fleet).fp<=0)return; S.battleTarget=id; openBattle(); },
-  resolveBattle:function(id,res){ for(var sid in res.losses)S.fleet[sid]=Math.max(0,(S.fleet[sid]||0)-res.losses[sid]); var r=S.rivals.find(function(x){return x.id===id;}); if(r){ r.mil=res.milAfter; r.crip+=res.crip; r.host=clamp(r.host+25,0,100); r.treaty="none"; r.intel=100; if((res.outcome==="VICTORY"||res.outcome==="PYRRHIC VICTORY")&&r.mil<6){ r.eco*=0.45; if(r.eco<800){ r.dead=true; r.deadby="destroyed"; pushEvent(S,"war",r.name+" has been destroyed — every structure razed."); } } } pushEvent(S,"war",res.text); S.battleTarget=null; },
+  engage:function(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r||r.dead)return; if(milPower(S.fleet).fp<=0)return; startOrbitBattle(id); },
   setSpeed:function(v){ S.speed=v; }
 };
 function doNewGame(){ S=freshState(); UI.menu=null; UI.open=false; UI.sel=null; save(); }
@@ -350,11 +347,14 @@ function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(fu
     '<button class="tool" data-act="menu_open" style="margin-left:6px">☰ Menu</button></div></div>'+
     '<div class="panelglass ui" id="clock" style="padding:6px 11px;display:flex;flex-direction:column;justify-content:center"><div class="lbl">Sol Date <span id="clockday" style="color:#39ff14">Day '+gameClock().day+'</span></div><div id="clocktxt" style="font-size:13px;font-weight:700;color:#9dffb0">'+gameClock().txt+'</div></div></div>';
   h+='<div id="tabbar">'+TABS.map(function(t){ return '<button class="tab ui'+(UI.open&&UI.tab===t[0]?" on":"")+'" data-act="tab" data-arg="'+t[0]+'">'+t[1]+' '+t[2]+(t[0]==="research"?' <span class="small">'+S.researched.length+'/'+Object.keys(TECHS).length+'</span>':"")+'</button>'; }).join("")+'</div>';
-  if(!EM){ h+='<div id="stage" class="panelglass ui"><div class="lbl">Stage '+st+'/6 · '+done+'/'+objs.length+' objectives'+(S.jobs.length?' · '+S.jobs.length+' building':"")+'</div><div style="font-size:15px;font-weight:900;color:#9dffb0">'+STAGES[st-1].name+'</div><div class="row" style="gap:4px;margin-top:6px">'+STAGES.map(function(s){return '<div class="bar" style="flex:1"><i style="width:100%;background:'+(s.id<=st?"#39ff14":"transparent")+'"></i></div>';}).join("")+'</div></div>';
+  if(!EM&&!OM){ h+='<div id="stage" class="panelglass ui"><div class="lbl">Stage '+st+'/6 · '+done+'/'+objs.length+' objectives'+(S.jobs.length?' · '+S.jobs.length+' building':"")+'</div><div style="font-size:15px;font-weight:900;color:#9dffb0">'+STAGES[st-1].name+'</div><div class="row" style="gap:4px;margin-top:6px">'+STAGES.map(function(s){return '<div class="bar" style="flex:1"><i style="width:100%;background:'+(s.id<=st?"#39ff14":"transparent")+'"></i></div>';}).join("")+'</div></div>';
   h+='<div id="ticker" class="panelglass ui"><span class="lbl">intel</span> <span class="k-'+(S.events[0]?S.events[0].kind:"info")+'">'+(S.events[0]?S.events[0].text:"")+'</span></div>'; }
   h+='<div id="drawer" class="panelglass ui'+(UI.open?" open":"")+'"><div class="dhead"><b style="color:#9dffb0">'+tabTitle()+'</b><span class="x" data-act="closepanel">✕</span></div><div id="paneltext">'+(UI.open?panelHtml():"")+'</div></div>';
   if(EM||OM)h+='<div id="mapbar" class="panelglass ui" style="position:absolute;top:62px;left:50%;transform:translateX(-50%);padding:6px 12px;display:flex;gap:10px;align-items:center"><b style="color:#9dffb0">'+(EM?(EM.loc==="moon"?"🌑 Moon Surface":"🌍 Earth Surface"):"🛰 Earth Orbit")+'</b><button class="btn ui sm" style="width:auto" data-act="'+(OM?"orbitmap_close":"earthmap_close")+'">↩ Back to System</button></div>';
   if(EM)h+='<div id="empal" class="panelglass ui" style="position:absolute;left:12px;right:12px;bottom:10px;padding:8px;display:flex;gap:6px;overflow-x:auto">'+paletteHtml()+'</div>';
+  if(OM){ var oids=Object.keys(BUILDINGS).filter(function(id){return BUILDINGS[id].loc==="orbit"&&bUnlocked(BUILDINGS[id],S.researched);}).concat(Object.keys(SHIPS).filter(function(id){return !SHIPS[id].req||S.researched.indexOf(SHIPS[id].req)>=0;}));
+    h+='<div id="empal" class="panelglass ui" style="position:absolute;left:12px;right:12px;bottom:10px;padding:8px;display:flex;gap:6px;overflow-x:auto">'+(oids.length?oids.map(function(id){ var isShip=!!SHIPS[id],b=isShip?SHIPS[id]:BUILDINGS[id],o=isShip?((S.fleet[id]||0)+S.units.filter(function(u){return u.type===id&&u.side==="p";}).length):((S.buildings[id]||0)+queued("build",id)),c=isShip?scost(SHIPS[id],o):bcost(BUILDINGS[id],o),ok=afford(S.resources,c),sel=OM.tool===id; return '<button class="btn ui sm'+(isShip?" org":"")+'" data-act="omtool" data-id="'+id+'" style="width:auto;flex:0 0 auto;'+(sel?"background:rgba(0,255,65,.32);border-color:rgba(0,255,65,.7)":ok?"":"opacity:.5")+'">'+(isShip?"⚔ ":"")+b.name+' <span class="small">'+cost$(c,S.resources)+'</span></button>'; }).join(""):'<span class="small">Research orbital tech to build here.</span>')+'</div>';
+    h+='<div class="panelglass ui" style="position:absolute;left:150px;top:62px;padding:6px 10px;font-size:11px"><div class="lbl">Selected: <span style="color:#39ff14">'+((OM.sel&&OM.sel.length)||0)+'</span>'+(OM.battleActive?' · <span style="color:#ff7a6b">BATTLE</span>':"")+'</div><div class="small">drag-box select · right-click move/attack · 1-0 groups · Ctrl+F1-F12 cam · arrows pan</div></div>'; }
   if(!UI.open&&!EM&&!OM)h+='<div id="hint">⟲ drag to orbit · scroll to zoom · double-click Earth, the orbit ring, or the Moon · P to pause</div>';
   el("hud").innerHTML=h;
 }
@@ -402,7 +402,9 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="setup_start"){ doNewGame(); syncScene(); renderMenu(); render(); return; }
   if(act==="menu_restart"||act==="menu_new"){ UI.menu="setup"; renderMenu(); return; }
   if(act==="reset"){ if(confirm("Reset? All progress lost.")){ try{localStorage.removeItem(SAVE_KEY);}catch(e){} doNewGame(); syncScene(); renderMenu(); render(); } return; }
-  if(act==="build"){ var bb=BUILDINGS[id]; if(bb&&(bb.loc==="earth"||bb.loc==="moon")&&locUnlocked(bb.loc,S.researched)){ if(!EM||EM.loc!==bb.loc){ if(EM)closeEarthMap(); openEarthMap(bb.loc); } if(EM)EM.tool=id; render(); return; } A.build(id); save(); syncScene(); render(); return; }
+  if(act==="build"){ var bb=BUILDINGS[id]; if(bb&&(bb.loc==="earth"||bb.loc==="moon")&&locUnlocked(bb.loc,S.researched)){ if(!EM||EM.loc!==bb.loc){ if(EM)closeEarthMap(); openEarthMap(bb.loc); } if(EM)EM.tool=id; render(); return; } if(bb&&bb.loc==="orbit"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; } A.build(id); save(); syncScene(); render(); return; }
+  if(act==="ship"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; }
+  if(act==="omtool"){ if(OM){ OM.tool=OM.tool===id?null:id; render(); } return; }
   if(A[act]){ A[act](id); save(); syncScene(); render(); } });
 document.addEventListener("input",function(e){ var t=e.target,k=t.getAttribute&&t.getAttribute("data-set"); if(!k)return; var v=parseFloat(t.value); if(isNaN(v))return; var p=k.split("."); if(p[0]==="start")SETTINGS.startRes[p[1]]=Math.max(0,v); else if(p[0]==="cost")SETTINGS.costMult[p[1]]=Math.max(0,v); else if(p[0]==="time")SETTINGS.timeMult=Math.max(0.01,v); saveSettings(); });
 document.addEventListener("keydown",function(e){ if(e.target&&e.target.tagName==="INPUT")return; if(e.key==="p"||e.key==="P"){ UI.menu=UI.menu?null:"pause"; renderMenu(); render(); } else if(e.key==="Escape"){ if(EM)closeEarthMap(); else if(OM)closeOrbitMap(); else if(UI.menu){ UI.menu=null; renderMenu(); render(); } } });
@@ -496,41 +498,6 @@ function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene); var c=SC.
   var obj=SC.focusObj[SC.focus]||SC.earthGroup; obj.getWorldPosition(SC.tmp); c.tx=SC.tmp.x; c.ty=SC.tmp.y; c.tz=SC.tmp.z;
   SC.cam.position.set(c.tx+Math.sin(c.phi)*Math.cos(c.theta)*c.r,c.ty+Math.cos(c.phi)*c.r,c.tz+Math.sin(c.phi)*Math.sin(c.theta)*c.r); SC.cam.lookAt(c.tx,c.ty,c.tz); SC.renderer.render(SC.scene,SC.cam); }
 
-/* ============================================================ 3D BATTLE */
-var BT=null;
-function buildBattleUnits(rival){ var units=[],tp=0; for(var id in S.fleet){ if(SHIPS[id])tp+=S.fleet[id]; } var CAP=16;
-  for(var id in S.fleet){ var ship=SHIPS[id],cnt=S.fleet[id]; if(!ship||cnt<=0)continue; var spr=Math.max(1,Math.round(CAP*cnt/Math.max(1,tp))),per=cnt/spr;
-    for(var i=0;i<spr;i++)units.push({side:"p",type:id,ships:per,hp:ship.hull*per,maxhp:ship.hull*per,fp:ship.fp*per,range:ship.cls==="Escort"?70:ship.cls==="Line"?95:ship.cls==="Heavy"?135:165,speed:34+(ship.cls==="Escort"?20:0),alive:true,x:-180-Math.random()*120,y:(Math.random()*2-1)*70,z:((i+0.5)/spr-0.5)*220,fire:0,tx:0,ty:0,tz:0,mesh:null}); }
-  var eFp=Math.max(1,rival.mil),eHull=rival.mil*2.2+50,k=Math.min(16,Math.max(3,Math.round(rival.mil/25)));
-  for(var i=0;i<k;i++)units.push({side:"e",ships:0,hp:eHull/k,maxhp:eHull/k,fp:eFp/k,range:100+Math.random()*50,speed:40,alive:true,x:180+Math.random()*120,y:(Math.random()*2-1)*70,z:((i+0.5)/k-0.5)*220,fire:0,tx:0,ty:0,tz:0,mesh:null});
-  return {units:units,eFp:eFp}; }
-function openBattle(){ var rival=S.rivals.find(function(x){return x.id===S.battleTarget;}); if(!rival)return; var built=buildBattleUnits(rival),units=built.units,p=milPower(S.fleet);
-  el("battle").innerHTML='<div class="overlay"><div class="modal glass"><div class="row between" style="margin-bottom:10px"><div><div class="lbl"><span style="color:#ff3030">&gt;</span> tactical engagement</div><div style="font-size:20px;font-weight:900;color:#9dffb0">vs '+rival.name+'</div></div><div class="reslabel"><div style="color:#39ff14">YOUR FP '+Math.round(p.fp)+'</div><div style="color:#ff7a6b">ENEMY MIL '+Math.round(rival.mil)+'</div></div></div><canvas id="battleCanvas"></canvas><div id="battleFoot" style="text-align:center;margin-top:10px"><div class="small" style="color:#2f8f43">engagement in progress…</div><button class="btn red sm" style="width:auto;margin-top:6px" data-bact="retreat">Retreat</button></div></div></div>';
-  var cv=el("battleCanvas"),W=cv.clientWidth||780,Hh=440; cv.width=W; cv.height=Hh; var three=initBattleThree(cv,W,Hh,units);
-  BT={rival:rival,units:units,eFp:built.eFp,t:0,done:false,three:three,raf:0,last:performance.now()};
-  el("battle").querySelector("[data-bact=retreat]").addEventListener("click",closeBattle); if(three)attachBattleOrbit(cv,three); loopBattle(); }
-function initBattleThree(cv,W,Hh,units){ if(typeof THREE==="undefined")return null; var r; try{ r=new THREE.WebGLRenderer({canvas:cv,antialias:true}); }catch(e){ return null; } r.setSize(W,Hh,false); r.setClearColor(0x02060a,1);
-  var sc=new THREE.Scene(),cam=new THREE.PerspectiveCamera(58,W/Hh,0.1,5000); sc.add(new THREE.AmbientLight(0x88aaff,0.6)); var dl=new THREE.DirectionalLight(0xffffff,0.8); dl.position.set(1,1,1); sc.add(dl);
-  var sg=new THREE.BufferGeometry(),sp=[]; for(var i=0;i<700;i++)sp.push((Math.random()*2-1)*1400,(Math.random()*2-1)*1400,(Math.random()*2-1)*1400); sg.setAttribute("position",new THREE.Float32BufferAttribute(sp,3)); sc.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0x39ff14,size:2,transparent:true,opacity:0.5})));
-  units.forEach(function(u){ var sz=3+Math.min(9,Math.sqrt(u.maxhp)/3.2),g=new THREE.ConeGeometry(sz*0.6,sz*1.8,5); g.rotateX(u.side==="p"?Math.PI/2:-Math.PI/2); var col=u.side==="p"?0x39ff14:0xff3030; var m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.5,metalness:0.4,roughness:0.5})); m.position.set(u.x,u.y,u.z); sc.add(m); u.mesh=m; });
-  var ba=new Float32Array(units.length*6),bg=new THREE.BufferGeometry(); bg.setAttribute("position",new THREE.BufferAttribute(ba,3)); var beams=new THREE.LineSegments(bg,new THREE.LineBasicMaterial({color:0x9dffb0,transparent:true,opacity:0.7})); sc.add(beams);
-  return {renderer:r,scene:sc,cam:cam,beams:beams,ba:ba,bg:bg,cam0:{r:430,theta:0.5,phi:1.15},explosions:[]}; }
-function attachBattleOrbit(cv,t){ var c=t.cam0,drag=false,px=0,py=0; cv.addEventListener("pointerdown",function(e){drag=true;px=e.clientX;py=e.clientY;cv.style.cursor="grabbing";}); window.addEventListener("pointerup",function(){drag=false;cv.style.cursor="grab";}); cv.addEventListener("pointermove",function(e){ if(!drag)return; c.theta-=(e.clientX-px)*0.008; c.phi=clamp(c.phi-(e.clientY-py)*0.008,0.2,Math.PI-0.2); px=e.clientX;py=e.clientY; }); cv.addEventListener("wheel",function(e){ e.preventDefault(); c.r=clamp(c.r+e.deltaY*0.4,180,900); },{passive:false}); }
-function stepBattle(dt){ var U=BT.units; for(var i=0;i<U.length;i++){ var u=U[i]; if(!u.alive)continue; u.fire=Math.max(0,u.fire-dt); var best=null,bd=1e18; for(var j=0;j<U.length;j++){ var o=U[j]; if(!o.alive||o.side===u.side)continue; var d=(o.x-u.x)*(o.x-u.x)+(o.y-u.y)*(o.y-u.y)+(o.z-u.z)*(o.z-u.z); if(d<bd){bd=d;best=o;} } if(!best)continue; var dx=best.x-u.x,dy=best.y-u.y,dz=best.z-u.z,dist=Math.sqrt(dx*dx+dy*dy+dz*dz)||1; if(dist>u.range){ u.x+=dx/dist*u.speed*dt; u.y+=dy/dist*u.speed*dt; u.z+=dz/dist*u.speed*dt; } else { best.hp-=u.fp*dt; u.fire=0.12; u.tx=best.x;u.ty=best.y;u.tz=best.z; if(best.hp<=0){ best.alive=false; boom(best); } } } BT.t+=dt; }
-function boom(u){ var t=BT.three; if(!t)return; var m=new THREE.Mesh(new THREE.SphereGeometry(4,10,10),new THREE.MeshBasicMaterial({color:u.side==="p"?0x39ff14:0xff5530,transparent:true,opacity:0.9})); m.position.set(u.x,u.y,u.z); t.scene.add(m); t.explosions.push({mesh:m,life:0.6}); if(u.mesh)u.mesh.visible=false; }
-function drawBattle(){ var t=BT.three; if(!t)return; var c=t.cam0; t.cam.position.set(Math.sin(c.phi)*Math.cos(c.theta)*c.r,Math.cos(c.phi)*c.r,Math.sin(c.phi)*Math.sin(c.theta)*c.r); t.cam.lookAt(0,0,0); c.theta+=0.0015;
-  var n=0; BT.units.forEach(function(u){ if(u.mesh){ u.mesh.position.set(u.x,u.y,u.z); u.mesh.visible=u.alive; } if(u.alive&&u.fire>0){ t.ba[n++]=u.x;t.ba[n++]=u.y;t.ba[n++]=u.z;t.ba[n++]=u.tx;t.ba[n++]=u.ty;t.ba[n++]=u.tz; } });
-  t.bg.setDrawRange(0,n/3); t.bg.attributes.position.needsUpdate=true;
-  for(var i=t.explosions.length-1;i>=0;i--){ var e=t.explosions[i]; e.life-=0.016; e.mesh.scale.multiplyScalar(1.08); e.mesh.material.opacity=Math.max(0,e.life/0.6); if(e.life<=0){ t.scene.remove(e.mesh); t.explosions.splice(i,1); } }
-  t.renderer.render(t.scene,t.cam); }
-function loopBattle(){ if(!BT)return; var now=performance.now(),real=Math.min(0.05,(now-BT.last)/1000); BT.last=now; if(!BT.done){ stepBattle(real*1.6); if(BT.three)drawBattle(); var pA=BT.units.some(function(u){return u.alive&&u.side==="p";}),eA=BT.units.some(function(u){return u.alive&&u.side==="e";}); if(!pA||!eA||BT.t>=22)finishBattle(); else BT.raf=requestAnimationFrame(loopBattle); } }
-function finishBattle(){ var B=BT; B.done=true; var pA=B.units.filter(function(u){return u.alive&&u.side==="p";}),eA=B.units.filter(function(u){return u.alive&&u.side==="e";}); var survFp=eA.reduce(function(a,u){return a+u.fp;},0),survFrac=B.eFp>0?survFp/B.eFp:0;
-  var lt={}; B.units.forEach(function(u){ if(u.side==="p"&&!u.alive&&u.type)lt[u.type]=(lt[u.type]||0)+u.ships; }); var losses={}; for(var id in lt){ var n=Math.min(S.fleet[id]||0,Math.round(lt[id])); if(n>0)losses[id]=n; }
-  var oc,crip,text,name=B.rival.name; if(pA.length===0){ oc="DEFEAT";crip=0;text="Your fleet was annihilated assaulting "+name+"."; } else if(eA.length===0){ oc="VICTORY";crip=70;text="Decisive victory over "+name+". Their fleet is destroyed."; } else if(survFrac<0.45){ oc="PYRRHIC VICTORY";crip=35;text="Costly engagement with "+name+". You hold the field."; } else { oc="DEFEAT";crip=0;text=name+" repelled your assault."; }
-  B.result={losses:losses,milAfter:oc==="VICTORY"?B.rival.mil*0.15:survFp,crip:crip,text:text,outcome:oc};
-  var col=oc==="VICTORY"?"#9dffb0":oc.indexOf("PYRRHIC")>=0?"#ffe14d":"#ff7a6b",foot=el("battleFoot"); if(foot){ foot.innerHTML='<div style="font-size:18px;font-weight:900;color:'+col+'">'+oc+'</div><div class="small" style="color:#2f8f43;margin:4px 0 10px">'+text+'</div><button class="btn sm" style="width:auto" data-bact="continue">Continue</button>'; var cb=foot.querySelector("[data-bact=continue]"); if(cb)cb.addEventListener("click",function(){ A.resolveBattle(B.rival.id,B.result); save(); cleanupBattle(); syncScene(); render(); }); } }
-function closeBattle(){ cleanupBattle(); S.battleTarget=null; render(); }
-function cleanupBattle(){ if(BT){ if(BT.raf)cancelAnimationFrame(BT.raf); if(BT.three&&BT.three.renderer){ try{BT.three.renderer.dispose();}catch(e){} } BT=null; } el("battle").innerHTML=""; }
 
 /* ============================================================ EARTH SURFACE MAP (2D, wraps) */
 var EM=null;
@@ -577,12 +544,9 @@ function closeEarthMap(){ if(!EM)return; window.removeEventListener("resize",EM.
 
 /* ============================================================ EARTH ORBIT MAP (2D, wraps) */
 var OM=null;
-function orbitItems(){ var it=[],P=PCOLORS[0],id,i;
-  var SB={comms_satellite:["sat",0.95],orbital_data_center:["dc",0.7],orbital_solar_array:["solar",1.25],ai_cluster:["ai",1.0]};
-  for(id in SB){ var n=Math.min(S.buildings[id]||0,14); for(i=0;i<n;i++)it.push({shape:SB[id][0],alt:SB[id][1],color:P,owner:"player"}); }
-  [["corvette","corv"],["frigate","frig"],["cruiser","cru"],["dreadnought","dread"]].forEach(function(p){ var n=Math.min(S.fleet[p[0]]||0,12); for(var i=0;i<n;i++)it.push({shape:p[1],alt:0.45,color:P,owner:"player"}); });
-  S.rivals.forEach(function(r){ if(r.dead)return; var ns=clamp(Math.round(Math.sqrt(Math.max(10,r.eco))/90),1,6); for(var i=0;i<ns;i++)it.push({shape:"station",alt:0.9,color:r.color,owner:r.id}); var nm=clamp(Math.round(r.mil/70),0,5); for(var j=0;j<nm;j++)it.push({shape:"gship",alt:0.5,color:r.color,owner:r.id}); });
-  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; it.push({shape:"station",alt:0.75,color:st==="owned"?P:0xbfc7cf,owner:co.id}); });
+function orbitItems(){ var it=[];
+  S.rivals.forEach(function(r){ if(r.dead)return; var ns=clamp(Math.round(Math.sqrt(Math.max(10,r.eco))/90),1,6); for(var i=0;i<ns;i++)it.push({shape:"station",alt:0.9,color:r.color,owner:r.id}); });
+  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; it.push({shape:"station",alt:0.75,color:st==="owned"?PCOLORS[0]:0xbfc7cf,owner:co.id}); });
   return it; }
 function drawIcon(c,x,y,shape,col,s){ c.save(); c.translate(x,y); c.strokeStyle=col; c.fillStyle=col; c.lineWidth=1.4; c.shadowColor=col; c.shadowBlur=6; var i,a,px,py;
   if(shape==="sat"){ c.beginPath(); c.arc(0,0,s*0.5,0,6.28); c.fill(); c.fillRect(-s*1.4,-s*0.16,s*0.7,s*0.32); c.fillRect(s*0.7,-s*0.16,s*0.7,s*0.32); }
@@ -598,7 +562,38 @@ function drawIcon(c,x,y,shape,col,s){ c.save(); c.translate(x,y); c.strokeStyle=
   else if(shape==="hub"){ c.strokeRect(-s*0.6,-s*0.6,s*1.2,s*1.2); c.beginPath(); c.moveTo(-s*0.6,0);c.lineTo(s*0.6,0);c.moveTo(0,-s*0.6);c.lineTo(0,s*0.6); c.stroke(); }
   else { c.beginPath(); c.moveTo(0,-s*0.7);c.lineTo(s*0.5,s*0.5);c.lineTo(-s*0.5,s*0.5);c.closePath(); c.fill(); }
   c.restore(); }
-function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=cv.height,bw=W*3*OM.zoom,bh=H*1.5*OM.zoom,i; OM.camX=((OM.camX%bw)+bw)%bw; OM.camY=clamp(OM.camY,H-bh,0);
+/* ---- orbit RTS units ---- */
+var UID=1,pendingBattle=null,pendingTool=null;
+function shipStat(t){ var s=SHIPS[t],cls=s?s.cls:"Line"; return {fp:s?s.fp:10,hull:s?s.hull:30,range:cls==="Escort"?0.07:cls==="Line"?0.09:cls==="Heavy"?0.12:0.15,speed:cls==="Escort"?0.11:cls==="Line"?0.08:cls==="Heavy"?0.055:0.04}; }
+function spawnUnit(type,fx,fy,side,color,build){ var st=shipStat(type); return {uid:UID++,type:type,fx:fx,fy:fy,hp:st.hull,maxhp:st.hull,fp:st.fp,range:st.range,speed:st.speed,side:side,color:color,moveTo:null,tuid:0,build:build||0,fireT:0,ftx:0,fty:0}; }
+function fxd(a,b){ var d=a-b; if(d>0.5)d-=1; if(d<-0.5)d+=1; return d; }
+function omScreenC(u){ var bw=OM.canvas.width*3*OM.zoom,x=u.fx*bw-OM.camX; x=((x%bw)+bw)%bw; if(x>OM.canvas.width)x-=bw; return x; }
+function omPy(f){ return OM.camY+OM.canvas.height*1.5*OM.zoom*f; }
+function screenToFrac(sx,sy){ var bw=OM.canvas.width*3*OM.zoom,bh=OM.canvas.height*1.5*OM.zoom; return {fx:((((sx+OM.camX)%bw)+bw)%bw)/bw, fy:clamp((sy-OM.camY)/bh,0.04,0.96)}; }
+function placeAtScreenOrbit(sx,sy){ if(!OM||!OM.tool)return; var f=screenToFrac(sx,sy),id=OM.tool;
+  if(SHIPS[id]){ var s=SHIPS[id]; if(s.req&&S.researched.indexOf(s.req)<0)return; var o=(S.fleet[id]||0)+S.units.filter(function(u){return u.type===id&&u.side==="p";}).length,c=scost(s,o); if(!afford(S.resources,c))return; spend(c); S.units.push(spawnUnit(id,f.fx,f.fy,"p",PCOLORS[0],stime(s))); }
+  else { var b=BUILDINGS[id]; if(!b||b.loc!=="orbit")return; var o=(S.buildings[id]||0)+queued("build",id),cc=bcost(b,o); if(!afford(S.resources,cc))return; spend(cc); S.jobs.push({kind:"build",id:id,rem:btime(b),tot:btime(b)}); S.earthPlacements.push({id:id,orbit:true,fx:f.fx,fy:f.fy,lon:0,lat:0}); }
+  save(); render(); }
+function clickSelect(sx,sy,shift){ var hit=null; S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<15&&Math.abs(omPy(u.fy)-sy)<15)hit=u; }); if(!shift)OM.sel=[]; if(hit&&OM.sel.indexOf(hit.uid)<0)OM.sel.push(hit.uid); render(); }
+function boxSelect(b,shift){ if(!shift)OM.sel=[]; var x0=Math.min(b.x0,b.x1),x1=Math.max(b.x0,b.x1),y0=Math.min(b.y0,b.y1),y1=Math.max(b.y0,b.y1); S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; var x=omScreenC(u),y=omPy(u.fy); if(x>=x0&&x<=x1&&y>=y0&&y<=y1&&OM.sel.indexOf(u.uid)<0)OM.sel.push(u.uid); }); render(); }
+function commandSel(sx,sy){ if(!OM.sel||!OM.sel.length)return; var f=screenToFrac(sx,sy),en=null; (OM.en||[]).forEach(function(u){ if(u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<17&&Math.abs(omPy(u.fy)-sy)<17)en=u; });
+  OM.sel.forEach(function(uid){ var u=S.units.find(function(x){return x.uid===uid;}); if(!u||u.build>0)return; if(en){ u.tuid=en.uid; u.moveTo=null; } else { u.moveTo={fx:f.fx,fy:f.fy}; u.tuid=0; } }); OM.cmdMark={x:sx,y:sy,t:0.6,enemy:!!en}; }
+function omStep(dt){ if(!OM)return; var P=S.units.filter(function(u){return u.side==="p"&&u.hp>0;}),E=OM.en||[];
+  function act(u,foes){ if(u.build>0)return; u.fireT=Math.max(0,u.fireT-dt); var tgt=null;
+    if(u.tuid){ tgt=foes.find(function(o){return o.uid===u.tuid&&o.hp>0;}); if(!tgt)u.tuid=0; }
+    if(!tgt){ var bd=0.28; foes.forEach(function(o){ if(o.hp<=0)return; var d=Math.hypot(fxd(u.fx,o.fx),u.fy-o.fy); if(d<bd){bd=d;tgt=o;} }); }
+    if(tgt){ var td=Math.hypot(fxd(u.fx,tgt.fx),u.fy-tgt.fy); if(td>u.range){ var dx=fxd(tgt.fx,u.fx),dy=tgt.fy-u.fy,di=Math.hypot(dx,dy)||1; u.fx=((u.fx+dx/di*u.speed*dt)%1+1)%1; u.fy=clamp(u.fy+dy/di*u.speed*dt,0.04,0.96); } else { tgt.hp-=u.fp*dt*0.5; u.fireT=0.12; u.ftx=tgt.fx; u.fty=tgt.fy; } return; }
+    if(u.moveTo){ var dx=fxd(u.moveTo.fx,u.fx),dy=u.moveTo.fy-u.fy,di=Math.hypot(dx,dy); if(di<0.008)u.moveTo=null; else { u.fx=((u.fx+dx/di*u.speed*dt)%1+1)%1; u.fy=clamp(u.fy+dy/di*u.speed*dt,0.04,0.96); } } }
+  P.forEach(function(u){ act(u,E); }); E.forEach(function(u){ act(u,P); });
+  for(var i=S.units.length-1;i>=0;i--){ var u=S.units[i]; if(u.side==="p"&&u.hp<=0){ if(u.build<=0)S.fleet[u.type]=Math.max(0,(S.fleet[u.type]||0)-1); if(OM.sel){ var si=OM.sel.indexOf(u.uid); if(si>=0)OM.sel.splice(si,1); } S.units.splice(i,1); } }
+  if(OM.en)for(var j=OM.en.length-1;j>=0;j--)if(OM.en[j].hp<=0)OM.en.splice(j,1);
+  if(OM.cmdMark){ OM.cmdMark.t-=dt; if(OM.cmdMark.t<=0)OM.cmdMark=null; }
+  if(OM.battleActive){ OM.battleT+=dt; var pa=P.filter(function(u){return u.hp>0&&u.build<=0;}).length; if(OM.en.length===0||OM.battleT>45||pa===0)endOrbitBattle(); } }
+function endOrbitBattle(){ var r=S.rivals.find(function(x){return x.id===OM.battleRival;}),survFp=(OM.en||[]).reduce(function(a,u){return a+u.fp;},0);
+  if(r){ r.mil=survFp; r.host=clamp(r.host+25,0,100); r.treaty="none"; r.intel=100; r.crip+=40; if(OM.en.length===0){ r.eco*=0.45; if(r.eco<800){ r.dead=true; r.deadby="destroyed"; pushEvent(S,"war",r.name+" was destroyed in orbital combat."); } else pushEvent(S,"war","You crushed "+r.name+"'s fleet in orbit."); } else pushEvent(S,"war","Orbital battle with "+r.name+" ended."); }
+  OM.battleActive=false; OM.en=[]; OM.battleRival=null; save(); render(); }
+function startOrbitBattle(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r)return; if(!OM){ pendingBattle=id; openOrbitMap(); return; } OM.battleRival=id; OM.battleActive=true; OM.battleT=0; OM.en=[]; var k=clamp(Math.round(r.mil/30),3,16),eF=Math.max(2,r.mil/k),eH=Math.max(20,(r.mil*2.4+40)/k),cx=screenToFrac(OM.canvas.width*0.66,0).fx; for(var i=0;i<k;i++){ var u=spawnUnit("frigate",(cx+Math.random()*0.06)%1,0.3+Math.random()*0.4,"e",r.color,0); u.fp=eF; u.hp=eH; u.maxhp=eH; OM.en.push(u); } pushEvent(S,"war","Engaging "+r.name+" in orbit."); render(); }
+function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=cv.height,bw=W*3*OM.zoom,bh=H*1.5*OM.zoom,i; OM.camX=((OM.camX%bw)+bw)%bw; OM.camY=clamp(OM.camY,Math.min(0,H-bh),0);
   function py(f){ return OM.camY+bh*f; }
   var g=c.createLinearGradient(0,0,0,H); g.addColorStop(0,"#01030a"); g.addColorStop(0.7,"#02060f"); g.addColorStop(1,"#061322"); c.fillStyle=g; c.fillRect(0,0,W,H);
   c.fillStyle="rgba(160,255,190,0.4)"; for(i=0;i<220;i++)c.fillRect((i*7919)%W,(i*104729)%H,1,1);
@@ -606,23 +601,39 @@ function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=c
   c.fillStyle="rgba(150,200,255,0.7)"; c.font="12px monospace"; c.textAlign="left"; c.fillText("◣ EARTH",10,Math.min(H-8,Math.max(14,by-6)));
   c.strokeStyle="rgba(0,255,65,0.08)"; c.textAlign="right";
   [["LEO",0.74],["MEO",0.47],["GEO",0.2]].forEach(function(b){ var y=py(b[1]); if(y<-2||y>H+2)return; c.beginPath(); c.moveTo(0,y); c.lineTo(W,y); c.stroke(); c.fillStyle="rgba(0,255,65,0.3)"; c.fillText(b[0],W-8,y-4); });
-  var copies=[-bw,0,bw];
-  OM.items.forEach(function(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17), bx=((hash*97+idx*131)%1000)/1000*bw, y=py(0.86-Math.min(it.alt,1.25)*0.62)+((idx*37)%30-15), sz=(it.shape==="corv"||it.shape==="frig"||it.shape==="cru"||it.shape==="dread"||it.shape==="gship")?7:9;
-    copies.forEach(function(ox){ var x=bx-OM.camX+ox; if(x<-40||x>W+40)return; drawIcon(c,x,y,it.shape,hexCol(it.color),sz*Math.min(OM.zoom,3)*0.75); }); }); }
+  var copies=[-bw,0,bw],zs=Math.min(OM.zoom,3);
+  OM.items.forEach(function(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17), fx=((hash*97+idx*131)%1000)/1000, y=py(0.88-Math.min(it.alt,1.25)*0.62)+((idx*37)%30-15); copies.forEach(function(ox){ var x=fx*bw-OM.camX+ox; if(x<-40||x>W+40)return; drawIcon(c,x,y,it.shape,hexCol(it.color),9*zs*0.7); }); });
+  (S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; copies.forEach(function(ox){ var x=pl.fx*bw-OM.camX+ox; if(x<-30||x>W+30)return; drawIcon(c,x,py(pl.fy),BSHAPE[pl.id]||"sat",hexCol(PCOLORS[0]),9*zs*0.7); }); });
+  function beams(arr){ arr.forEach(function(u){ if(u.fireT>0&&u.hp>0){ var x=omScreenC(u),tx=u.ftx*bw-OM.camX; tx=((tx%bw)+bw)%bw; if(tx>W)tx-=bw; c.strokeStyle=hexCol(u.color); c.globalAlpha=0.6; c.beginPath(); c.moveTo(x,py(u.fy)); c.lineTo(tx,py(u.fty)); c.stroke(); c.globalAlpha=1; } }); }
+  beams(S.units.filter(function(u){return u.side==="p";})); beams(OM.en||[]);
+  function drawUnit(u,sel){ var x=omScreenC(u),y=py(u.fy),sz=8*zs*0.8,shp=u.side==="p"?(BSHAPE[u.type]||"frig"):"gship"; if(sel){ c.strokeStyle="#39ff14"; c.lineWidth=1.5; c.beginPath(); c.arc(x,y,sz+5,0,6.28); c.stroke(); } drawIcon(c,x,y,shp,hexCol(u.color),sz); if(u.build>0){ c.fillStyle="rgba(255,200,80,0.9)"; c.font="9px monospace"; c.textAlign="center"; c.fillText("⚙"+Math.ceil(u.build)+"s",x,y-sz-6); } else if(u.hp<u.maxhp){ c.fillStyle="rgba(0,0,0,0.6)"; c.fillRect(x-sz,y-sz-5,sz*2,2); c.fillStyle=u.side==="p"?"#39ff14":"#ff5050"; c.fillRect(x-sz,y-sz-5,sz*2*Math.max(0,u.hp/u.maxhp),2); } }
+  S.units.forEach(function(u){ if(u.side==="p"&&u.hp>0)drawUnit(u,OM.sel&&OM.sel.indexOf(u.uid)>=0); });
+  (OM.en||[]).forEach(function(u){ if(u.hp>0)drawUnit(u,false); });
+  if(OM.cmdMark){ c.strokeStyle=OM.cmdMark.enemy?"#ff5050":"#39ff14"; c.lineWidth=2; c.globalAlpha=Math.max(0,OM.cmdMark.t/0.6); c.beginPath(); c.arc(OM.cmdMark.x,OM.cmdMark.y,(1-OM.cmdMark.t/0.6)*14+4,0,6.28); c.stroke(); c.globalAlpha=1; }
+  if(OM.box&&OM.selecting){ var x0=Math.min(OM.box.x0,OM.box.x1),y0=Math.min(OM.box.y0,OM.box.y1); c.strokeStyle="rgba(57,255,20,0.8)"; c.lineWidth=1; c.fillStyle="rgba(57,255,20,0.1)"; c.fillRect(x0,y0,Math.abs(OM.box.x1-OM.box.x0),Math.abs(OM.box.y1-OM.box.y0)); c.strokeRect(x0,y0,Math.abs(OM.box.x1-OM.box.x0),Math.abs(OM.box.y1-OM.box.y0)); } }
+function omLoop(){ if(!OM)return; OM.raf=requestAnimationFrame(omLoop); var now=performance.now(),dt=Math.min(0.05,(now-(OM.last||now))/1000); OM.last=now; if(!UI.menu)omStep(dt); drawOrbitMap(); }
+function orbitKey(e){ if(!OM||(e.target&&e.target.tagName==="INPUT"))return; var k=e.key;
+  if(k==="ArrowLeft"){ OM.camX-=90; e.preventDefault(); } else if(k==="ArrowRight"){ OM.camX+=90; e.preventDefault(); } else if(k==="ArrowUp"){ OM.camY+=90; e.preventDefault(); } else if(k==="ArrowDown"){ OM.camY-=90; e.preventDefault(); }
+  else if(/^[0-9]$/.test(k)){ if(e.ctrlKey||e.metaKey){ S.groups[k]=(OM.sel||[]).slice(); save(); } else { OM.sel=(S.groups[k]||[]).filter(function(uid){return S.units.some(function(u){return u.uid===uid&&u.hp>0;});}); render(); } e.preventDefault(); }
+  else if(/^F([1-9]|1[0-2])$/.test(k)){ var key="orbit_"+k; if(e.ctrlKey||e.metaKey){ S.bookmarks[key]={camX:OM.camX,camY:OM.camY,zoom:OM.zoom}; save(); } else { var bm=S.bookmarks[key]; if(bm){ OM.camX=bm.camX; OM.camY=bm.camY; OM.zoom=bm.zoom; } } e.preventDefault(); } }
 function mountOrbitMap(){ var d=document.createElement("div"); d.id="orbitmap"; d.innerHTML='<canvas id="omcanvas"></canvas>';
-  document.body.appendChild(d); var cv=d.querySelector("#omcanvas"); OM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,drag:false,items:orbitItems()};
-  OM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; OM.camX=(cv.width*3*OM.zoom-cv.width)/2; OM.camY=(cv.height-cv.height*1.5*OM.zoom)/2; drawOrbitMap(); }; window.addEventListener("resize",OM.resize); OM.resize(); render();
-  OM.refresh=setInterval(function(){ if(OM){ OM.items=orbitItems(); drawOrbitMap(); } },1200);
-  var px=0,py2=0; cv.addEventListener("pointerdown",function(e){ OM.drag=true; px=e.clientX; py2=e.clientY; cv.style.cursor="grabbing"; });
-  OM.up=function(){ if(OM){ OM.drag=false; cv.style.cursor="grab"; } }; window.addEventListener("pointerup",OM.up);
-  cv.addEventListener("pointermove",function(e){ if(!OM||!OM.drag)return; OM.camX-=(e.clientX-px); OM.camY+=(e.clientY-py2); px=e.clientX; py2=e.clientY; drawOrbitMap(); });
-  cv.addEventListener("wheel",function(e){ e.preventDefault(); var oz=OM.zoom; OM.zoom=clamp(OM.zoom*(e.deltaY<0?1.12:0.89),1,8); var f=OM.zoom/oz; OM.camX=(e.clientX+OM.camX)*f-e.clientX; OM.camY=e.clientY-(e.clientY-OM.camY)*f; drawOrbitMap(); },{passive:false}); }
+  document.body.appendChild(d); var cv=d.querySelector("#omcanvas"); OM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,tool:null,sel:[],box:null,selecting:false,placing:false,en:[],battleActive:false,battleRival:null,battleT:0,cmdMark:null,last:performance.now(),items:orbitItems()};
+  OM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; OM.camX=(cv.width*3*OM.zoom-cv.width)/2; OM.camY=(cv.height-cv.height*1.5*OM.zoom)/2; }; window.addEventListener("resize",OM.resize); OM.resize();
+  OM.refresh=setInterval(function(){ if(OM)OM.items=orbitItems(); },1000);
+  var sx=0,sy=0;
+  cv.addEventListener("pointerdown",function(e){ if(e.button!==0)return; sx=e.clientX; sy=e.clientY; if(OM.tool)OM.placing=true; else { OM.selecting=true; OM.box={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } });
+  cv.addEventListener("pointermove",function(e){ if(OM.selecting&&OM.box){ OM.box.x1=e.clientX; OM.box.y1=e.clientY; } });
+  cv.addEventListener("contextmenu",function(e){ e.preventDefault(); if(!OM.tool)commandSel(e.clientX,e.clientY); });
+  OM.up=function(e){ if(!OM)return; cv.style.cursor=OM.tool?"crosshair":"default"; if(OM.placing){ OM.placing=false; placeAtScreenOrbit(sx,sy); } else if(OM.selecting){ OM.selecting=false; var moved=Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>5; if(moved&&OM.box)boxSelect(OM.box,e.shiftKey); else clickSelect(sx,sy,e.shiftKey); OM.box=null; } }; window.addEventListener("pointerup",OM.up);
+  cv.addEventListener("wheel",function(e){ e.preventDefault(); var oz=OM.zoom; OM.zoom=clamp(OM.zoom*(e.deltaY<0?1.12:0.89),1,8); var f=OM.zoom/oz; OM.camX=(e.clientX+OM.camX)*f-e.clientX; OM.camY=e.clientY-(e.clientY-OM.camY)*f; },{passive:false});
+  window.addEventListener("keydown",orbitKey); OM.key=orbitKey; OM.raf=requestAnimationFrame(omLoop); render();
+  if(pendingTool){ OM.tool=pendingTool; pendingTool=null; render(); } if(pendingBattle){ startOrbitBattle(pendingBattle); pendingBattle=null; } }
 function openOrbitMap(){ if(OM||EM)return; var f=el("fade"); if(f)f.style.opacity="1"; if(SC){ SC.transStart=SC.cam0.r; SC.trans={t:0,dur:0.42}; } setTimeout(function(){ mountOrbitMap(); if(f)f.style.opacity="0"; },460); }
-function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; render(); },300); }
+function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; render(); },300); }
 
 /* ============================================================ BOOT */
 loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); UI.menu=hadSave?"main":"setup"; initScene(); render(); renderMenu();
-setInterval(function(){ if(S.speed>0&&!S.battleTarget&&!UI.menu){ var dt=0.2*S.speed; S.resources=advance(S,dt); if(processJobs(dt))UI.dirty=true; worldTick(S,dt); } patch();
+setInterval(function(){ if(S.speed>0&&!UI.menu){ var dt=0.2*S.speed; S.resources=advance(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); } patch();
   if(UI.dirty&&UI.open&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); UI.dirty=false; }
   if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); },200);
 setInterval(function(){ if(UI.open&&(UI.tab==="markets"||UI.tab==="military"||UI.tab==="intel")&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); } syncScene(); save(); },900);
