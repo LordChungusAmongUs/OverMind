@@ -92,7 +92,7 @@ var LOCATIONS=[
   {id:"deep_space",name:"Deep Space",tag:"Sovereignty · Megaprojects",by:"fusion_propulsion"}
 ];
 var BUILDINGS={
-  ground_dc:{name:"Ground Data Center",loc:"earth",ds:"Your founding terrestrial datacenter. Self-powered compute.",cost:{capital:500},g:1.14,prod:{compute:1,energy:6}},
+  ground_dc:{name:"Ground Data Center",loc:"earth",ds:"Your founding terrestrial datacenter. Self-powered compute.",cost:{capital:500},g:1.14,prod:{compute:2,energy:10}},
   operations_center:{name:"Operations Center",loc:"earth",ds:"Corporate HQ. Revenue, recruiting, on-site power.",cost:{capital:2200},g:1.2,prod:{capital:10,talent:0.08,energy:14}},
   mine:{name:"Mining Complex",loc:"earth",ds:"Terrestrial extraction of metals and minerals.",cost:{capital:1500,materials:10},g:1.16,prod:{materials:1.5},con:{energy:6}},
   logistics_hub:{name:"Logistics Hub",loc:"earth",ds:"Ground distribution network. Boosts revenue.",cost:{capital:2500},g:1.17,prod:{capital:7},con:{energy:5}},
@@ -165,12 +165,12 @@ var RIVAL_SEEDS=[
 var PCOLORS=[0x39ff14,0xff3030,0x3f8fff,0xffd23f,0xff5dd0,0xff8c1a,0x33d6ff,0xb07bff]; /* player 1 green, 2 red, 3 blue, 4 yellow, ... */
 function hexCol(c){ return "#"+("000000"+c.toString(16)).slice(-6); }
 var STAGES=[{id:1,name:"AI Startup"},{id:2,name:"Technology Company"},{id:3,name:"Global Corporation"},{id:4,name:"Orbital Conglomerate"},{id:5,name:"Sovereign Space Corporation"},{id:6,name:"Interplanetary Superpower"}];
-var MARKET_GROWTH=0.010,MARKET_MARGIN=0.0016,SHARE_EASE=0.06,RIVAL_GROWTH=0.009,EVENT_INTERVAL=50,REG_TAX_MAX=0.45;
+var MARKET_GROWTH=0.012,MARKET_MARGIN=0.0026,SHARE_EASE=0.1,RIVAL_GROWTH=0.009,EVENT_INTERVAL=45,REG_TAX_MAX=0.45;
 var AFFINITY={industrialist:{consumer:1,enterprise:1.2,government:1},researcher:{consumer:.9,enterprise:1.8,government:.8},militarist:{consumer:.7,enterprise:.9,government:1.8},influencer:{consumer:2,enterprise:.8,government:1}};
 var SAVE_KEY="solarwar.standalone.v1", SET_KEY="solarwar.settings.v1";
 
 /* ============================================================ SETTINGS */
-function defaultSettings(){ return {startRes:{capital:8000,compute:0,talent:5,materials:60,influence:0},costMult:{build:1,ship:1,tech:1},timeMult:1,aiCount:3}; }
+function defaultSettings(){ return {startRes:{capital:16000,compute:300,talent:12,materials:200,influence:0},costMult:{build:1,ship:1,tech:1},timeMult:0.5,aiCount:3}; }
 var SETTINGS=defaultSettings();
 function loadSettings(){ try{ var raw=localStorage.getItem(SET_KEY); if(!raw)return; var p=JSON.parse(raw),k; if(p.startRes)for(k in SETTINGS.startRes){ if(typeof p.startRes[k]==="number")SETTINGS.startRes[k]=p.startRes[k]; } if(p.costMult)for(k in SETTINGS.costMult){ if(typeof p.costMult[k]==="number")SETTINGS.costMult[k]=p.costMult[k]; } if(typeof p.timeMult==="number")SETTINGS.timeMult=p.timeMult; if(typeof p.aiCount==="number")SETTINGS.aiCount=clamp(Math.round(p.aiCount),1,RIVAL_SEEDS.length); }catch(e){} }
 function saveSettings(){ try{ localStorage.setItem(SET_KEY,JSON.stringify(SETTINGS)); }catch(e){} }
