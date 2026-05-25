@@ -245,6 +245,7 @@ var STAGES=[{id:1,name:"AI Startup"},{id:2,name:"Technology Company"},{id:3,name
 var MARKET_GROWTH=0.012,MARKET_MARGIN=0.0026,SHARE_EASE=0.1,RIVAL_GROWTH=0.009,EVENT_INTERVAL=45,REG_TAX_MAX=0.45;
 var AFFINITY={industrialist:{consumer:1,enterprise:1.2,government:1},researcher:{consumer:.9,enterprise:1.8,government:.8},militarist:{consumer:.7,enterprise:.9,government:1.8},influencer:{consumer:2,enterprise:.8,government:1}};
 var SAVE_KEY="solarwar.standalone.v1", SET_KEY="solarwar.settings.v1";
+var FREE_BUILD_SECS=900; /* 15-minute grace window: construction is instant */
 
 /* ============================================================ SETTINGS */
 function defaultSettings(){ return {startRes:{capital:16000,compute:300,talent:12,materials:200,influence:0},costMult:{build:1,ship:1,tech:1},timeMult:0.5,aiCount:3}; }
@@ -257,13 +258,14 @@ function clamp(n,lo,hi){ return Math.max(lo,Math.min(hi,n)); }
 function zero(){ var z={}; for(var i=0;i<STOCKS.length;i++)z[STOCKS[i]]=0; return z; }
 function fmt(n){ var a=Math.abs(n); if(a>=1e12)return (n/1e12).toFixed(2)+"T"; if(a>=1e9)return (n/1e9).toFixed(2)+"B"; if(a>=1e6)return (n/1e6).toFixed(2)+"M"; if(a>=1e3)return (n/1e3).toFixed(1)+"K"; if(a>=100)return n.toFixed(0); if(a>=1)return n.toFixed(1); if(a===0)return "0"; return n.toFixed(2); }
 function fmtRate(n){ return (n>0?"+":n<0?"−":"")+fmt(Math.abs(n))+"/s"; }
+function fmtClock(s){ var m=Math.floor(s/60),ss=Math.floor(s%60); return m+":"+(ss<10?"0":"")+ss; }
 function freshState(){ var sr=SETTINGS.startRes,r0=zero(); for(var k in sr)if(r0[k]!==undefined)r0[k]=sr[k]; return {
   resources:r0,
   buildings:{ground_dc:1}, researched:[], fleet:{}, neutral:{}, jobs:[], orbitAround:"earth", earthPlacements:[{id:"ground_dc",lon:-74,lat:40.7}], units:[], groups:{}, bookmarks:{},
   rivals:RIVAL_SEEDS.slice(0,clamp(SETTINGS.aiCount,1,RIVAL_SEEDS.length)).map(function(s,i){return {id:s.id,name:s.name,pers:s.pers,eco:s.eco,tech:s.tech,inf:s.inf,mil:s.mil,gr:s.gr,host:10,crip:0,dead:false,treaty:"none",intel:8,color:PCOLORS[(i+1)%PCOLORS.length]};}),
   marketShare:{consumer:0.12,enterprise:0.1,government:0.08}, marketSize:{consumer:60000,enterprise:40000,government:28000},
   regulation:8, events:[{id:0,t:0,kind:"info",text:"Incorporation complete. The Solar War begins."}], eventSeq:1, worldClock:0, eventClock:0,
-  gameOver:{over:false,won:false,type:"",text:""}, speed:1, battleTarget:null }; }
+  gameOver:{over:false,won:false,type:"",text:""}, speed:1, battleTarget:null, freeBuild:FREE_BUILD_SECS }; }
 
 /* ============================================================ ENGINE */
 function techMult(r){ var m=zero(),k; for(k in m)m[k]=1; var g=1; r.forEach(function(id){ var t=TECHS[id]; if(!t)return; if(t.gm)g*=t.gm; if(t.mult)for(var kk in t.mult)if(m[kk]!==undefined)m[kk]*=t.mult[kk]; }); for(k in m)m[k]*=g; return m; }
@@ -286,12 +288,13 @@ function bcost(b,o){ var c={},g=b.g||1.15,m=SETTINGS.costMult.build; for(var k i
 function scost(s,o){ var c={},g=s.g||1.1,m=SETTINGS.costMult.ship; for(var k in s.cost)c[k]=s.cost[k]*Math.pow(g,o)*m; return c; }
 function tcost(id){ var t=TECHS[id],c={},m=SETTINGS.costMult.tech; for(var k in t.cost)c[k]=t.cost[k]*m; return c; }
 function cocost(co){ var c={},m=SETTINGS.costMult.build; for(var k in co.acq)c[k]=co.acq[k]*m; return c; }
+function freeBuild(){ return (S&&S.freeBuild>0); }
 function buildSpeed(S){ var s=1,has=function(t){return S.researched.indexOf(t)>=0;};
   if(has("industrial_robotics"))s*=1.4; if(has("humanoid_robots"))s*=1.5; if(has("ai_construction"))s*=1.8; if(has("autonomous_construction"))s*=2; if(has("agi"))s*=1.8; if(has("nanofabrication"))s*=2.2; if(has("self_replicating"))s*=2.5; return s; }
-function btime(b){ var days=b.days||60,sp=buildSpeed(S),sl=b.loc;
+function btime(b){ if(freeBuild())return 0.1; var days=b.days||60,sp=buildSpeed(S),sl=b.loc;
   if(sl==="orbit"||sl==="moon"||sl==="asteroids"||sl==="deep_space"){ if((S.buildings.launch_complex||0)>0)sp*=1.5; if(S.researched.indexOf("space_manufacturing")>=0)sp*=2.5; if((S.buildings.orbital_manufacturing||0)>0)sp*=2; }
   return Math.max(2,days*DAY_SECONDS*SETTINGS.timeMult/sp); }
-function stime(s){ return clamp(Math.sqrt(s.cost.capital||100)/12,3,40)*SETTINGS.timeMult; }
+function stime(s){ if(freeBuild())return 0.1; return clamp(Math.sqrt(s.cost.capital||100)/12,3,40)*SETTINGS.timeMult; }
 function ttime(t){ return clamp(Math.sqrt(t.cost.compute||(t.cost.capital||100)/10)/4,5,60)*SETTINGS.timeMult; }
 function cotime(co){ return clamp(Math.sqrt(co.acq.capital||100)/10,4,40)*SETTINGS.timeMult; }
 function afford(res,cost){ for(var k in cost)if(res[k]<cost[k])return false; return true; }
@@ -350,7 +353,7 @@ function completeJob(j){ if(j.kind==="build")S.buildings[j.id]=(S.buildings[j.id
 function processJobs(dt){ if(!S.jobs.length)return false; var done=[],i; for(i=0;i<S.jobs.length;i++){ S.jobs[i].rem-=dt; if(S.jobs[i].rem<=0)done.push(i); }
   for(i=done.length-1;i>=0;i--){ var j=S.jobs[done[i]]; S.jobs.splice(done[i],1); completeJob(j); } return done.length>0; }
 function save(){ try{ S.lastSaved=Date.now(); localStorage.setItem(SAVE_KEY,JSON.stringify(S)); }catch(e){} }
-function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; STOCKS.forEach(function(k){ if(typeof p.resources[k]!=="number")p.resources[k]=0; }); if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.earthPlacements)p.earthPlacements=[]; if(!p.units)p.units=[]; if(!p.groups)p.groups={}; if(!p.bookmarks)p.bookmarks={}; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=PCOLORS[(i+1)%PCOLORS.length]; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
+function load(){ try{ var raw=localStorage.getItem(SAVE_KEY); if(!raw)return; var p=JSON.parse(raw); if(p&&p.resources&&p.rivals){ p.speed=1; p.battleTarget=null; STOCKS.forEach(function(k){ if(typeof p.resources[k]!=="number")p.resources[k]=0; }); if(!p.neutral)p.neutral={}; if(!p.jobs)p.jobs=[]; if(!p.orbitAround)p.orbitAround="earth"; if(!p.earthPlacements)p.earthPlacements=[]; if(!p.units)p.units=[]; if(!p.groups)p.groups={}; if(!p.bookmarks)p.bookmarks={}; if(!p.gameOver)p.gameOver={over:false,won:false,type:"",text:""}; if(typeof p.freeBuild!=="number")p.freeBuild=0; p.rivals.forEach(function(r,i){ if(typeof r.intel!=="number")r.intel=8; if(typeof r.color!=="number")r.color=PCOLORS[(i+1)%PCOLORS.length]; }); S=p; var el=(Date.now()-(p.lastSaved||Date.now()))/1000; if(el>2){ var d=Math.min(el,28800); S.resources=advance(S,d); processJobs(d); worldTick(S,d); } } }catch(e){} }
 var A={
   build:function(id){ var b=BUILDINGS[id]; if(!b)return; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); },
   placeEarth:function(id,lon,lat){ var b=BUILDINGS[id]; if(!b||(b.loc!=="earth"&&b.loc!=="moon"))return false; var o=(S.buildings[id]||0)+queued("build",id),c=bcost(b,o); if(!afford(S.resources,c))return false; spend(c); var t=btime(b); S.jobs.push({kind:"build",id:id,rem:t,tot:t}); S.earthPlacements.push({id:id,lon:lon,lat:lat}); return true; },
@@ -438,7 +441,7 @@ function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(fu
   var h='<div id="topbar">'+resBar()+'<div class="panelglass ui" style="padding:5px"><div class="speed" style="display:flex;align-items:center"><span class="lbl" style="margin:0 6px">SPD</span>'+
     [["0","⏸"],["1","1×"],["2","2×"],["4","4×"]].map(function(s){return '<button data-act="speed" data-arg="'+s[0]+'" class="'+(S.speed==s[0]?"on":"")+'">'+s[1]+'</button>';}).join("")+
     '<button class="tool" data-act="menu_open" style="margin-left:6px">☰ Menu</button></div></div>'+
-    '<div class="panelglass ui" id="clock" style="padding:6px 11px;display:flex;flex-direction:column;justify-content:center"><div class="lbl">Sol Date <span id="clockday" style="color:#39ff14">Day '+gameClock().day+'</span></div><div id="clocktxt" style="font-size:13px;font-weight:700;color:#9dffb0">'+gameClock().txt+'</div></div></div>';
+    '<div class="panelglass ui" id="clock" style="padding:6px 11px;display:flex;flex-direction:column;justify-content:center"><div class="lbl">Sol Date <span id="clockday" style="color:#39ff14">Day '+gameClock().day+'</span></div><div id="clocktxt" style="font-size:13px;font-weight:700;color:#9dffb0">'+gameClock().txt+'</div></div>'+(S.freeBuild>0?'<div class="panelglass ui" id="freebuild" style="padding:6px 11px;display:flex;flex-direction:column;justify-content:center;border-color:rgba(255,225,77,.55)"><div class="lbl" style="color:#ffe14d">⚡ Instant Build</div><div id="freebuildtxt" style="font-size:13px;font-weight:700;color:#ffe14d">'+fmtClock(S.freeBuild)+'</div></div>':'')+'</div>';
   h+='<div id="tabbar">'+TABS.map(function(t){ return '<button class="tab ui'+(UI.open&&UI.tab===t[0]?" on":"")+'" data-act="tab" data-arg="'+t[0]+'">'+t[1]+' '+t[2]+(t[0]==="research"?' <span class="small">'+S.researched.length+'/'+Object.keys(TECHS).length+'</span>':"")+'</button>'; }).join("")+'</div>';
   if(!EM&&!OM){ h+='<div id="stage" class="panelglass ui"><div class="lbl">Stage '+st+'/6 · '+done+'/'+objs.length+' objectives'+(S.jobs.length?' · '+S.jobs.length+' building':"")+'</div><div style="font-size:15px;font-weight:900;color:#9dffb0">'+STAGES[st-1].name+'</div><div class="row" style="gap:4px;margin-top:6px">'+STAGES.map(function(s){return '<div class="bar" style="flex:1"><i style="width:100%;background:'+(s.id<=st?"#39ff14":"transparent")+'"></i></div>';}).join("")+'</div></div>';
   h+='<div id="ticker" class="panelglass ui"><span class="lbl">intel</span> <span class="k-'+(S.events[0]?S.events[0].kind:"info")+'">'+(S.events[0]?S.events[0].text:"")+'</span></div>'; }
@@ -456,7 +459,8 @@ function patch(){ var r=rates(S); STOCKS.forEach(function(k){ var v=el("res-"+k)
   document.querySelectorAll("[data-cost]").forEach(function(b){ try{ if(afford(S.resources,JSON.parse(b.getAttribute("data-cost"))))b.classList.remove("dis"); else b.classList.add("dis"); }catch(e){} });
   document.querySelectorAll("[data-prog]").forEach(function(elp){ var pk=elp.getAttribute("data-prog").split(":"),info=jobInfo(pk[0],pk[1]); if(info){ var bar=elp.querySelector("i"); if(bar)bar.style.width=((1-info.rem/info.tot)*100)+"%"; var tx=elp.querySelector("[data-rem]"); if(tx)tx.textContent=Math.ceil(info.rem)+"s"+(info.n>1?" ×"+info.n:""); } });
   var tk=el("ticker"); if(tk&&S.events[0])tk.innerHTML='<span class="lbl">intel</span> <span class="k-'+S.events[0].kind+'">'+S.events[0].text+'</span>';
-  var gc=gameClock(),ct=el("clocktxt"); if(ct)ct.textContent=gc.txt; var cd=el("clockday"); if(cd)cd.textContent="Day "+gc.day; }
+  var gc=gameClock(),ct=el("clocktxt"); if(ct)ct.textContent=gc.txt; var cd=el("clockday"); if(cd)cd.textContent="Day "+gc.day;
+  var fb=el("freebuildtxt"); if(fb){ if(S.freeBuild>0){ fb.textContent=fmtClock(S.freeBuild); } else { var fbp=el("freebuild"); if(fbp)fbp.style.display="none"; } } }
 function openTab(t){ if(UI.open&&UI.tab===t)UI.open=false; else{ UI.tab=t; UI.open=true; if(t!=="ops")UI.sel=null; } render(); }
 
 /* ---- pause / settings / main menu ---- */
@@ -606,6 +610,14 @@ var LAND=[
 ];
 var BSHAPE={ground_dc:"dc",orbital_data_center:"dc",solar_farm:"solar",orbital_solar_array:"solar",ai_cluster:"ai",comms_satellite:"sat",operations_center:"hub",recruitment_hub:"station",consumer_division:"dc",enterprise_division:"dc",gov_relations:"station",fusion_reactor:"ai",mine:"mine",logistics_hub:"hub",mining_outpost:"mine",robotic_factory:"dc",asteroid_harvester:"mine",sovereign_colony:"hub"};
 var MOON_CRATERS=(function(){ var a=[],s=98765; function r(){ s=(s*1103515245+12345)&0x7fffffff; return s/0x7fffffff; } for(var i=0;i<48;i++)a.push({lon:r()*360-180,lat:r()*150-75,r:5+r()*22,mare:r()<0.18}); return a; })();
+function seedRand(seed){ var s=(seed>>>0)||1; return function(){ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+function rseed(id){ var h=2166136261; for(var i=0;i<id.length;i++){ h^=id.charCodeAt(i); h=(h*16777619)>>>0; } return h; }
+/* deterministic rival presence so every corporation shares the same maps */
+function rivalEarthSites(loc){ var out=[],shapes=["dc","hub","solar","mine","station","ai"];
+  S.rivals.forEach(function(r){ if(r.dead)return; var rnd=seedRand(rseed(r.id)+(loc==="moon"?99:0)),n=loc==="moon"?clamp(Math.round(Math.log10(Math.max(10,r.eco))-1),0,4):clamp(Math.round(Math.log10(Math.max(10,r.eco))*2.2),2,12),clon=rnd()*340-170,clat=loc==="moon"?(rnd()*120-60):(rnd()*110-55);
+    for(var i=0;i<n;i++)out.push({lon:clon+(rnd()*44-22),lat:clamp(clat+(rnd()*30-15),-78,78),color:r.color,shape:shapes[i%shapes.length],intel:r.intel||0}); });
+  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; if(st==="none"||loc==="moon")return; var rnd=seedRand(rseed(co.id)); out.push({lon:rnd()*340-170,lat:rnd()*100-50,color:st==="owned"?PCOLORS[0]:0xbfc7cf,shape:"hub",intel:100}); });
+  return out; }
 function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=cv.height,worldW=W*EM.bw*EM.zoom,worldH=H*EM.bh*EM.zoom,lon,lat,moon=EM.loc==="moon";
   if(worldH<=H)EM.camY=(H-worldH)/2; else EM.camY=clamp(EM.camY,H-worldH,0); EM.camX=((EM.camX%worldW)+worldW)%worldW;
   function px(lon,ox){ return (lon+180)/360*worldW-EM.camX+ox; } function py(lat){ return EM.camY+(90-lat)/180*worldH; }
@@ -619,7 +631,9 @@ function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=c
   if(!moon){ copies.forEach(function(ox){ LAND.forEach(function(L){ c.beginPath(); L.pts.forEach(function(p,i){ var x=px(p[0],ox),y=py(p[1]); if(i===0)c.moveTo(x,y); else c.lineTo(x,y); }); c.closePath(); c.save(); c.shadowColor="rgba(0,0,0,0.45)"; c.shadowBlur=10; c.fillStyle=(L.name==="Antarctica"||L.name==="Greenland")?"#d3e2e8":L.col; c.fill(); c.restore(); c.strokeStyle="rgba(180,255,205,0.4)"; c.lineWidth=1; c.stroke(); }); });
     c.textAlign="center"; c.font="bold "+clamp(worldW/72,9,15)+"px monospace"; c.fillStyle="rgba(225,245,228,0.45)";
     copies.forEach(function(ox){ LAND.forEach(function(L){ c.fillText(L.name.toUpperCase(),px(L.c[0],ox),py(L.c[1])); }); }); }
-  (S.earthPlacements||[]).forEach(function(pl){ if(!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; copies.forEach(function(ox){ var x=px(pl.lon,ox),y=py(pl.lat); if(x<-30||x>W+30)return; drawIcon(c,x,y,BSHAPE[pl.id]||"hub",hexCol(PCOLORS[0]),moon?12:clamp(worldW/300,4,400)); }); });
+  var isz=moon?12:clamp(worldW/300,4,400);
+  rivalEarthSites(EM.loc).forEach(function(s){ var a=clamp(0.22+(s.intel/100)*0.78,0.22,1); copies.forEach(function(ox){ var x=px(s.lon,ox),y=py(s.lat); if(x<-30||x>W+30)return; c.globalAlpha=a; drawIcon(c,x,y,s.shape,hexCol(s.color),isz*0.92); c.globalAlpha=1; }); });
+  (S.earthPlacements||[]).forEach(function(pl){ if(!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; copies.forEach(function(ox){ var x=px(pl.lon,ox),y=py(pl.lat); if(x<-30||x>W+30)return; drawIcon(c,x,y,BSHAPE[pl.id]||"hub",hexCol(PCOLORS[0]),isz); }); });
 }
 function placeAtScreen(sx,sy){ if(!EM||!EM.tool)return; var cv=EM.canvas,worldW=cv.width*EM.bw*EM.zoom,worldH=cv.height*EM.bh*EM.zoom; var lon=((((sx+EM.camX)%worldW)+worldW)%worldW)/worldW*360-180,lat=90-((sy-EM.camY)/worldH)*180; if(lat>85||lat<-85)return; if(A.placeEarth(EM.tool,lon,lat)){ save(); drawEarthMap(); render(); } }
 function paletteHtml(){ if(!EM)return ""; var ids=Object.keys(BUILDINGS).filter(function(id){ return BUILDINGS[id].loc===EM.loc&&bUnlocked(BUILDINGS[id],S.researched); });
@@ -638,8 +652,10 @@ function closeEarthMap(){ if(!EM)return; window.removeEventListener("resize",EM.
 /* ============================================================ EARTH ORBIT MAP (2D, wraps) */
 var OM=null;
 function orbitItems(){ var it=[];
-  S.rivals.forEach(function(r){ if(r.dead)return; var ns=clamp(Math.round(Math.sqrt(Math.max(10,r.eco))/90),1,6); for(var i=0;i<ns;i++)it.push({shape:"station",alt:0.9,color:r.color,owner:r.id}); });
-  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; it.push({shape:"station",alt:0.75,color:st==="owned"?PCOLORS[0]:0xbfc7cf,owner:co.id}); });
+  S.rivals.forEach(function(r){ if(r.dead)return; var intel=r.intel||0,ns=clamp(Math.round(Math.sqrt(Math.max(10,r.eco))/90),1,6),i;
+    for(i=0;i<ns;i++)it.push({shape:"station",alt:0.9,color:r.color,owner:r.id,intel:intel});
+    var nu=clamp(Math.round(r.mil/45),0,6); for(i=0;i<nu;i++)it.push({shape:i%2?"frig":"corv",alt:0.55,color:r.color,owner:r.id+"f",intel:intel}); });
+  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; it.push({shape:"station",alt:0.75,color:st==="owned"?PCOLORS[0]:0xbfc7cf,owner:co.id,intel:100}); });
   return it; }
 function drawIcon(c,x,y,shape,col,s){ c.save(); c.translate(x,y); c.strokeStyle=col; c.fillStyle=col; c.lineWidth=1.4; c.shadowColor=col; c.shadowBlur=6; var i,a,px,py;
   if(shape==="sat"){ c.beginPath(); c.arc(0,0,s*0.5,0,6.28); c.fill(); c.fillRect(-s*1.4,-s*0.16,s*0.7,s*0.32); c.fillRect(s*0.7,-s*0.16,s*0.7,s*0.32); }
@@ -695,7 +711,7 @@ function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=c
   c.strokeStyle="rgba(0,255,65,0.08)"; c.textAlign="right";
   [["LEO",0.74],["MEO",0.47],["GEO",0.2]].forEach(function(b){ var y=py(b[1]); if(y<-2||y>H+2)return; c.beginPath(); c.moveTo(0,y); c.lineTo(W,y); c.stroke(); c.fillStyle="rgba(0,255,65,0.3)"; c.fillText(b[0],W-8,y-4); });
   var copies=[-bw,0,bw],zs=OM.zoom;
-  OM.items.forEach(function(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17), fx=((hash*97+idx*131)%1000)/1000, y=py(0.88-Math.min(it.alt,1.25)*0.62)+((idx*37)%30-15); copies.forEach(function(ox){ var x=fx*bw-OM.camX+ox; if(x<-40||x>W+40)return; drawIcon(c,x,y,it.shape,hexCol(it.color),9*zs*0.7); }); });
+  OM.items.forEach(function(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17), fx=((hash*97+idx*131)%1000)/1000, y=py(0.88-Math.min(it.alt,1.25)*0.62)+((idx*37)%30-15),a=clamp(0.22+((it.intel==null?100:it.intel)/100)*0.78,0.22,1); copies.forEach(function(ox){ var x=fx*bw-OM.camX+ox; if(x<-40||x>W+40)return; c.globalAlpha=a; drawIcon(c,x,y,it.shape,hexCol(it.color),9*zs*0.7); c.globalAlpha=1; }); });
   (S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; copies.forEach(function(ox){ var x=pl.fx*bw-OM.camX+ox; if(x<-30||x>W+30)return; drawIcon(c,x,py(pl.fy),BSHAPE[pl.id]||"sat",hexCol(PCOLORS[0]),9*zs*0.7); }); });
   function beams(arr){ arr.forEach(function(u){ if(u.fireT>0&&u.hp>0){ var x=omScreenC(u),tx=u.ftx*bw-OM.camX; tx=((tx%bw)+bw)%bw; if(tx>W)tx-=bw; c.strokeStyle=hexCol(u.color); c.globalAlpha=0.6; c.beginPath(); c.moveTo(x,py(u.fy)); c.lineTo(tx,py(u.fty)); c.stroke(); c.globalAlpha=1; } }); }
   beams(S.units.filter(function(u){return u.side==="p";})); beams(OM.en||[]);
@@ -726,7 +742,7 @@ function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity=
 
 /* ============================================================ BOOT */
 loadSettings(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); UI.menu=hadSave?"main":"setup"; initScene(); render(); renderMenu();
-setInterval(function(){ if(S.speed>0&&!UI.menu){ var dt=0.2*S.speed; S.resources=advance(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); } patch();
+setInterval(function(){ if(S.speed>0&&!UI.menu){ var dt=0.2*S.speed; if(S.freeBuild>0)S.freeBuild=Math.max(0,S.freeBuild-0.2); S.resources=advance(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); } patch();
   if(UI.dirty&&UI.open&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); UI.dirty=false; }
   if(S.gameOver.over&&!document.querySelector("#end .overlay"))showEnd(); },200);
 setInterval(function(){ if(UI.open&&(UI.tab==="markets"||UI.tab==="military"||UI.tab==="intel")&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); } syncScene(); save(); },900);
