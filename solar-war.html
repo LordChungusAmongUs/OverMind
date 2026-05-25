@@ -321,12 +321,14 @@ function militaryPanel(){ var p=milPower(S.fleet),noMil=S.researched.indexOf("se
   return h+'</div></div>'; }
 function intelPanel(){ var h=""; S.events.forEach(function(e){ h+='<div class="ev"><span class="k k-'+e.kind+'">'+e.kind+'</span><span style="flex:1" class="k-'+e.kind+'">'+e.text+'</span><span class="small">'+ageStr(e.t)+'</span></div>'; }); return h; }
 function ageStr(t){ var d=Math.max(0,Math.floor(S.worldClock-t)); return d<60?d+"s":d<3600?Math.floor(d/60)+"m":Math.floor(d/3600)+"h"; }
+function gameClock(){ var td=S.worldClock/DAY_SECONDS,d=new Date(Date.UTC(2040,0,1)+Math.floor(td)*86400000),fr=td-Math.floor(td),mins=Math.floor(fr*1440),hh=("0"+Math.floor(mins/60)).slice(-2),mm=("0"+(mins%60)).slice(-2),ds=d.getUTCFullYear()+"-"+("0"+(d.getUTCMonth()+1)).slice(-2)+"-"+("0"+d.getUTCDate()).slice(-2); return {day:Math.floor(td),txt:ds+" "+hh+":"+mm}; }
 function panelHtml(){ return UI.tab==="ops"?opsPanel():UI.tab==="research"?researchPanel():UI.tab==="markets"?marketsPanel():UI.tab==="partners"?partnersPanel():UI.tab==="military"?militaryPanel():intelPanel(); }
 function tabTitle(){ var t=TABS.find(function(x){return x[0]===UI.tab;}); return t?t[1]+" "+t[2]:""; }
 function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(function(o){return o.d;}).length;
   var h='<div id="topbar">'+resBar()+'<div class="panelglass ui" style="padding:5px"><div class="speed" style="display:flex;align-items:center"><span class="lbl" style="margin:0 6px">SPD</span>'+
     [["0","⏸"],["1","1×"],["2","2×"],["4","4×"]].map(function(s){return '<button data-act="speed" data-arg="'+s[0]+'" class="'+(S.speed==s[0]?"on":"")+'">'+s[1]+'</button>';}).join("")+
-    '<button class="tool" data-act="menu_open" style="margin-left:6px">☰ Menu</button></div></div></div>';
+    '<button class="tool" data-act="menu_open" style="margin-left:6px">☰ Menu</button></div></div>'+
+    '<div class="panelglass ui" id="clock" style="padding:6px 11px;display:flex;flex-direction:column;justify-content:center"><div class="lbl">Sol Date <span id="clockday" style="color:#39ff14">Day '+gameClock().day+'</span></div><div id="clocktxt" style="font-size:13px;font-weight:700;color:#9dffb0">'+gameClock().txt+'</div></div></div>';
   h+='<div id="tabbar">'+TABS.map(function(t){ return '<button class="tab ui'+(UI.open&&UI.tab===t[0]?" on":"")+'" data-act="tab" data-arg="'+t[0]+'">'+t[1]+' '+t[2]+(t[0]==="research"?' <span class="small">'+S.researched.length+'/'+Object.keys(TECHS).length+'</span>':"")+'</button>'; }).join("")+'</div>';
   h+='<div id="stage" class="panelglass ui"><div class="lbl">Stage '+st+'/6 · '+done+'/'+objs.length+' objectives'+(S.jobs.length?' · '+S.jobs.length+' building':"")+'</div><div style="font-size:15px;font-weight:900;color:#9dffb0">'+STAGES[st-1].name+'</div><div class="row" style="gap:4px;margin-top:6px">'+STAGES.map(function(s){return '<div class="bar" style="flex:1"><i style="width:100%;background:'+(s.id<=st?"#39ff14":"transparent")+'"></i></div>';}).join("")+'</div></div>';
   h+='<div id="ticker" class="panelglass ui"><span class="lbl">intel</span> <span class="k-'+(S.events[0]?S.events[0].kind:"info")+'">'+(S.events[0]?S.events[0].text:"")+'</span></div>';
@@ -338,7 +340,8 @@ function patch(){ var r=rates(S); STOCKS.forEach(function(k){ var v=el("res-"+k)
   var e=el("res-energy"); if(e)e.innerHTML=fmt(r.eS)+'<span style="color:#456;font-size:11px">/'+fmt(r.eD)+'</span>'; var er=el("rate-energy"); if(er){ er.textContent=r.pr>=1?"powered":Math.round(r.pr*100)+"% deficit"; er.style.color=r.pr>=1?"#2f8f43":"#ff5d8f"; }
   document.querySelectorAll("[data-cost]").forEach(function(b){ try{ if(afford(S.resources,JSON.parse(b.getAttribute("data-cost"))))b.classList.remove("dis"); else b.classList.add("dis"); }catch(e){} });
   document.querySelectorAll("[data-prog]").forEach(function(elp){ var pk=elp.getAttribute("data-prog").split(":"),info=jobInfo(pk[0],pk[1]); if(info){ var bar=elp.querySelector("i"); if(bar)bar.style.width=((1-info.rem/info.tot)*100)+"%"; var tx=elp.querySelector("[data-rem]"); if(tx)tx.textContent=Math.ceil(info.rem)+"s"+(info.n>1?" ×"+info.n:""); } });
-  var tk=el("ticker"); if(tk&&S.events[0])tk.innerHTML='<span class="lbl">intel</span> <span class="k-'+S.events[0].kind+'">'+S.events[0].text+'</span>'; }
+  var tk=el("ticker"); if(tk&&S.events[0])tk.innerHTML='<span class="lbl">intel</span> <span class="k-'+S.events[0].kind+'">'+S.events[0].text+'</span>';
+  var gc=gameClock(),ct=el("clocktxt"); if(ct)ct.textContent=gc.txt; var cd=el("clockday"); if(cd)cd.textContent="Day "+gc.day; }
 function openTab(t){ if(UI.open&&UI.tab===t)UI.open=false; else{ UI.tab=t; UI.open=true; if(t!=="ops")UI.sel=null; } render(); }
 
 /* ---- pause / settings / main menu ---- */
@@ -374,13 +377,14 @@ document.addEventListener("keydown",function(e){ if(e.target&&e.target.tagName==
 /* ============================================================ 3D SOLAR SYSTEM (Earth-centred) */
 var SC=null;
 var AU=180, SUN_R=26, MOON_DIST=22, MOON_R=1.6, EARTH_R=6, STATION_R=12;
-/* realistic relative orbit distances (AU) and planet-size ratios; the Sun and Moon-distance
-   are compressed because a literal 1:1 scale would make planets invisible specks. */
+var DAY_SECONDS=60, MOON_PERIOD=27.3; /* 1 Earth day = 60s of game time at 1x; orbital periods are real */
+/* realistic relative orbit distances (AU), planet-size ratios, and orbital PERIODS (real days).
+   Sun size and Moon distance are compressed; a literal 1:1 scale makes planets invisible specks. */
 var PLANETS=[
-  {id:"mercury",au:0.39,r:2.3,col:0x9a8478,spd:0.083,deco:true},
-  {id:"venus",au:0.72,r:5.7,col:0xd9b38c,spd:0.034,deco:true},
-  {id:"earth",au:1.0,r:EARTH_R,col:0x2f7fff,spd:0.02},
-  {id:"mars",au:1.52,r:3.2,col:0xc1440e,spd:0.0106,deco:true}
+  {id:"mercury",au:0.39,r:2.3,col:0x9a8478,period:88},
+  {id:"venus",au:0.72,r:5.7,col:0xd9b38c,period:224.7},
+  {id:"earth",au:1.0,r:EARTH_R,col:0x2f7fff,period:365.25},
+  {id:"mars",au:1.52,r:3.2,col:0xc1440e,period:687}
 ];
 function makeLabel(text,color,sx,sy){ var c=document.createElement("canvas"); c.width=256; c.height=64; var x=c.getContext("2d"); x.font="bold 30px monospace"; x.fillStyle=color; x.textAlign="center"; x.fillText(text,128,42); var t=new THREE.CanvasTexture(c); var sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthTest:false})); sp.scale.set(sx||46,sy||11.5,1); return sp; }
 function ringLine(scene,rad,col){ var pts=[]; for(var a=0;a<=90;a++){ var an=a/90*Math.PI*2; pts.push(new THREE.Vector3(Math.cos(an)*rad,0,Math.sin(an)*rad)); } scene.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.5}))); }
@@ -402,7 +406,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
     var g=new THREE.Group(); g.position.set(p.au*AU,0,0); piv.add(g);
     var mesh=new THREE.Mesh(new THREE.SphereGeometry(p.r,28,28),new THREE.MeshStandardMaterial({color:p.col,emissive:p.col,emissiveIntensity:0.15,roughness:0.75,metalness:0.15})); g.add(mesh);
     g.add(makeLabel(p.id.charAt(0).toUpperCase()+p.id.slice(1),"#cdeccf",p.r>4?40:30,10).translateY(p.r+5));
-    pivots.push({piv:piv,spd:p.spd,mesh:mesh}); focusObj[p.id]=g;
+    pivots.push({piv:piv,phase:piv.rotation.y,omega:2*Math.PI/(p.period*DAY_SECONDS),spin:(p.id==="earth"?2*Math.PI/DAY_SECONDS:2*Math.PI/(p.period*DAY_SECONDS)*3),mesh:mesh}); focusObj[p.id]=g;
     addHit(g,p.r+2,p.id,pick);
     if(p.id==="earth"){ earthGroup=g; focusObj.orbit=g;
       moonPivot=new THREE.Group(); moonPivot.rotation.y=Math.random()*6.28; g.add(moonPivot);
@@ -417,7 +421,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   var dev={earth:new THREE.Group(),moon:new THREE.Group(),asteroids:new THREE.Group(),deep:new THREE.Group(),orbit:new THREE.Group()};
   earthGroup.add(dev.earth); moonMesh.add(dev.moon); ast.add(dev.asteroids); deep.add(dev.deep); earthGroup.add(dev.orbit);
   var rivalGrp=new THREE.Group(); scene.add(rivalGrp);
-  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonMesh:moonMesh,earthGroup:earthGroup,ast:ast,deep:deep,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),focus:"earth",cam0:{r:60,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0};
+  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,earthGroup:earthGroup,ast:ast,deep:deep,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),focus:"earth",cam0:{r:60,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0};
   attachControls(canvas); window.addEventListener("resize",onResize); syncScene(); loopScene();
 }
 function onResize(){ if(!SC)return; SC.renderer.setSize(window.innerWidth,window.innerHeight,false); SC.cam.aspect=window.innerWidth/window.innerHeight; SC.cam.updateProjectionMatrix(); }
@@ -436,7 +440,7 @@ function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S
   SC.rivalGrp.clear(); S.rivals.forEach(function(r,i){ if(r.dead)return; var an=i*2.1+1,rad=(1.3+i*0.3)*AU,pow=corpPower({eco:r.eco,tech:r.tech,inf:r.inf,mil:r.mil}),sz=clamp(pow/9,3,12),col=r.pers==="militarist"?0xff3030:r.pers==="researcher"?0x33d6ff:0xff5d8f;
     var grp=new THREE.Group(); grp.position.set(Math.cos(an)*rad,0,Math.sin(an)*rad); grp.add(new THREE.Mesh(new THREE.OctahedronGeometry(sz),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.45,metalness:0.5,roughness:0.4}))); var lab=makeLabel(r.name+(r.treaty==="pact"?" ⚖":""),"#"+col.toString(16),64,15); lab.position.set(0,sz+8,0); grp.add(lab); SC.rivalGrp.add(grp); }); }
 function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene); var c=SC.cam0; SC.t+=0.016;
-  SC.pivots.forEach(function(p){ p.piv.rotation.y+=p.spd*0.016; p.mesh.rotation.y+=0.004; }); if(SC.moonPivot)SC.moonPivot.rotation.y+=0.05; SC.fleetGrp.rotation.y+=0.012; if(SC.glow)SC.glow.material.opacity=0.14+Math.sin(SC.t*2)*0.04;
+  var wc=S.worldClock; SC.pivots.forEach(function(p){ p.piv.rotation.y=p.phase+p.omega*wc; p.mesh.rotation.y=p.spin*wc; }); if(SC.moonPivot)SC.moonPivot.rotation.y=SC.moonPhase+SC.moonOmega*wc; SC.fleetGrp.rotation.y+=0.012; if(SC.glow)SC.glow.material.opacity=0.14+Math.sin(SC.t*2)*0.04;
   var obj=SC.focusObj[SC.focus]||SC.earthGroup; obj.getWorldPosition(SC.tmp); c.tx=SC.tmp.x; c.ty=SC.tmp.y; c.tz=SC.tmp.z;
   SC.cam.position.set(c.tx+Math.sin(c.phi)*Math.cos(c.theta)*c.r,c.ty+Math.cos(c.phi)*c.r,c.tz+Math.sin(c.phi)*Math.sin(c.theta)*c.r); SC.cam.lookAt(c.tx,c.ty,c.tz); SC.renderer.render(SC.scene,SC.cam); }
 
