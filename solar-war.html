@@ -778,7 +778,7 @@ function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(fu
     h+='<div id="mapbar" class="panelglass ui" style="position:absolute;top:62px;left:50%;transform:translateX(-50%);padding:6px 12px;display:flex;gap:10px;align-items:center;max-width:92vw;flex-wrap:wrap;justify-content:center"><b style="color:#9dffb0">'+(EM?(EM.loc==="moon"?"🌑 Moon Surface":"🌍 Earth Surface"):"🛰 Earth Orbit")+'</b>'+(legend?'<span>'+legend+'</span>':"")+'<button class="btn ui sm" style="width:auto" data-act="'+(OM?"orbitmap_close":"earthmap_close")+'">↩ Back to System</button></div>'; }
   if(EM||OM)h+=gridCard();
   if(EM||OM)h+=infoCard();
-  if(OM)h+='<div class="panelglass ui" style="position:absolute;left:150px;top:62px;padding:6px 10px;font-size:11px"><div class="lbl">Selected: <span style="color:#39ff14">'+((OM.sel&&OM.sel.length)||0)+'</span>'+(OM.battleActive?' · <span style="color:#ff7a6b">BATTLE</span>':"")+'</div><div class="small">click to inspect · drag-box select · right-click: command / deselect · shift: queue / keep building · drag a tool to batch-build · Alt: reveal owners</div></div>';
+  if(OM)h+='<div class="panelglass ui" style="position:absolute;left:150px;top:62px;padding:6px 10px;font-size:11px"><div class="lbl">Selected: <span style="color:#39ff14">'+((OM.sel&&OM.sel.length)||0)+'</span>'+(OM.battleActive?' · <span style="color:#ff7a6b">BATTLE</span>':"")+'</div><div class="small">click to inspect · drag-box select · right-click: command / deselect · shift: queue / keep building · drag a tool to batch-build · Alt: reveal owners · Ctrl+1-9 set group · 1-9 recall (double-tap to jump)</div></div>';
   if(!UI.open&&!EM&&!OM)h+='<div id="hint">⟲ drag to orbit · scroll to zoom · double-click Earth, the orbit ring, or the Moon · P to pause</div>';
   el("hud").innerHTML=h;
 }
@@ -890,6 +890,8 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="ship"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; }
   if(act==="omtool"){ if(OM){ OM.tool=OM.tool===id?null:id; render(); } return; }
   if(act==="deselect"){ deselectMap(); return; }
+  if(act==="cmd_ship"){ var ow=(S.fleet[id]||0)+queued("ship",id); A.ship(id); save(); syncScene(); render(); grpToast((S.fleet[id]||0)+queued("ship",id)>ow?"Building "+(SHIPS[id]?SHIPS[id].name:id):"Cannot build — check cost"); return; }
+  if(act==="cmd_research"){ var was=queued("tech",id); A.research(id); save(); render(); grpToast(queued("tech",id)>was?"Researching "+(TECHS[id]?TECHS[id].name:id):"Cannot research — check cost"); return; }
   if(act==="gridcell"){ if(EM)EM.tool=EM.tool===id?null:id; else if(OM)OM.tool=OM.tool===id?null:id; render(); return; }
   if(act==="gridmore"){ var po=EM||OM; if(po){ var g=gridList(),pages=Math.max(1,Math.ceil(g.items.length/14)); po.gridPage=((po.gridPage||0)+1)%pages; render(); } return; }
   if(act==="cfset"){ if(!UI.cf)UI.cf={name:"CorpCoin",consensus:"pow",supply:"fixed",utility:"store"}; var pp=(arg||"").split(":"); if(pp.length===2)UI.cf[pp[0]]=pp[1]; render(); return; }
@@ -1206,7 +1208,71 @@ function drawIcon(c,x,y,shape,col,s,glow){ c.save(); c.translate(x,y); c.strokeS
   else { c.beginPath(); c.moveTo(0,-s*0.7);c.lineTo(s*0.5,s*0.5);c.lineTo(-s*0.5,s*0.5);c.closePath(); c.fill(); }
   c.restore(); }
 /* ---- orbit RTS units ---- */
-var UID=1,pendingBattle=null,pendingTool=null;
+var UID=1,pendingBattle=null,pendingTool=null,pendingGroupCb=null;
+/* ============================================================ CONTROL GROUPS (cross-view)
+   Ctrl+1..9 saves the current unit/structure selection (in the Earth, Moon or Orbit map) to a
+   numbered group. Tapping the number re-selects it (switching to its view if needed); tapping it
+   twice quickly also re-centers the camera on the group. Groups live in S.groups, so they persist. */
+var _grpTap={k:null,t:0},_grpToastT=null;
+function plLon(pl){ return pl.lon!==undefined?pl.lon:(pl.gx||0)*GRID_STEP; }
+function plLat(pl){ return pl.lat!==undefined?pl.lat:(pl.gy||0)*GRID_STEP; }
+function structKey(pl){ return pl.orbit?("o|"+pl.id+"|"+(pl.fx||0).toFixed(4)+"|"+(pl.fy||0).toFixed(4)):("s|"+pl.id+"|"+plLon(pl).toFixed(2)+"|"+plLat(pl).toFixed(2)); }
+function _avg(a){ var s=0,i; for(i=0;i<a.length;i++)s+=a[i]; return a.length?s/a.length:0; }
+function grpToast(msg){ var t=el("grptoast"); if(!t){ t=document.createElement("div"); t.id="grptoast"; t.className="panelglass ui"; t.style.cssText="position:fixed;left:50%;top:13%;transform:translateX(-50%);z-index:55;padding:6px 14px;font-size:13px;color:#9dffb0;pointer-events:none;transition:opacity .25s;white-space:nowrap"; document.body.appendChild(t); } t.textContent=msg; t.style.opacity="1"; if(_grpToastT)clearTimeout(_grpToastT); _grpToastT=setTimeout(function(){ var e=el("grptoast"); if(e)e.style.opacity="0"; },1100); }
+function setGroup(k){ var g=null;
+  if(OM){ var units=(OM.sel||[]).slice(),structs=(OM.selStructs||[]).map(structKey); if(units.length||structs.length)g={view:"orbit",units:units,structs:structs}; }
+  else if(EM){ var st=(EM.sel||[]).map(structKey); if(st.length)g={view:EM.loc,units:[],structs:st}; }
+  if(!g){ grpToast("Nothing selected to assign"); return; }
+  S.groups[k]=g; save();
+  var n=(g.units?g.units.length:0)+(g.structs?g.structs.length:0); grpToast("Control group "+k+" · "+n+" assigned"); }
+function recallGroup(k){ var g=S.groups[k]; if(!g)return;
+  if(Array.isArray(g))g={view:"orbit",units:g.slice(),structs:[]};   /* migrate legacy unit-only groups */
+  if(!((g.units&&g.units.length)||(g.structs&&g.structs.length))){ grpToast("Control group "+k+" is empty"); return; }
+  var now=performance.now(),dbl=(_grpTap.k===k&&now-_grpTap.t<350); _grpTap={k:k,t:now};
+  var already=g.view==="orbit"?!!OM:(!!EM&&EM.loc===g.view);
+  var recenter=dbl||!already;
+  gotoView(g.view,function(){ applyGroupSelection(g,recenter); }); }
+function gotoView(view,cb){
+  if(view==="orbit"){ if(OM){ cb&&cb(); return; } if(EM)closeEarthMap(); pendingGroupCb=cb||null; openOrbitMap(); return; }
+  /* earth / moon surface */
+  if(EM&&EM.loc===view){ cb&&cb(); return; }
+  if(OM){ closeOrbitMap(function(){ if(EM)closeEarthMap(); openEarthMap(view); cb&&cb(); }); return; }
+  if(EM)closeEarthMap(); openEarthMap(view); cb&&cb(); }
+function applyGroupSelection(g,recenter){
+  if(g.view==="orbit"){ if(!OM)return; var want=g.structs||[];
+    OM.sel=(g.units||[]).filter(function(uid){ return S.units.some(function(u){ return u.uid===uid&&u.side==="p"&&u.hp>0&&u.build<=0; }); });
+    OM.selStructs=[]; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit&&want.indexOf(structKey(pl))>=0)OM.selStructs.push(pl); });
+    omInspectSummary(); if(recenter)omCenterSel(); render();
+  } else { if(!EM||EM.loc!==g.view)return; var want=g.structs||[]; EM.sel=[];
+    (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit||!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; if(want.indexOf(structKey(pl))>=0)EM.sel.push(pl); });
+    emInspectSummary(); if(recenter)emCenterSel(); render(); drawEarthMap(); }
+  var nu=g.view==="orbit"?(OM.sel||[]).length:0,ns=g.view==="orbit"?(OM.selStructs||[]).length:(EM.sel||[]).length;
+  grpToast("Control group "+(nu+ns?"":"— ")+"selected"); }
+function omCenterSel(){ if(!OM)return; var xs=[],ys=[]; (OM.sel||[]).forEach(function(uid){ var u=S.units.find(function(x){return x.uid===uid;}); if(u){ xs.push(u.fx); ys.push(u.fy); } }); (OM.selStructs||[]).forEach(function(pl){ xs.push(pl.fx); ys.push(pl.fy); }); if(!xs.length)return;
+  var W=OM.canvas.width,H=OM.canvas.height,bw=W*3*OM.zoom,wh=H*1.5*OM.zoom; OM.camX=_avg(xs)*bw-W/2; OM.camY=clamp(H/2-wh*_avg(ys),H-wh,0); }
+function emCenterSel(){ if(!EM)return; var lons=[],lats=[]; (EM.sel||[]).forEach(function(pl){ lons.push(plLon(pl)); lats.push(plLat(pl)); }); if(!lons.length)return;
+  var W=EM.canvas.width,H=EM.canvas.height,worldW=W*EM.bw*EM.zoom,worldH=H*EM.bh*EM.zoom; EM.camX=(_avg(lons)+180)/360*worldW-W/2; EM.camY=clamp(H/2-(90-_avg(lats))/180*worldH,Math.min(0,H-worldH),0); }
+/* ---- per-structure command card (StarCraft-style): contextual builds / research / abilities ---- */
+var SHIP_BUILDERS={ military_shipyard:["corvette","frigate","cruiser","dreadnought"], orbital_shipyard:["corvette","frigate","cruiser","dreadnought"], weapons_factory:["corvette","frigate"], drone_facility:["corvette"] };
+var LAB_BRANCHES={ research_lab:["Compute","Semiconductors","Robotics","Materials","Energy"], orbital_research_station:["Compute","Transportation"], university_partnership:["Compute","Consumer","Media","Robotics"], decentralized_ai_net:["Blockchain","Compute"] };
+function selStructType(){ var arr=OM?((OM.sel&&OM.sel.length)?null:OM.selStructs):(EM?EM.sel:null); if(!arr||!arr.length)return null; var id=arr[0].id; return arr.every(function(p){return p.id===id;})?id:null; }
+function availTechs(branches){ var out=[],id; for(id in TECHS){ var t=TECHS[id]; if(branches.indexOf(t.br)<0)continue; if(S.researched.indexOf(id)>=0||queued("tech",id)>0)continue; if(t.req&&!t.req.every(function(r){return S.researched.indexOf(r)>=0;}))continue; out.push(id); } out.sort(function(a,b){ return (TECHS[a].cost.compute||0)-(TECHS[b].cost.compute||0); }); return out; }
+function commandCardHtml(id){ var b=BUILDINGS[id]; if(!b)return ""; var h="",ships=SHIP_BUILDERS[id],br=LAB_BRANCHES[id];
+  if(ships){ var av=ships.filter(function(s){ var sh=SHIPS[s]; return sh&&(!sh.req||S.researched.indexOf(sh.req)>=0); });
+    h+='<div class="small" style="color:#9fb6c4;margin:8px 0 3px;border-top:1px solid rgba(0,255,65,.12);padding-top:6px">⚔ Build warships</div><div class="row" style="gap:4px;flex-wrap:wrap">';
+    if(!av.length)h+='<span class="small" style="color:#789">Research military doctrine to unlock ships.</span>';
+    av.forEach(function(s){ var sh=SHIPS[s],o=(S.fleet[s]||0)+queued("ship",s),c=scost(sh,o); h+='<button class="btn ui sm" data-act="cmd_ship" data-id="'+s+'" data-cost=\''+JSON.stringify(c)+'\' title="'+esc(sh.name)+' · '+esc(sh.cls)+'" style="width:auto;font-size:9px;padding:3px 6px">⚔ '+esc(shortName(sh.name))+'</button>'; });
+    h+='</div>'; }
+  if(br){ var techs=availTechs(br).slice(0,4);
+    h+='<div class="small" style="color:#9fb6c4;margin:8px 0 3px;border-top:1px solid rgba(0,255,65,.12);padding-top:6px">🧪 Research here</div><div class="row" style="gap:4px;flex-wrap:wrap">';
+    if(!techs.length)h+='<span class="small" style="color:#789">No projects available — check the Research tree.</span>';
+    techs.forEach(function(tid){ var t=TECHS[tid],c=tcost(tid); h+='<button class="btn ui sm" data-act="cmd_research" data-id="'+tid+'" data-cost=\''+JSON.stringify(c)+'\' title="'+esc(t.ds)+'" style="width:auto;font-size:9px;padding:3px 6px">🧪 '+esc(t.name)+'</button>'; });
+    h+='</div>'; }
+  if(id==="gpu_farm"){ var gm=S.gpuMode||"ai"; h+='<div class="small" style="color:#9fb6c4;margin:8px 0 3px;border-top:1px solid rgba(0,255,65,.12);padding-top:6px">⚙ GPU workload</div><div class="row" style="gap:4px">'+[["ai","🧠 AI"],["mine","⛏ Mine"],["render","🎬 Render"]].map(function(o){ return '<button class="btn ui sm" data-act="setGpu" data-arg="'+o[0]+'" style="width:auto;font-size:9px;padding:3px 6px;'+(gm===o[0]?"background:rgba(0,255,65,.3);border-color:rgba(0,255,65,.7)":"")+'">'+o[1]+'</button>'; }).join("")+'</div>'; }
+  return h; }
+/* Ctrl+1..9 assign · 1..9 select · double-tap re-center. Works in every view. */
+window.addEventListener("keydown",function(e){ if(!S||(e.target&&e.target.tagName==="INPUT"))return; if(UI.menu||e.altKey)return; if(!/^[1-9]$/.test(e.key))return;
+  if(e.ctrlKey||e.metaKey)setGroup(e.key); else recallGroup(e.key); e.preventDefault(); });
 function shipStat(t){ var s=SHIPS[t],cls=s?s.cls:"Line"; return {fp:s?s.fp:10,hull:s?s.hull:30,range:cls==="Escort"?0.07:cls==="Line"?0.09:cls==="Heavy"?0.12:0.15,speed:cls==="Escort"?0.11:cls==="Line"?0.08:cls==="Heavy"?0.055:0.04}; }
 function spawnUnit(type,fx,fy,side,color,build){ var st=shipStat(type); return {uid:UID++,type:type,fx:fx,fy:fy,hp:st.hull,maxhp:st.hull,fp:st.fp,range:st.range,speed:st.speed,side:side,color:color,moveTo:null,tuid:0,build:build||0,fireT:0,ftx:0,fty:0}; }
 function fxd(a,b){ var d=a-b; if(d>0.5)d-=1; if(d<-0.5)d+=1; return d; }
@@ -1258,6 +1324,7 @@ function infoCard(){ var ins=OM?OM.inspect:(EM?EM.inspect:null); if(!ins)return 
   var html='<div id="infocard" class="panelglass ui" style="position:absolute;left:12px;bottom:118px;width:210px;padding:9px 11px"><div class="row between"><b style="color:#cdeccf">'+esc(t)+'</b><span class="x" data-act="deselect" style="cursor:pointer;color:#789">✕</span></div><div class="small" style="color:#9fb6c4;margin:2px 0 6px">'+esc(sub)+'</div>';
   if(hp)html+='<div class="bar" style="margin-bottom:6px"><i style="width:'+Math.round(clamp(hp.f,0,1)*100)+'%;background:'+hp.col+'"></i></div>';
   html+=lines.map(function(l){return '<div class="small" style="color:#cfe9d4">'+esc(l)+'</div>';}).join("");
+  var ct=selStructType(); if(ct)html+=commandCardHtml(ct);
   return html+'</div>'; }
 function drawFlag(c,x,y){ c.save(); c.strokeStyle="#39ff14"; c.fillStyle="#39ff14"; c.lineWidth=1.5; c.shadowColor="#39ff14"; c.shadowBlur=4; c.beginPath(); c.moveTo(x,y); c.lineTo(x,y-13); c.stroke(); c.beginPath(); c.moveTo(x,y-13); c.lineTo(x+8,y-10); c.lineTo(x,y-7); c.closePath(); c.fill(); c.restore(); }
 function omSX(fx){ var bw=OM.canvas.width*3*OM.zoom,x=fx*bw-OM.camX; x=((x%bw)+bw)%bw; if(x>OM.canvas.width)x-=bw; return x; }
@@ -1342,8 +1409,8 @@ function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=c
   if(OM.build){ var bx0=Math.min(OM.build.x0,OM.build.x1),by0=Math.min(OM.build.y0,OM.build.y1),bw2=Math.abs(OM.build.x1-OM.build.x0),bh2=Math.abs(OM.build.y1-OM.build.y0),c0=omCell(OM.build.x0,OM.build.y0),c1=omCell(OM.build.x1,OM.build.y1),ncols=Math.abs(c0.cx-c1.cx)+1,nrows=Math.abs(c0.cy-c1.cy)+1,nn=ncols*nrows; c.fillStyle="rgba(57,255,20,0.16)"; c.fillRect(bx0,by0,bw2,bh2); c.strokeStyle="rgba(57,255,20,0.85)"; c.lineWidth=1; c.strokeRect(bx0,by0,bw2,bh2); c.fillStyle="#9dffb0"; c.font="bold 12px monospace"; c.textAlign="center"; var tb=BUILDINGS[OM.tool]; c.fillText("×"+nn+" "+(tb?tb.name:""),bx0+bw2/2,by0-6); } }
 function omLoop(){ if(!OM)return; OM.raf=requestAnimationFrame(omLoop); var now=performance.now(),dt=Math.min(0.05,(now-(OM.last||now))/1000); OM.last=now; if(!UI.menu){ omStep(dt); mapEdgeScroll(OM,dt); } drawOrbitMap(); }
 function orbitKey(e){ if(!OM||(e.target&&e.target.tagName==="INPUT"))return; var k=e.key;
+  /* digit control groups are handled by the global handler so they work in every view */
   if(k==="ArrowLeft"){ OM.camX-=90; e.preventDefault(); } else if(k==="ArrowRight"){ OM.camX+=90; e.preventDefault(); } else if(k==="ArrowUp"){ OM.camY+=90; e.preventDefault(); } else if(k==="ArrowDown"){ OM.camY-=90; e.preventDefault(); }
-  else if(/^[0-9]$/.test(k)){ if(e.ctrlKey||e.metaKey){ S.groups[k]=(OM.sel||[]).slice(); save(); } else { OM.sel=(S.groups[k]||[]).filter(function(uid){return S.units.some(function(u){return u.uid===uid&&u.hp>0;});}); render(); } e.preventDefault(); }
   else if(/^F([1-9]|1[0-2])$/.test(k)){ var key="orbit_"+k; if(e.ctrlKey||e.metaKey){ S.bookmarks[key]={camX:OM.camX,camY:OM.camY,zoom:OM.zoom}; save(); } else { var bm=S.bookmarks[key]; if(bm){ OM.camX=bm.camX; OM.camY=bm.camY; OM.zoom=bm.zoom; } } e.preventDefault(); } }
 function mountOrbitMap(){ var d=document.createElement("div"); d.id="orbitmap"; d.innerHTML='<canvas id="omcanvas"></canvas>';
   document.body.appendChild(d); var cv=d.querySelector("#omcanvas"); OM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,tool:null,sel:[],selStructs:[],inspect:null,box:null,build:null,selecting:false,placing:false,en:[],battleActive:false,battleRival:null,battleT:0,cmdMark:null,last:performance.now(),items:orbitItems()};
@@ -1359,9 +1426,9 @@ function mountOrbitMap(){ var d=document.createElement("div"); d.id="orbitmap"; 
   OM.up=function(e){ if(!OM)return; cv.style.cursor=OM.tool?"crosshair":"default"; if(OM.build){ placeOrbitDrag(omCell(OM.build.x0,OM.build.y0),omCell(e.clientX,e.clientY),e.shiftKey); OM.build=null; } else if(OM.placing){ OM.placing=false; placeAtScreenOrbit(sx,sy,e.shiftKey); } else if(OM.selecting){ OM.selecting=false; var moved=Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>5; if(moved&&OM.box)boxSelect(OM.box,e.shiftKey); else clickSelect(sx,sy,e.shiftKey); OM.box=null; } }; window.addEventListener("pointerup",OM.up);
   cv.addEventListener("wheel",function(e){ e.preventDefault(); var oz=OM.zoom; OM.zoom=clamp(OM.zoom*(e.deltaY<0?1.12:0.89),1,8); var f=OM.zoom/oz; OM.camX=(e.clientX+OM.camX)*f-e.clientX; OM.camY=e.clientY-(e.clientY-OM.camY)*f; },{passive:false});
   window.addEventListener("keydown",orbitKey); OM.key=orbitKey; OM.raf=requestAnimationFrame(omLoop); render();
-  if(pendingTool){ OM.tool=pendingTool; pendingTool=null; render(); } if(pendingBattle){ startOrbitBattle(pendingBattle); pendingBattle=null; } }
+  if(pendingTool){ OM.tool=pendingTool; pendingTool=null; render(); } if(pendingBattle){ startOrbitBattle(pendingBattle); pendingBattle=null; } if(pendingGroupCb){ var _gcb=pendingGroupCb; pendingGroupCb=null; _gcb(); } }
 function openOrbitMap(){ if(OM||EM)return; var f=el("fade"); if(f)f.style.opacity="1"; if(SC){ SC.transStart=SC.cam0.r; SC.trans={t:0,dur:0.42}; } setTimeout(function(){ mountOrbitMap(); if(f)f.style.opacity="0"; },460); }
-function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key); window.removeEventListener("pointermove",OM.track); window.removeEventListener("mouseout",OM.leave); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; render(); },300); }
+function closeOrbitMap(cb){ if(!OM){ if(cb)cb(); return; } var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key); window.removeEventListener("pointermove",OM.track); window.removeEventListener("mouseout",OM.leave); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; render(); if(cb)cb(); },300); }
 
 /* ============================================================ MULTIPLAYER CLIENT (scaffold)
    Inert until Net.connect() is called from the Multiplayer lobby. Offline play is unaffected.
