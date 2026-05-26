@@ -128,8 +128,7 @@ var LOCATIONS=[
   {id:"earth",name:"Earth",tag:"Talent · Customers · Capital"},
   {id:"orbit",name:"Orbit",tag:"Energy · Compute · Manufacturing"},
   {id:"moon",name:"Moon",tag:"Materials · Industry",by:"lunar_logistics"},
-  {id:"asteroids",name:"Asteroids",tag:"Rare resources",by:"mass_drivers"},
-  {id:"deep_space",name:"Deep Space",tag:"Sovereignty · Megaprojects",by:"fusion_propulsion"}
+  {id:"asteroids",name:"Asteroids",tag:"Rare resources",by:"mass_drivers"}
 ];
 var BUILDINGS={
   /* --- Earth: corporate & compute --- */
@@ -163,7 +162,7 @@ var BUILDINGS={
   consumer_division:{name:"Consumer AI Products",loc:"earth",cat:"Revenue",ds:"Mass-market AI. Consumer share + influence.",cost:{capital:4500,materials:20},g:1.17,days:120,prod:{capital:22,influence:0.5},con:{energy:12,compute:0.2},req:"personal_ai"},
   enterprise_division:{name:"Enterprise AI Division",loc:"earth",cat:"Revenue",ds:"B2B automation. High margins.",cost:{capital:6000,materials:30},g:1.17,days:150,prod:{capital:34},con:{energy:14,compute:0.4},req:"enterprise_ai"},
   gov_relations:{name:"Government Affairs Office",loc:"earth",cat:"Revenue",ds:"Contracts, influence, political cover.",cost:{capital:5000},g:1.18,days:150,prod:{capital:18,influence:0.8},con:{energy:8},req:"gov_contracts"},
-  launch_complex:{name:"Launch Complex",loc:"earth",cat:"Logistics",ds:"Spaceport. Lifts cargo to orbit and speeds every orbital, lunar & deep-space build.",cost:{capital:5000,steel:1500,concrete:2000,copper:200,materials:400},g:1.2,days:1095,con:{energy:20,materials:1},logi:1800,logiDom:"space",req:"orbital_logistics"},
+  launch_complex:{name:"Launch Complex",loc:"earth",cat:"Logistics",ds:"Spaceport. Lifts cargo to orbit and speeds every orbital, lunar & asteroid build.",cost:{capital:5000,steel:1500,concrete:2000,copper:200,materials:400},g:1.2,days:1095,con:{energy:20,materials:1},logi:1800,logiDom:"space",req:"orbital_logistics"},
   /* --- Earth: in-city corporate developments --- */
   retail_ai_center:{name:"Retail AI Center",loc:"earth",cat:"City",ds:"Consumer storefronts. Revenue + reach.",cost:{capital:3000},g:1.16,days:60,prod:{capital:16,influence:0.3},con:{energy:6,compute:0.2},req:"personal_ai"},
   regional_hq:{name:"Regional Headquarters",loc:"earth",cat:"City",ds:"Talent acquisition hub.",cost:{capital:6000,materials:20},g:1.18,days:270,prod:{talent:0.5,capital:5},con:{energy:5}},
@@ -190,7 +189,7 @@ var BUILDINGS={
   ai_cluster:{name:"AI Compute Cluster",loc:"orbit",cat:"Orbital",ds:"Frontier training fabric.",cost:{capital:20000,steel:80,chips:120,copper:60,aluminum:40},g:1.17,days:365,prod:{compute:20},con:{energy:42},req:"ai_models"},
   orbital_shipyard:{name:"Orbital Shipyard",loc:"orbit",cat:"Orbital",ds:"Orbital warship assembly. Huge ship-speed boost.",cost:{capital:80000,steel:1000,titanium:200,aluminum:200,chips:150},g:1.2,days:1095,con:{energy:40,steel:1},req:"space_manufacturing"},
   orbital_manufacturing:{name:"Orbital Manufacturing Complex",loc:"orbit",cat:"Orbital",ds:"Matures orbital industry — speeds all space builds.",cost:{capital:70000,steel:800,titanium:150,chips:120,aluminum:150},g:1.19,days:730,prod:{materials:20,chips:2,capital:15},con:{asteroid_metals:2,energy:50},logi:1500,logiDom:"space",req:"space_manufacturing"},
-  space_freighter:{name:"Space Freighter Fleet",loc:"orbit",cat:"Logistics",ds:"Heavy-lift cargo haulers for cislunar & deep-space delivery.",cost:{capital:60000,steel:600,titanium:200,chips:80},g:1.18,days:540,con:{energy:30},logi:3000,logiDom:"space",req:"space_manufacturing"},
+  space_freighter:{name:"Space Freighter Fleet",loc:"orbit",cat:"Logistics",ds:"Heavy-lift cargo haulers for cislunar & asteroid-belt delivery.",cost:{capital:60000,steel:600,titanium:200,chips:80},g:1.18,days:540,con:{energy:30},logi:3000,logiDom:"space",req:"space_manufacturing"},
   orbital_habitat:{name:"Orbital Habitat",loc:"orbit",cat:"Orbital",ds:"People live in space. Talent + influence.",cost:{capital:120000,steel:800,titanium:400,aluminum:300,chips:100,materials:400,water_ice:200},g:1.2,days:1825,prod:{talent:1.5,influence:1},con:{energy:25,water_ice:1,materials:2},req:"space_habitation"},
   orbital_research_station:{name:"Orbital Research Station",loc:"orbit",cat:"Orbital",ds:"Microgravity science. Compute + talent.",cost:{capital:40000,steel:300,titanium:80,chips:60,aluminum:60},g:1.19,days:1095,prod:{compute:8,talent:0.3},con:{energy:20},req:"space_science"},
   orbital_defense_platform:{name:"Orbital Defense Platform",loc:"orbit",cat:"Military",ds:"Static orbital defense.",cost:{capital:25000,steel:300,chips:40},g:1.18,days:365,con:{energy:18},req:"orbital_warfare"},
@@ -199,9 +198,8 @@ var BUILDINGS={
   mining_outpost:{name:"Lunar Mining Base",loc:"moon",cat:"Lunar",ds:"Regolith mining: titanium, ice, helium-3.",cost:{capital:9000,steel:60,materials:60},g:1.16,days:1095,prod:{titanium:1,water_ice:2,helium3:0.04,asteroid_metals:1},con:{energy:14,capital:1}},
   lunar_refinery:{name:"Lunar Refinery",loc:"moon",cat:"Lunar",ds:"Refines lunar metals into steel & alloys.",cost:{capital:60000,steel:400,titanium:150,materials:300},g:1.18,days:1825,prod:{steel:12,aluminum:6,materials:10},con:{titanium:0.5,asteroid_metals:2,energy:30},req:"lunar_industry"},
   lunar_manufacturing:{name:"Lunar Manufacturing Hub",loc:"moon",cat:"Lunar",ds:"Self-operating off-world factory.",cost:{capital:120000,steel:1000,titanium:300,chips:200,aluminum:200},g:1.2,days:2920,prod:{materials:40,chips:4,capital:20},con:{steel:3,asteroid_metals:2,energy:50},req:"lunar_industry"},
-  /* --- Asteroids / Deep space --- */
-  asteroid_harvester:{name:"Asteroid Harvester",loc:"asteroids",cat:"Space",ds:"Strip-mines metal-rich asteroids.",cost:{capital:80000,steel:800,titanium:200,chips:80,materials:400},g:1.18,days:1460,prod:{asteroid_metals:8,platinum:1,titanium:2,materials:10},con:{energy:65}},
-  sovereign_colony:{name:"Sovereign Colony",loc:"deep_space",cat:"Space",ds:"Self-sufficient off-world civilization.",cost:{capital:400000,steel:6000,titanium:1500,aluminum:1500,chips:800,materials:5000,water_ice:500},g:1.25,days:7300,prod:{influence:9,capital:45,talent:1.2},con:{energy:160,water_ice:5,materials:5}}
+  /* --- Asteroids --- */
+  asteroid_harvester:{name:"Asteroid Harvester",loc:"asteroids",cat:"Space",ds:"Strip-mines metal-rich asteroids.",cost:{capital:80000,steel:800,titanium:200,chips:80,materials:400},g:1.18,days:1460,prod:{asteroid_metals:8,platinum:1,titanium:2,materials:10},con:{energy:65}}
 };
 var TECHS={
   ai_models:{name:"Advanced AI Models",br:"Compute",ds:"+25% compute. Unlocks AI Clusters.",cost:{compute:300},mult:{compute:1.25}},
@@ -222,10 +220,10 @@ var TECHS={
   economic_machine:{name:"The Economic Machine",br:"Abundance",ds:"Dalio's blueprint: master the credit/debt cycle and the productivity engine to ride the Big Cycle. +45% capital.",cost:{compute:2500,capital:30000},req:["ai_investing"],mult:{capital:1.45}},
   demonetization:{name:"Demonetization",br:"Abundance",ds:"Diamandis's 6 D's — dematerialize, demonetize, democratize. Exponential tech drives build & ship costs toward zero (−30%).",cost:{compute:3000,capital:30000},req:["humanoid_robots"],mult:{capital:1.15}},
   intelligent_economy:{name:"The Intelligent Economy",br:"Abundance",ds:"Mostaque's Intelligence Inversion — intelligence becomes abundant, non-metabolic capital. The last economy: +30% ALL, costs −30% more.",cost:{compute:22000,capital:220000,materials:2500},req:["agi","economic_machine","demonetization"],gm:1.3},
-  orbital_logistics:{name:"Orbital Logistics",br:"Transportation",ds:"+10% materials. Gateway to deep space.",cost:{compute:500,capital:6000},mult:{materials:1.1}},
+  orbital_logistics:{name:"Orbital Logistics",br:"Transportation",ds:"+10% materials. Scales up orbital supply.",cost:{compute:500,capital:6000},mult:{materials:1.1}},
   lunar_logistics:{name:"Nuclear Propulsion",br:"Transportation",ds:"Opens the Moon.",cost:{compute:1500,capital:20000,materials:200},req:["orbital_logistics"],loc:"moon"},
   mass_drivers:{name:"Mass Drivers",br:"Transportation",ds:"Opens the Asteroid Belt.",cost:{compute:3200,capital:50000,materials:650},req:["lunar_logistics"],loc:"asteroids"},
-  fusion_propulsion:{name:"Fusion Propulsion",br:"Transportation",ds:"+25% ALL. Opens Deep Space.",cost:{compute:8500,capital:160000,materials:3200},req:["mass_drivers","fusion"],gm:1.25,loc:"deep_space"},
+  fusion_propulsion:{name:"Fusion Propulsion",br:"Transportation",ds:"+25% to all output.",cost:{compute:8500,capital:160000,materials:3200},req:["mass_drivers","fusion"],gm:1.25},
   cyberwarfare:{name:"Cyberwarfare",br:"Defense",ds:"Enables espionage & cyber-defense.",cost:{compute:600,capital:3000}},
   security_forces:{name:"Corporate Security Forces",br:"Defense",ds:"Unlocks Corvettes.",cost:{compute:1200,capital:8000,materials:120},req:["cyberwarfare"]},
   corporate_military:{name:"Corporate Military",br:"Defense",ds:"Unlocks Frigates.",cost:{compute:2600,capital:24000,materials:400},req:["security_forces"]},
@@ -505,7 +503,7 @@ function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),nodeGros
   net.capital=capInc-conCapital-tax-payroll-interest-demandCost; net.influence=pg.influence+mInf+ext.influence-con.influence;
   return {eS:eS,eD:eD,eSgen:eSgen,gridBought:gd.bought,gridCost:gd.cost,gridCap:gd.cap,gridPrice:gd.price,gridContract:gd.contract,gridUncovered:gd.uncovered,pr:pr,wr:wr,waterDemand:wd.demand,waterFree:wd.free,waterBought:wd.bought,waterSupply:wd.supply,waterCost:wd.cost,waterCap:wd.cap,waterPrice:wd.price,waterContract:wd.contract,waterUncovered:wd.uncovered,sellThru:sellThru,chanUnsold:chanUnsold,unsoldTotal:dUnsold,net:net,nodeProd:nodeProd,payroll:payroll,capInc:capInc,tax:tax,interest:interest,conCapital:conCapital,mktgCost:mktgCost,salesPay:salesPay,surfCap:surfCap,surfDem:surfDem,lrS:lrS,spCap:spCap,spDem:spDem,lrSp:lrSp,lr:lr}; }
 function advance(S,dt){ var r=rates(S),o={}; STOCKS.forEach(function(k){ if(k==="capital"){ o[k]=S.resources[k]; return; } o[k]=Math.max(0,S.resources[k]+r.net[k]*dt); }); return o; }
-var BODIES=["orbit","moon","asteroids","deep_space"];
+var BODIES=["orbit","moon","asteroids"];
 /* Physical haulage: off-world production lands at the body where it is mined (S.nodes[body]); SPACE lift (r.spCap)
    carries it home into S.resources. When lift < the off-world backlog, goods strand at the node until lift catches up. */
 function haulTick(S,dt){ if(!S.nodes)return; var r=rates(S),np=r.nodeProd||{},cap=Math.max(0,r.spCap)*dt,i,k,body,nb;
@@ -576,7 +574,7 @@ function geoKm(lo1,la1,lo2,la2){ var dlo=Math.abs(((lo1-lo2+540)%360)-180),dla=M
 function hqCell(loc){ var pl=(S.earthPlacements||[]).filter(function(p){return !p.orbit&&BUILDINGS[p.id]&&BUILDINGS[p.id].loc===loc;})[0]; if(pl)return emCellOf(pl); return {gx:Math.round(-74/GRID_STEP),gy:Math.round(41/GRID_STEP)}; }
 var STORAGE_IDS={logistics_hub:1,seaport:1,operations_center:1,ground_dc:1,robotic_factory:1,factory:1,steel_mill:1,lunar_refinery:1,lunar_manufacturing:1,mining_outpost:1};
 function storageNodes(loc){ var out=[]; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit)return; var b=BUILDINGS[pl.id]; if(!b||b.loc!==loc||!STORAGE_IDS[pl.id])return; var c=emCellOf(pl); out.push([c.gx*GRID_STEP,c.gy*GRID_STEP]); }); return out; }
-function siteContext(loc,gx,gy){ var off={orbit:2.2,asteroids:4,deep_space:5}; if(loc==="orbit"||loc==="asteroids"||loc==="deep_space"){ var f=off[loc]||2.5; if((S.buildings.launch_complex||0)>0)f*=0.8; if((S.buildings.orbital_manufacturing||0)>0)f*=0.82; return {freight:f,distKm:38000,off:true}; }
+function siteContext(loc,gx,gy){ var off={orbit:2.2,asteroids:4}; if(loc==="orbit"||loc==="asteroids"){ var f=off[loc]||2.5; if((S.buildings.launch_complex||0)>0)f*=0.8; if((S.buildings.orbital_manufacturing||0)>0)f*=0.82; return {freight:f,distKm:38000,off:true}; }
   if(gx===undefined||gx===null){ return {freight:0.4,distKm:500,off:false}; }
   var lon=gx*GRID_STEP,lat=gy*GRID_STEP,nodes=storageNodes(loc),best=1e9; if(!nodes.length){ var hq=hqCell(loc); nodes=[[hq.gx*GRID_STEP,hq.gy*GRID_STEP]]; } nodes.forEach(function(n){ var d=geoKm(lon,lat,n[0],n[1]); if(d<best)best=d; }); return {freight:clamp(best/1500,0,3),distKm:Math.round(best),off:false}; }
 /* On-the-fly construction quote: flat base × efficiency, economies of scale (bulk + mobilization),
@@ -597,7 +595,7 @@ function buildSpeed(S){ var s=1,has=function(t){return S.researched.indexOf(t)>=
   if(has("industrial_robotics"))s*=1.4; if(has("humanoid_robots"))s*=1.5; if(has("ai_construction"))s*=1.8; if(has("autonomous_construction"))s*=2; if(has("agi"))s*=1.8; if(has("nanofabrication"))s*=2.2; if(has("self_replicating"))s*=2.5;
   var ep=S.buildings.equipment_plant||0; if(ep>0)s*=1+Math.min(0.6,ep*0.04); /* construction equipment (capital goods) speeds builds */ return s; }
 function btime(b){ if(freeBuild())return 0.1; var days=b.days||60,sp=buildSpeed(S),sl=b.loc;
-  if(sl==="orbit"||sl==="moon"||sl==="asteroids"||sl==="deep_space"){ if((S.buildings.launch_complex||0)>0)sp*=1.5; if(S.researched.indexOf("space_manufacturing")>=0)sp*=2.5; if((S.buildings.orbital_manufacturing||0)>0)sp*=2; }
+  if(sl==="orbit"||sl==="moon"||sl==="asteroids"){ if((S.buildings.launch_complex||0)>0)sp*=1.5; if(S.researched.indexOf("space_manufacturing")>=0)sp*=2.5; if((S.buildings.orbital_manufacturing||0)>0)sp*=2; }
   return Math.max(2,days*DAY_SECONDS*SETTINGS.timeMult/sp); }
 function stime(s){ if(freeBuild())return 0.1; return clamp(Math.sqrt(s.cost.capital||100)/12,3,40)*SETTINGS.timeMult; }
 function ttime(t){ return clamp(Math.sqrt(t.cost.compute||(t.cost.capital||100)/10)/4,5,60)*SETTINGS.timeMult*corpMod().research; }
@@ -611,7 +609,7 @@ function bUnlocked(b,r){ if(!locUnlocked(b.loc,r))return false; if(b.req&&r.inde
 function techStatus(id,r){ var t=TECHS[id]; if(r.indexOf(id)>=0)return "done"; if(t.req&&!t.req.every(function(x){return r.indexOf(x)>=0;}))return "lock"; return "ok"; }
 function currentStage(S){ var techs=S.researched.length,tb=0; for(var b in S.buildings)tb+=S.buildings[b];
   var orbit=(S.buildings.orbital_solar_array||0)>0||(S.buildings.ai_cluster||0)>0,moon=S.researched.indexOf("lunar_logistics")>=0,deep=S.researched.indexOf("fusion_propulsion")>=0;
-  if(deep&&(S.buildings.sovereign_colony||0)>0)return 6; if(moon&&techs>=8)return 5; if(orbit&&techs>=5)return 4; if(techs>=4||S.resources.capital>=250000)return 3; if(techs>=1||tb>=6)return 2; return 1; }
+  if(deep&&moon&&techs>=12)return 6; if(moon&&techs>=8)return 5; if(orbit&&techs>=5)return 4; if(techs>=4||S.resources.capital>=250000)return 3; if(techs>=1||tb>=6)return 2; return 1; }
 
 /* ============================================================ WORLD */
 function playerMetrics(S){ var av=0; for(var id in S.buildings){ var b=BUILDINGS[id]; if(b&&b.cost.capital)av+=b.cost.capital*S.buildings[id]; } return {eco:S.resources.capital+av*CAP_SCALE,tech:S.researched.length,inf:S.resources.influence,mil:milPower(S.fleet).fp}; }
@@ -1252,7 +1250,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   scene.add(makeLabel("Sun","#ffd27a",40,10).translateY(SUN_R+10));
   var selRing=new THREE.Mesh(new THREE.TorusGeometry(1,0.03,8,72),new THREE.MeshBasicMaterial({color:0x39ff14,transparent:true,opacity:0.9,depthWrite:false})); selRing.rotation.x=Math.PI/2; selRing.visible=false; selRing.renderOrder=5; scene.add(selRing);
   PLANETS.forEach(function(p){ ringLine(scene,p.au*AU,0x0c3a18); });
-  ringLine(scene,2.7*AU,0x3a2a12); ringLine(scene,3.6*AU,0x281240);
+  ringLine(scene,2.7*AU,0x3a2a12);
   var pick=[],pivots=[],focusObj={},earthGroup,moonPivot,moonMesh;
   PLANETS.forEach(function(p){ var piv=new THREE.Group(); piv.rotation.y=Math.random()*6.28; scene.add(piv);
     var g=new THREE.Group(); g.position.set(p.au*AU,0,0); piv.add(g);
@@ -1269,14 +1267,22 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
       var mr=[]; for(var ma=0;ma<=96;ma++){ var maa=ma/96*Math.PI*2; mr.push(new THREE.Vector3(Math.cos(maa)*MOON_DIST,0,Math.sin(maa)*MOON_DIST)); } g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(mr),new THREE.LineBasicMaterial({color:0x9fb6c4,transparent:true,opacity:0.25})));
       var oring=new THREE.Mesh(new THREE.TorusGeometry(STATION_R,0.11,8,64),new THREE.MeshBasicMaterial({color:0x9aa3ad,transparent:true,opacity:0.5})); oring.rotation.x=Math.PI/2; g.add(oring); oring.userData.loc="orbit"; pick.push(oring);
       var orbitShell=new THREE.Mesh(new THREE.SphereGeometry(STATION_R,48,32),new THREE.MeshBasicMaterial({map:makeOrbitTexture(),transparent:true,depthWrite:false,side:THREE.DoubleSide})); g.add(orbitShell); orbitShell.userData.loc="orbit"; pick.push(orbitShell);
+    }
+    if(p.id==="mars"){ /* Phobos & Deimos — visual moons; inner one orbits much faster (real periods) */
+      [{name:"Phobos",dist:6,r:0.55,period:0.319},{name:"Deimos",dist:10.5,r:0.42,period:1.262}].forEach(function(mo){
+        var mpiv=new THREE.Group(); mpiv.rotation.y=Math.random()*6.28; g.add(mpiv);
+        var mm=new THREE.Mesh(new THREE.DodecahedronGeometry(mo.r),new THREE.MeshStandardMaterial({color:0x8a7a6a,emissive:0x2a2420,emissiveIntensity:0.2,roughness:0.95,metalness:0.0})); mm.position.set(mo.dist,0,0); mpiv.add(mm);
+        mm.add(makeLabel(mo.name,"#b9aa99",20,6).translateY(mo.r+2));
+        pivots.push({piv:mpiv,phase:mpiv.rotation.y,omega:2*Math.PI/(mo.period*DAY_SECONDS),spin:0,mesh:mm});
+        var rr=[]; for(var a=0;a<=64;a++){ var aa=a/64*Math.PI*2; rr.push(new THREE.Vector3(Math.cos(aa)*mo.dist,0,Math.sin(aa)*mo.dist)); } g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(rr),new THREE.LineBasicMaterial({color:0x9a8478,transparent:true,opacity:0.2})));
+      });
     } });
   var ast=new THREE.Group(); ast.position.set(2.7*AU*Math.cos(0.6),0,2.7*AU*Math.sin(0.6)); scene.add(ast); for(var i=0;i<30;i++){ var rk=new THREE.Mesh(new THREE.DodecahedronGeometry(1+Math.random()*1.8),new THREE.MeshStandardMaterial({color:0xb08a5a,roughness:0.95})); var an=Math.random()*6.28,rad=6+Math.random()*7; rk.position.set(Math.cos(an)*rad,(Math.random()*2-1)*3,Math.sin(an)*rad); ast.add(rk); } ast.add(makeLabel("Asteroids","#d8b27a",50,11).translateY(12)); addHit(ast,9,"asteroids",pick); focusObj.asteroids=ast;
-  var deep=new THREE.Group(); deep.position.set(3.6*AU*Math.cos(2.2),0,3.6*AU*Math.sin(2.2)); scene.add(deep); deep.add(new THREE.Mesh(new THREE.IcosahedronGeometry(6),new THREE.MeshStandardMaterial({color:0xb07bff,emissive:0xb07bff,emissiveIntensity:0.3}))); deep.add(makeLabel("Deep Space","#c79bff",54,12).translateY(11)); addHit(deep,8,"deep_space",pick); focusObj.deep_space=deep;
   var fleetGrp=new THREE.Group(); earthGroup.add(fleetGrp);
-  var dev={earth:new THREE.Group(),moon:new THREE.Group(),asteroids:new THREE.Group(),deep:new THREE.Group(),orbit:new THREE.Group()};
-  earthGroup.add(dev.earth); moonMesh.add(dev.moon); ast.add(dev.asteroids); deep.add(dev.deep); earthGroup.add(dev.orbit);
+  var dev={earth:new THREE.Group(),moon:new THREE.Group(),asteroids:new THREE.Group(),orbit:new THREE.Group()};
+  earthGroup.add(dev.earth); moonMesh.add(dev.moon); ast.add(dev.asteroids); earthGroup.add(dev.orbit);
   var rivalGrp=new THREE.Group(); earthGroup.add(rivalGrp); var neutralGrp=new THREE.Group(); earthGroup.add(neutralGrp);
-  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,sunMesh:sunMesh,earthGroup:earthGroup,ast:ast,deep:deep,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),tmp2:new THREE.Vector3(),selRing:selRing,selBody:null,selObj:null,selR:10,focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0,lost:false};
+  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,sunMesh:sunMesh,earthGroup:earthGroup,ast:ast,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),tmp2:new THREE.Vector3(),selRing:selRing,selBody:null,selObj:null,selR:10,focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0,lost:false};
   attachControls(canvas); window.addEventListener("resize",onResize);
   document.addEventListener("visibilitychange",function(){ if(!document.hidden&&SC){ SC.dirtyTex=true; try{ SC.renderer.render(SC.scene,SC.cam); }catch(_){} } });
   canvas.addEventListener("dblclick",function(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false),best=bestHit(hit); if(best){ var lc=best.object.userData.loc; if(lc==="earth")openEarthMap(); else if(lc==="orbit")openOrbitMap(); else if(lc==="moon")openEarthMap("moon"); } });
@@ -1293,10 +1299,10 @@ function attachControls(canvas){ var c=SC.cam0,px=0,py=0,moved=false;
 function bestHit(hits){ var orbit=null,i; for(i=0;i<hits.length;i++){ var lc=hits[i].object.userData.loc; if(lc==="orbit"){ if(!orbit)orbit=hits[i]; } else return hits[i]; } return orbit; }
 function pickAt(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false),best=bestHit(hit);
   if(!best){ SC.selBody=null; SC.selObj=null; render(); return; } /* left-click empty space → deselect */
-  var loc=best.object.userData.loc,gameplay=["earth","orbit","moon","asteroids","deep_space"];
+  var loc=best.object.userData.loc,gameplay=["earth","orbit","moon","asteroids"];
   if(gameplay.indexOf(loc)>=0){ UI.tab="ops"; UI.open=true; UI.sel=locUnlocked(loc,S.researched)?loc:null; SC.focus=(loc==="orbit"?"earth":loc);
     SC.selBody=loc; SC.selObj=SC.focusObj[loc==="orbit"?"earth":loc]||SC.earthGroup; SC.selR=loc==="orbit"?STATION_R:loc==="moon"?MOON_R+2.5:loc==="earth"?9:12;
-    if(loc==="asteroids"||loc==="deep_space")SC.cam0.r=90; render(); }
+    if(loc==="asteroids")SC.cam0.r=90; render(); }
   else { SC.focus=loc; SC.selBody=loc; SC.selObj=best.object; SC.selR=12; render(); } }
 function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S.buildings)if(BUILDINGS[id]&&BUILDINGS[id].loc===loc)c+=S.buildings[id]; return c; }
   var PC=PCOLORS[0];
@@ -1304,7 +1310,7 @@ function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S
   /* system view = clean celestial bodies only. Every structure/unit/company marker that used to float here (player
      ring marks, orbital marks, the fleet, and the rival/neutral clusters) is removed; orbital contents are surfaced
      on the transparent orbit shell instead, and surface structures on the Earth texture. */
-  if(!SC.devCleared){ clearGroup(SC.dev.earth); clearGroup(SC.dev.moon); clearGroup(SC.dev.asteroids); clearGroup(SC.dev.deep); clearGroup(SC.dev.orbit); clearGroup(SC.fleetGrp); clearGroup(SC.rivalGrp); clearGroup(SC.neutralGrp); SC.devCleared=true; }
+  if(!SC.devCleared){ clearGroup(SC.dev.earth); clearGroup(SC.dev.moon); clearGroup(SC.dev.asteroids); clearGroup(SC.dev.orbit); clearGroup(SC.fleetGrp); clearGroup(SC.rivalGrp); clearGroup(SC.neutralGrp); SC.devCleared=true; }
   updateEarthTexture(SC.dirtyTex); updateOrbitTexture(SC.dirtyTex); SC.dirtyTex=false; }
 function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene);
   var gl=SC.renderer.getContext?SC.renderer.getContext():null;
@@ -1351,7 +1357,7 @@ var POP_TOTAL=(function(){ var t=0; POP.forEach(function(c){ t+=c.p; }); return 
 function pickCity(rnd){ var x=rnd()*POP_TOTAL,acc=0,i; for(i=0;i<POP.length;i++){ acc+=POP[i].p; if(x<=acc)return POP[i]; } return POP[POP.length-1]; }
 function terrOK(b,gx,gy){ if(!b)return false; if(b.loc!=="earth")return true; var ter=cellTerrain(gx,gy),req=b.terr||"land"; if(req==="land"&&!ter.land)return false; if(req==="sea"&&ter.land)return false; if(req==="coast"&&!ter.coast)return false; if(b.dep&&!nearDeposit(gx*GRID_STEP,gy*GRID_STEP,b.dep))return false; return true; }
 function terrInfo(b){ if(!b||b.loc!=="earth")return null; var req=b.terr||"land",gl={land:"⛰",sea:"🌊",coast:"⚓"}[req],lbl={land:"land",sea:"open sea",coast:"coastline"}[req],dep=b.dep?{oil:"oil field",metals:"metals deposit",rare:"rare-earth deposit"}[b.dep]:""; return {glyph:gl+(b.dep?"⛏":""),label:"Build on "+lbl+(dep?" · on a "+dep:"")}; }
-var BSHAPE={ground_dc:"dc",orbital_data_center:"dc",oceanic_data_center:"dc",dyson_node:"solar",solar_farm:"solar",orbital_solar_array:"solar",ai_cluster:"ai",comms_satellite:"sat",operations_center:"hub",recruitment_hub:"station",consumer_division:"dc",enterprise_division:"dc",gov_relations:"station",fusion_reactor:"ai",mine:"mine",rare_metals_mine:"mine",oil_well:"station",offshore_platform:"station",military_shipyard:"hub",seaport:"hub",logistics_hub:"hub",mining_outpost:"mine",robotic_factory:"dc",asteroid_harvester:"mine",sovereign_colony:"hub"};
+var BSHAPE={ground_dc:"dc",orbital_data_center:"dc",oceanic_data_center:"dc",dyson_node:"solar",solar_farm:"solar",orbital_solar_array:"solar",ai_cluster:"ai",comms_satellite:"sat",operations_center:"hub",recruitment_hub:"station",consumer_division:"dc",enterprise_division:"dc",gov_relations:"station",fusion_reactor:"ai",mine:"mine",rare_metals_mine:"mine",oil_well:"station",offshore_platform:"station",military_shipyard:"hub",seaport:"hub",logistics_hub:"hub",mining_outpost:"mine",robotic_factory:"dc",asteroid_harvester:"mine"};
 var MOON_CRATERS=(function(){ var a=[],s=98765; function r(){ s=(s*1103515245+12345)&0x7fffffff; return s/0x7fffffff; } for(var i=0;i<48;i++)a.push({lon:r()*360-180,lat:r()*150-75,r:5+r()*22,mare:r()<0.18}); return a; })();
 function seedRand(seed){ var s=(seed>>>0)||1; return function(){ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
 function rseed(id){ var h=2166136261; for(var i=0;i<id.length;i++){ h^=id.charCodeAt(i); h=(h*16777619)>>>0; } return h; }
