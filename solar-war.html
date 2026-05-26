@@ -406,16 +406,49 @@ function mgmtCapacity(S){ return 3+(S.buildings.operations_center||0)*3+(S.build
 function humanoidCap(S){ if((S.researched||[]).indexOf("humanoid_robots")<0)return 0; return (S.buildings.robotic_factory||0)*4+(S.buildings.drone_facility||0)*3+(S.buildings.lunar_manufacturing||0)*6+(S.buildings.orbital_manufacturing||0)*6; }
 function mgmtUsage(S){ var u={manage:0,humanoid:0}; (S.earthPlacements||[]).forEach(function(pl){ if(pl.uc)return; if(pl.mg==="manage")u.manage++; else if(pl.mg==="humanoid")u.humanoid++; }); return u; }
 function effCounts(S){ var ec={},arr=S.earthPlacements||[],i; for(i=0;i<arr.length;i++){ var pl=arr[i]; if(pl.uc||!BUILDINGS[pl.id])continue; ec[pl.id]=(ec[pl.id]||0)+instanceEff(pl,S); } for(var id in S.buildings){ if(ec[id]===undefined&&S.buildings[id]>0)ec[id]=S.buildings[id]*autopilotEff(S); } return ec; }
+/* Signature structure types can be tuned per-instance: an output mode (product line / workload) and, for
+   revenue modes, a pricing tier. Each instance carries its own pl.mode and pl.price. */
+var PRICETIER={budget:{lab:"Budget",cap:0.85,inf:0.05},market:{lab:"Market",cap:1.0,inf:0},premium:{lab:"Premium",cap:1.32,inf:0}};
+var MODES={
+  data_center:{label:"Workload",def:"ai",list:[
+    {key:"ai",lab:"🧠 AI Compute",prod:{compute:9},ds:"Feed your own AI — raw compute."},
+    {key:"lease",lab:"☁ Cloud Lease",prod:{capital:8},priced:true,ds:"Rent capacity to customers for cash."},
+    {key:"render",lab:"🎬 Render Farm",prod:{capital:6,compute:2},priced:true,ds:"Media rendering — cash plus some compute."}]},
+  mine:{label:"Extraction plan",def:"bal",list:[
+    {key:"bal",lab:"⚖ Balanced",prod:{iron_ore:4,copper:1.5,coal:3,uranium:0.04},ds:"Even draw across the whole deposit."},
+    {key:"bulk",lab:"⚡ Max Throughput",prod:{iron_ore:6,copper:1.8,coal:4.5,uranium:0.05},con:{energy:9},ds:"Push hard — more ore, more power burned."},
+    {key:"grade",lab:"💎 High-Grade",prod:{copper:3,uranium:0.09,iron_ore:1.5},ds:"Chase high-value seams; skip bulk coal."},
+    {key:"export",lab:"💵 Export Ore",prod:{capital:7},priced:true,ds:"Sell ore straight to the commodities market."}]},
+  factory:{label:"Product line",def:"bal",list:[
+    {key:"bal",lab:"⚖ Balanced",prod:{materials:8,capital:5},ds:"Mixed materials and saleable output."},
+    {key:"mat",lab:"📦 Materials",prod:{materials:13},ds:"Max raw materials for your supply chain."},
+    {key:"goods",lab:"💰 Finished Goods",prod:{capital:12,materials:2},priced:true,ds:"Build and sell finished goods for cash."}]},
+  solar_farm:{label:"Dispatch",def:"grid",list:[
+    {key:"grid",lab:"⚡ Grid Supply",prod:{energy:45},ds:"Power your own operations."},
+    {key:"sell",lab:"💵 Sell to Grid",prod:{energy:22,capital:7},priced:true,ds:"Divert capacity to the wholesale power market."}]}
+};
+function modeDef(id,key){ var d=MODES[id]; if(!d)return null; for(var i=0;i<d.list.length;i++)if(d.list[i].key===key)return d.list[i]; return d.list[0]; }
+function modeBuckets(S){ var MB={},arr=S.earthPlacements||[],i; for(i=0;i<arr.length;i++){ var pl=arr[i]; if(pl.uc||!MODES[pl.id])continue; var eff=instanceEff(pl,S),mk=modeDef(pl.id,pl.mode||MODES[pl.id].def).key,pk=PRICETIER[pl.price]?pl.price:"market"; var m=MB[pl.id]||(MB[pl.id]={}),mm=m[mk]||(m[mk]={}); mm[pk]=(mm[pk]||0)+eff; }
+  for(var id in MODES){ if(!MB[id]&&S.buildings[id]>0){ MB[id]={}; MB[id][MODES[id].def]={market:S.buildings[id]*autopilotEff(S)}; } } return MB; }
 function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),nodeGross={},eS=0,eD=0,k,rf,xf=extractionFactors(S),cm=corpMod();
   /* SURFACE freight (truck/rail/sea/air) throttles Earth physical production at source. Off-world goods are NOT throttled
      at the source — they pile up at the body where they are mined and must be hauled home by SPACE lift (see haulTick). */
   var surfCap=LOGI_BASE+cm.surfAdd,surfDem=0,spCap=SPACE_BASE; for(var lid in S.buildings){ var lc=S.buildings[lid],lb=BUILDINGS[lid]; if(!lc||!lb)continue; if(lb.logi){ if(lb.logiDom==="space")spCap+=lb.logi*lc; else surfCap+=lb.logi*lc; } if(lb.loc==="earth"){ var t=0; if(lb.prod)for(k in lb.prod){ if(PHYS[k])t+=lb.prod[k]; } if(lb.con)for(k in lb.con){ if(PHYS[k])t+=lb.con[k]; } surfDem+=t*lc; } }
   surfCap*=cm.logi; spCap*=cm.logi;
   var lrS=surfDem<=0?1:clamp(surfCap/surfDem,0,1);
-  var EFF=effCounts(S);
+  var EFF=effCounts(S),MB=modeBuckets(S);
   for(var id in S.buildings){ var c=S.buildings[id]; if(!c)continue; var b=BUILDINGS[id]; if(!b)continue; var ec=EFF[id]!==undefined?EFF[id]:c;
     rf=1; if(b.con)for(k in b.con){ if(k==="energy")continue; var nd=b.con[k]*c,av=S.resources[k]||0,f=nd<=0?1:clamp(av/(nd*RUNWIN),0,1); if(f<rf)rf=f; }
     var xr=(b.dep&&xf[id]!==undefined)?xf[id]:1,off=b.loc!=="earth";
+    if(MODES[id]){ var mb=MB[id]||{};
+      for(var mk in mb){ var md=modeDef(id,mk),prices=mb[mk];
+        for(var pk in prices){ var ecm=prices[pk]; if(ecm<=0)continue; var pt=PRICETIER[pk]||PRICETIER.market;
+          if(md.prod)for(k in md.prod){ if(k==="energy"){ eS+=md.prod[k]*ecm*rf; continue; } var amt=md.prod[k]*ecm*rf*xr;
+            if(k==="capital"&&md.priced){ gross.capital+=amt*pt.cap; if(pt.inf)gross.influence+=amt*pt.inf; }
+            else if(off&&PHYS[k]){ var ng=nodeGross[b.loc]||(nodeGross[b.loc]={}); ng[k]=(ng[k]||0)+amt; }
+            else gross[k]+=amt*(PHYS[k]?lrS:1); }
+          var bc=md.con||b.con; if(bc)for(k in bc){ if(k==="energy")eD+=bc[k]*ecm*rf; else con[k]+=bc[k]*ecm*rf; } } }
+      continue; }
     if(b.prod)for(k in b.prod){ if(k==="energy"){ eS+=b.prod[k]*ec*rf; continue; } var amt=b.prod[k]*ec*rf*xr; if(off&&PHYS[k]){ var ng=nodeGross[b.loc]||(nodeGross[b.loc]={}); ng[k]=(ng[k]||0)+amt; } else gross[k]+=amt*(PHYS[k]?lrS:1); }
     if(b.gpu){ var gm=S.gpuMode||"ai"; if(gm==="ai")gross.compute+=14*ec; else if(gm==="render")gross.capital+=10*ec; }
     if(b.con)for(k in b.con){ var u=(k==="capital")?c:ec; if(k==="energy")eD+=b.con[k]*u*rf; else con[k]+=b.con[k]*u*rf; } }
@@ -844,10 +877,19 @@ function corpPanel(){ var cur=curStruct(),fee=restructureFee(),sc=subCost(),mx=m
 function resourceLedger(S){
   var m=techMult(S.researched),cm=corpMod(),xf=extractionFactors(S),ts=talentStats(S),staff=ts.staffRatio,head=ts.headroom,r=rates(S),pr=r.pr,lrS=r.lrS;
   var L={}; STOCKS.forEach(function(k){ L[k]={onHand:S.resources[k]||0,net:r.net[k],inflow:[],outflow:[],off:[],transit:0,owed:0}; });
-  var ePlus=[],eMinus=[],id,k,EFF=effCounts(S);
+  var ePlus=[],eMinus=[],id,k,EFF=effCounts(S),MB=modeBuckets(S);
   for(id in S.buildings){ var c=S.buildings[id]; if(!c)continue; var b=BUILDINGS[id]; if(!b)continue; var ec=EFF[id]!==undefined?EFF[id]:c;
     var rf=1; if(b.con)for(k in b.con){ if(k==="energy")continue; var nd=b.con[k]*c,av=S.resources[k]||0,f=nd<=0?1:clamp(av/(nd*RUNWIN),0,1); if(f<rf)rf=f; }
     var xr=(b.dep&&xf[id]!==undefined)?xf[id]:1,off=b.loc!=="earth",nm=b.name+(c>1?" ×"+c:"");
+    if(MODES[id]){ var mb=MB[id]||{};
+      for(var mk in mb){ var md=modeDef(id,mk),prices=mb[mk],mlab=nm+" · "+md.lab;
+        for(var pk in prices){ var ecm=prices[pk]; if(ecm<=0)continue; var pt=PRICETIER[pk]||PRICETIER.market,plab=mlab+(md.priced?" ("+pt.lab+")":"");
+          if(md.prod)for(k in md.prod){ if(k==="energy"){ var ev2=md.prod[k]*ecm*rf; if(ev2>0)ePlus.push({src:mlab,amt:ev2}); continue; } var base2=md.prod[k]*ecm*rf*xr;
+            if(k==="capital"&&md.priced){ var cv2=base2*pt.cap*m.capital*pr*staff; if(cv2>0)L.capital.inflow.push({src:plab,amt:cv2*CAP_SCALE}); if(pt.inf){ var iv=base2*pt.inf*m.influence*pr*staff; if(iv>0)L.influence.inflow.push({src:plab,amt:iv}); } }
+            else if(off&&PHYS[k]){ var ov2=base2*m[k]*pr*staff; if(ov2>0)L[k].off.push({src:mlab+" · "+b.loc,amt:ov2}); }
+            else { var v2=base2*(PHYS[k]?lrS:1)*m[k]*pr*(k==="talent"?head:staff); if(v2>0)L[k].inflow.push({src:mlab,amt:k==="capital"?v2*CAP_SCALE:v2}); } }
+          var bc=md.con||b.con; if(bc)for(k in bc){ var cv3=bc[k]*ecm*rf; if(cv3<=0)continue; if(k==="energy")eMinus.push({src:mlab,amt:cv3}); else L[k].outflow.push({src:mlab,amt:k==="capital"?cv3*CAP_SCALE:cv3}); } } }
+      continue; }
     if(b.prod)for(k in b.prod){ if(k==="energy"){ var ev=b.prod[k]*ec*rf; if(ev>0)ePlus.push({src:nm,amt:ev}); continue; }
       var base=b.prod[k]*ec*rf*xr;
       if(off&&PHYS[k]){ var ov=base*m[k]*pr*staff; if(ov>0)L[k].off.push({src:nm+" · "+b.loc,amt:ov}); }
@@ -1012,6 +1054,8 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="omtool"){ if(OM){ OM.tool=OM.tool===id?null:id; render(); } return; }
   if(act==="deselect"){ deselectMap(); return; }
   if(act==="mgmt"){ var mp=mgmtSelection(); if(mp.length){ applyMgmt(mp,arg); save(); render(); if(EM)drawEarthMap(); if(OM)drawOrbitMap(); } return; }
+  if(act==="setmode"){ var id0=selStructType(); if(id0&&MODES[id0]&&modeDef(id0,arg).key===arg){ mgmtSelection().forEach(function(pl){ if(pl.id===id0)pl.mode=arg; }); save(); render(); if(EM)drawEarthMap(); if(OM)drawOrbitMap(); } return; }
+  if(act==="setprice"){ if(PRICETIER[arg]){ mgmtSelection().forEach(function(pl){ if(MODES[pl.id])pl.price=arg; }); save(); render(); } return; }
   if(act==="cmd_ship"){ var ow=(S.fleet[id]||0)+queued("ship",id); A.ship(id); save(); syncScene(); render(); grpToast((S.fleet[id]||0)+queued("ship",id)>ow?"Building "+(SHIPS[id]?SHIPS[id].name:id):"Cannot build — check cost"); return; }
   if(act==="cmd_research"){ var was=queued("tech",id); A.research(id); save(); render(); grpToast(queued("tech",id)>was?"Researching "+(TECHS[id]?TECHS[id].name:id):"Cannot research — check cost"); return; }
   if(act==="gridcell"){ if(EM)EM.tool=EM.tool===id?null:id; else if(OM)OM.tool=OM.tool===id?null:id; render(); return; }
@@ -1464,10 +1508,21 @@ function mgmtCard(pls){ if(!pls||!pls.length)return ""; var cap=mgmtCapacity(S),
     return '<button class="btn ui sm'+(dis?" dis":"")+'" data-act="mgmt" data-arg="'+o[0]+'" style="width:auto;font-size:9px;padding:3px 6px;'+(on?"background:rgba(0,255,65,.3);border-color:rgba(0,255,65,.7)":"")+'">'+o[1]+'<span class="small" style="opacity:.7">'+note+'</span></button>'; }).join("");
   h+='</div><div class="small" style="color:#789;margin-top:3px">AI autopilot runs at '+Math.round(autopilotEff(S)*100)+'% (rises with AI research). Hands-on uses limited attention; humanoid crews need Humanoid Robotics.'+(pls.length>1?' · '+pls.length+' selected → applied to each.':'')+'</div>';
   return h; }
+function tuningCard(id){ var mdef=MODES[id]; if(!mdef)return ""; var pls=mgmtSelection().filter(function(p){return p.id===id;}); if(!pls.length)return "";
+  var HL='background:rgba(0,255,65,.3);border-color:rgba(0,255,65,.7)';
+  var cur=modeDef(id,pls[0].mode||mdef.def).key,uni=pls.every(function(p){return modeDef(id,p.mode||mdef.def).key===cur;});
+  var h='<div class="small" style="color:#9fb6c4;margin:8px 0 3px;border-top:1px solid rgba(0,255,65,.12);padding-top:6px">⚙ '+mdef.label+'</div><div class="row" style="gap:4px;flex-wrap:wrap">';
+  h+=mdef.list.map(function(o){ var on=uni&&cur===o.key; return '<button class="btn ui sm" data-act="setmode" data-arg="'+o.key+'" title="'+esc(o.ds)+'" style="width:auto;font-size:9px;padding:3px 6px;'+(on?HL:'')+'">'+o.lab+'</button>'; }).join("")+'</div>';
+  var cm2=modeDef(id,cur);
+  h+='<div class="small" style="color:#789;margin-top:2px">'+(uni?esc(cm2.ds):'Mixed modes across selection.')+'</div>';
+  if(uni&&cm2.priced){ var cp=PRICETIER[pls[0].price]?pls[0].price:"market",up=pls.every(function(p){return (PRICETIER[p.price]?p.price:"market")===cp;}),notes={budget:"−15% cash, but wins market share (+influence)",market:"list price",premium:"+32% cash per unit"};
+    h+='<div class="small" style="color:#9fb6c4;margin:6px 0 3px">💲 Pricing</div><div class="row" style="gap:4px;flex-wrap:wrap">';
+    h+=["budget","market","premium"].map(function(pk){ var on=up&&cp===pk; return '<button class="btn ui sm" data-act="setprice" data-arg="'+pk+'" style="width:auto;font-size:9px;padding:3px 6px;'+(on?HL:'')+'">'+PRICETIER[pk].lab+'</button>'; }).join("")+'</div><div class="small" style="color:#789;margin-top:2px">'+(up?notes[cp]:'Mixed pricing.')+'</div>'; }
+  return h; }
 function infoCard(){ var ins=OM?OM.inspect:(EM?EM.inspect:null); if(!ins)return ""; var t="",sub="",lines=[],hp=null;
   if(ins.kind==="group"){ t="Selected fleet"; sub=ins.n+" ships"; }
   else if(ins.kind==="unit"||ins.kind==="enemyunit"){ var u=ins.ref,s=SHIPS[u.type]; t=s?s.name:u.type; sub=u.side==="p"?"Your Corporation":((OM&&OM.battleRival?(rivalById(OM.battleRival)||{}).name:null)||"Hostile fleet"); lines.push("Class · "+(s?s.cls:"Line")); lines.push("Firepower · "+Math.round(u.fp)); lines.push("Hull · "+Math.round(u.hp)+" / "+Math.round(u.maxhp)); hp={f:u.hp/u.maxhp,col:u.side==="p"?"#39ff14":"#ff5050"}; }
-  else if(ins.kind==="pstruct"){ var b=BUILDINGS[ins.ref.id]; t=b?b.name:ins.ref.id; sub="Your Corporation"; if(b){ lines.push("Class · "+(b.cat||"Structure")); if(b.prod)lines.push("Output · "+Object.keys(b.prod).map(function(k){return fmt(b.prod[k])+" "+k;}).join(", ")); } }
+  else if(ins.kind==="pstruct"){ var b=BUILDINGS[ins.ref.id]; t=b?b.name:ins.ref.id; sub="Your Corporation"; if(b){ lines.push("Class · "+(b.cat||"Structure")); var op=MODES[ins.ref.id]?modeDef(ins.ref.id,ins.ref.mode||MODES[ins.ref.id].def).prod:b.prod; if(op)lines.push("Output · "+Object.keys(op).map(function(k){return fmt(op[k])+" "+k;}).join(", ")); } }
   else if(ins.kind==="ostruct"){ var info=itemOwnerInfo(ins.ref),sh=ins.ref.shape; t=sh==="station"?"Orbital Station":(sh==="frig"||sh==="corv")?"Warship":"Orbital Asset"; sub=info.name+" · "+relLabel(info.rel); }
   else if(ins.kind==="esite"){ var er=ins.ref; t=er.nation?(er.mil?"🛡 Military Base":"🏙 City / Infrastructure"):"Ground Installation"; sub=(er.owner||"Unknown")+(er.faction?" · "+factionName(er.faction):" · "+relLabel(er.rel||"neutral")); }
   else if(ins.kind==="multi"){ t="Selection"; sub=(ins.nu?ins.nu+" ship"+(ins.nu>1?"s":""):"")+(ins.nu&&ins.ns?" · ":"")+(ins.ns?ins.ns+" structure"+(ins.ns>1?"s":""):""); }
@@ -1479,7 +1534,7 @@ function infoCard(){ var ins=OM?OM.inspect:(EM?EM.inspect:null); if(!ins)return 
   if(!ucPl&&ins.kind==="groupstruct"&&EM){ var ucs=(EM.sel||[]).filter(function(p){return p.uc;}); if(ucs.length){ ucPl=ucs[0]; html+='<div class="small" style="color:#ffc24d;margin-top:6px">⚙ Under construction · '+ucs.length+'/'+(EM.sel||[]).length+'</div>'+prog$("build",ucPl.id); } }
   else if(ucPl)html+='<div class="small" style="color:#ffc24d;margin-top:6px">⚙ Under construction</div>'+prog$("build",ucPl.id);
   if(!ucPl){ var mgPls=mgmtSelection(); if(mgPls.length)html+=mgmtCard(mgPls); }
-  var ct=selStructType(); if(ct&&!ucPl)html+=commandCardHtml(ct);
+  var ct=selStructType(); if(ct&&!ucPl){ if(MODES[ct])html+=tuningCard(ct); html+=commandCardHtml(ct); }
   return html+'</div>'; }
 function drawFlag(c,x,y){ c.save(); c.strokeStyle="#39ff14"; c.fillStyle="#39ff14"; c.lineWidth=1.5; c.shadowColor="#39ff14"; c.shadowBlur=4; c.beginPath(); c.moveTo(x,y); c.lineTo(x,y-13); c.stroke(); c.beginPath(); c.moveTo(x,y-13); c.lineTo(x+8,y-10); c.lineTo(x,y-7); c.closePath(); c.fill(); c.restore(); }
 function omSX(fx){ var bw=OM.canvas.width*3*OM.zoom,x=fx*bw-OM.camX; x=((x%bw)+bw)%bw; if(x>OM.canvas.width)x-=bw; return x; }
