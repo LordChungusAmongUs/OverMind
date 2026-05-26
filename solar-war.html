@@ -910,13 +910,16 @@ function updateEarthTexture(force){ if(!EARTH_CV||!EARTH_TEX)return; var n=(S.ea
 /* Orbit shell: a transparent equirectangular texture showing ONLY your orbital structures & units, wrapped onto a fully
    transparent sphere at the green-ring radius — the orbit map's contents made visible around Earth in system view. */
 var ORBIT_CV=null,ORBIT_TEX=null,ORBIT_SIG="";
-function paintOrbitCanvas(cv){ var W=cv.width,H=cv.height,c=cv.getContext("2d"); c.clearRect(0,0,W,H); var sz=Math.max(11,W/64);
-  // mirror the orbit map: fx -> longitude around Earth, fy -> latitude/height. Structures sharing a row on the map
-  // therefore land on one latitude ring (a halo); equatorial fy=0.5 sits straight out over the equator.
+function paintOrbitCanvas(cv){ var W=cv.width,H=cv.height,c=cv.getContext("2d"); c.clearRect(0,0,W,H); var sz=Math.max(13,W/52);
+  // mirror the 2D orbit map: fx -> longitude around Earth, fy -> latitude/height. Items sharing a row on the map
+  // land on one latitude ring; equatorial fy=0.5 sits straight out over the equator, higher rows form a halo.
+  // rival/neutral orbital objects use the orbit map's hash-x + altitude-row layout, so they form rings (not scatter).
+  (typeof orbitItems==="function"?orbitItems():[]).forEach(function(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17),fx=((hash*97+idx*131)%1000)/1000,fy=clamp(0.88-Math.min(it.alt,1.25)*0.62+((idx%5)-2)*0.012,0.04,0.96),a=clamp(0.22+((it.intel==null?100:it.intel)/100)*0.78,0.22,1); c.globalAlpha=a; drawIcon(c,fx*W,fy*H,it.shape,hexCol(it.color),sz*0.8); c.globalAlpha=1; });
+  // your orbital structures and units (brightest, on top)
   (S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; drawIcon(c,((pl.fx||0)%1)*W,clamp(pl.fy==null?0.5:pl.fy,0,1)*H,BSHAPE[pl.id]||"sat",hexCol(PCOLORS[0]),sz); });
   (S.units||[]).forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; drawIcon(c,((u.fx||0)%1)*W,clamp(u.fy,0,1)*H,BSHAPE[u.type]||"frig",hexCol(u.color||PCOLORS[0]),sz*0.85); }); }
 function makeOrbitTexture(){ var cv=document.createElement("canvas"); cv.width=1024; cv.height=512; ORBIT_CV=cv; ORBIT_TEX=new THREE.CanvasTexture(cv); paintOrbitCanvas(cv); ORBIT_TEX.needsUpdate=true; return ORBIT_TEX; }
-function orbitTexSig(){ return (S.earthPlacements||[]).filter(function(p){return p.orbit;}).map(function(p){return p.id+(p.fx||0).toFixed(2)+(p.fy||0).toFixed(2);}).join(",")+"|"+(S.units||[]).filter(function(u){return u.side==="p"&&u.hp>0&&u.build<=0;}).map(function(u){return u.type+u.fx.toFixed(2)+u.fy.toFixed(2);}).join(","); }
+function orbitTexSig(){ return (S.earthPlacements||[]).filter(function(p){return p.orbit;}).map(function(p){return p.id+(p.fx||0).toFixed(2)+(p.fy||0).toFixed(2);}).join(",")+"|"+(S.units||[]).filter(function(u){return u.side==="p"&&u.hp>0&&u.build<=0;}).map(function(u){return u.type+u.fx.toFixed(2)+u.fy.toFixed(2);}).join(",")+"|"+(S.rivals||[]).filter(function(r){return !r.dead;}).map(function(r){return r.id+Math.round(r.mil/45)+Math.round(Math.sqrt(Math.max(10,r.eco))/90);}).join(",")+"|"+NEUTRAL.map(function(co){return S.neutral[co.id]||"n";}).join(","); }
 function updateOrbitTexture(force){ if(!ORBIT_CV||!ORBIT_TEX)return; var sig=orbitTexSig(); if(!force&&sig===ORBIT_SIG)return; ORBIT_SIG=sig; paintOrbitCanvas(ORBIT_CV); ORBIT_TEX.needsUpdate=true; }
 function makeMoonTexture(){ var W=512,H=256,cv=document.createElement("canvas"); cv.width=W; cv.height=H; var c=cv.getContext("2d"); c.fillStyle="#8a8b90"; c.fillRect(0,0,W,H);
   (typeof MOON_CRATERS!=="undefined"?MOON_CRATERS:[]).forEach(function(k){ var x=(k.lon+180)/360*W,y=(90-k.lat)/180*H,r=Math.max(2,k.r/360*W),rg=c.createRadialGradient(x,y,r*0.2,x,y,r); if(k.mare){ rg.addColorStop(0,"#5f6066"); rg.addColorStop(1,"#7c7d82"); } else { rg.addColorStop(0,"#a8a9ae"); rg.addColorStop(0.7,"#74757a"); rg.addColorStop(1,"#8a8b90"); } c.fillStyle=rg; c.beginPath(); c.arc(x,y,r,0,6.28); c.fill(); }); return new THREE.CanvasTexture(cv); }
