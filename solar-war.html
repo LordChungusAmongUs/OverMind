@@ -1126,9 +1126,9 @@ function closeEarthMap(){ if(!EM)return; if(EM.raf)cancelAnimationFrame(EM.raf);
 var OM=null;
 function orbitItems(){ var it=[],alive=S.rivals.filter(function(r){return !r.dead;}).length,capS=clamp(Math.round(150/Math.max(1,alive)),1,6);
   S.rivals.forEach(function(r){ if(r.dead)return; var intel=r.intel||0,col=relColor(r),ns=clamp(Math.round(Math.sqrt(Math.max(10,r.eco))/90),1,capS),i,rnd=seedRand(rseed(r.id));
-    for(i=0;i<ns;i++)it.push({shape:"station",color:col,owner:r.id,intel:intel,mx:rnd(),my:0.12+rnd()*0.26});
-    var nu=clamp(Math.round(r.mil/45),0,Math.min(6,capS)); for(i=0;i<nu;i++)it.push({shape:i%2?"frig":"corv",color:col,owner:r.id+"f",intel:intel,mx:rnd(),my:0.40+rnd()*0.24}); });
-  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none",rnd=seedRand(rseed(co.id)); it.push({shape:"station",color:st==="owned"?REL_GREEN:REL_GREY,owner:co.id,intel:100,mx:rnd(),my:0.20+rnd()*0.26}); });
+    for(i=0;i<ns;i++)it.push({shape:"station",color:col,owner:r.id,intel:intel,mx:rnd(),my:0.05+rnd()*0.88});
+    var nu=clamp(Math.round(r.mil/45),0,Math.min(6,capS)); for(i=0;i<nu;i++)it.push({shape:i%2?"frig":"corv",color:col,owner:r.id+"f",intel:intel,mx:rnd(),my:0.05+rnd()*0.88}); });
+  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none",rnd=seedRand(rseed(co.id)); it.push({shape:"station",color:st==="owned"?REL_GREEN:REL_GREY,owner:co.id,intel:100,mx:rnd(),my:0.05+rnd()*0.88}); });
   return it; }
 function drawIcon(c,x,y,shape,col,s,glow){ c.save(); c.translate(x,y); c.strokeStyle=col; c.fillStyle=col; c.lineWidth=1.4; c.shadowColor=col; c.shadowBlur=glow==null?6:glow; var i,a,px,py;
   if(shape==="sat"){ c.beginPath(); c.arc(0,0,s*0.5,0,6.28); c.fill(); c.fillRect(-s*1.4,-s*0.16,s*0.7,s*0.32); c.fillRect(s*0.7,-s*0.16,s*0.7,s*0.32); }
