@@ -1153,6 +1153,12 @@ function gridKey(e){ if(e.ctrlKey||e.metaKey||e.altKey)return; if(e.target&&e.ta
   if(paged&&gi===14){ po.gridPage=(pg+1)%pages; render(); e.preventDefault(); return; }
   var cell=g.items[pg*per+gi]; if(cell){ gridArm(cell.id); e.preventDefault(); } }
 document.addEventListener("keydown",gridKey);
+/* system-view keyboard camera: +/- zoom, arrows orbit around the selected body (focus), default Earth */
+window.addEventListener("keydown",function(e){ if(!SC||EM||OM||UI.menu||(e.target&&e.target.tagName==="INPUT"))return; var c=SC.cam0,k=e.key,st=0.18,zf=1.14,hit=true;
+  if(k==="ArrowUp")c.phi=clamp(c.phi-st,0.2,Math.PI-0.2); else if(k==="ArrowDown")c.phi=clamp(c.phi+st,0.2,Math.PI-0.2);
+  else if(k==="ArrowLeft")c.theta-=st; else if(k==="ArrowRight")c.theta+=st;
+  else if(k==="+"||k==="=")c.r=clamp(c.r/zf,14,1200000); else if(k==="-"||k==="_")c.r=clamp(c.r*zf,14,1200000);
+  else hit=false; if(hit)e.preventDefault(); });
 window.addEventListener("keydown",function(e){ if(e.key==="Alt"&&(OM||EM)){ if(!ALT_DOWN){ ALT_DOWN=true; if(EM)drawEarthMap(); } e.preventDefault(); } });
 window.addEventListener("keyup",function(e){ if(e.key==="Alt"&&ALT_DOWN){ ALT_DOWN=false; if(EM)drawEarthMap(); } });
 /* RTS edge-scroll: when the cursor rests near a screen edge, pan the map that way (px/sec scaled by edge depth).
