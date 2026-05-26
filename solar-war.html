@@ -1072,6 +1072,7 @@ function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=c
   var isz=Math.max(1.5,(moon?12:clamp(worldW/300,4,400))/8); /* earth-map structures 8× smaller */
   rivalEarthSites(EM.loc).forEach(function(s){ var a=clamp(0.22+(s.intel/100)*0.78,0.22,1); copies.forEach(function(ox){ var x=px(s.lon,ox),y=py(s.lat); if(x<-30||x>W+30)return; c.globalAlpha=a; drawIcon(c,x,y,s.shape,hexCol(s.color),isz*0.92); c.globalAlpha=1; }); });
   (S.earthPlacements||[]).forEach(function(pl){ if(!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; copies.forEach(function(ox){ var x=px(pl.lon,ox),y=py(pl.lat); if(x<-30||x>W+30)return; drawIcon(c,x,y,BSHAPE[pl.id]||"hub",hexCol(PCOLORS[0]),isz); }); });
+  (EM.sel||[]).forEach(function(pl){ if(pl.orbit||!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; copies.forEach(function(ox){ var x=px(pl.lon,ox),y=py(pl.lat); if(x<-30||x>W+30)return; c.strokeStyle="#39ff14"; c.lineWidth=1.5; c.beginPath(); c.arc(x,y,Math.max(7,isz+5),0,6.28); c.stroke(); if(pl.rally){ var rx=px(pl.rally.lon,ox),ry=py(pl.rally.lat); c.strokeStyle="rgba(57,255,20,0.6)"; c.setLineDash([5,4]); c.beginPath(); c.moveTo(x,y); c.lineTo(rx,ry); c.stroke(); c.setLineDash([]); drawFlag(c,rx,ry); } }); });
   if(EM.tool){ var cw=GRID_STEP/360*worldW,ch=GRID_STEP/180*worldH,occ=occupiedSet(EM.loc);
     if(cw>4){ c.strokeStyle="rgba(57,255,20,0.10)"; c.lineWidth=1; for(var gl=-180;gl<=180;gl+=GRID_STEP){ var xx=px(gl,0); if(xx<-2||xx>W+2)continue; c.beginPath(); c.moveTo(xx,0); c.lineTo(xx,H); c.stroke(); } for(var gt=-84;gt<=84;gt+=GRID_STEP){ var yy=py(gt); if(yy<-2||yy>H+2)continue; c.beginPath(); c.moveTo(0,yy); c.lineTo(W,yy); c.stroke(); } }
     if(EM.build){ var a=emCell(EM.build.x0,EM.build.y0),bb=emCell(EM.build.x1,EM.build.y1),gx0=Math.min(a.gx,bb.gx),gy0=Math.min(a.gy,bb.gy),w=Math.abs(a.gx-bb.gx)+1,h=Math.abs(a.gy-bb.gy)+1,gx,gy;
@@ -1118,11 +1119,12 @@ function mapEdgeScroll(st,dt){ if(!st||st.mx==null||st.overUI)return false; var 
   if(!vx&&!vy)return false; st.camX+=vx*sp*dt; st.camY+=vy*sp*dt; return true; }
 function emLoop(){ if(!EM)return; EM.raf=requestAnimationFrame(emLoop); var now=performance.now(),dt=Math.min(0.05,(now-(EM.last||now))/1000); EM.last=now; if(mapEdgeScroll(EM,dt))drawEarthMap(); }
 function openEarthMap(loc){ if(EM)return; loc=loc||"earth"; var d=document.createElement("div"); d.id="earthmap"; d.innerHTML='<canvas id="emcanvas"></canvas>';
-  document.body.appendChild(d); var cv=d.querySelector("#emcanvas"); EM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,drag:false,moved:false,tool:null,inspect:null,loc:loc,bw:loc==="moon"?1:2,bh:1,maxZoom:loc==="moon"?1:8};
+  document.body.appendChild(d); var cv=d.querySelector("#emcanvas"); EM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,drag:false,moved:false,tool:null,inspect:null,sel:[],loc:loc,bw:loc==="moon"?1:2,bh:1,maxZoom:loc==="moon"?1:8};
   EM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; EM.bw=2*cv.height/cv.width; EM.camX=(cv.width*EM.bw*EM.zoom-cv.width)/2; drawEarthMap(); }; window.addEventListener("resize",EM.resize); EM.resize();
   var sx=0,sy=0; cv.addEventListener("pointerdown",function(e){ sx=e.clientX; sy=e.clientY; if(EM.tool){ EM.build={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } else { EM.drag=true; EM.moved=false; cv.style.cursor="grabbing"; } });
-  EM.up=function(e){ if(!EM)return; cv.style.cursor=EM.tool?"crosshair":"grab"; if(EM.build){ var a=emCell(EM.build.x0,EM.build.y0),b=emCell(EM.build.x1,EM.build.y1); placeRect(Math.min(a.gx,b.gx),Math.min(a.gy,b.gy),Math.abs(a.gx-b.gx)+1,Math.abs(a.gy-b.gy)+1,e.shiftKey); EM.build=null; } else if(!EM.tool&&EM.drag&&!EM.moved){ EM.inspect=emPick(e.clientX,e.clientY); render(); drawEarthMap(); } EM.drag=false; }; window.addEventListener("pointerup",EM.up);
-  cv.addEventListener("contextmenu",function(e){ e.preventDefault(); if(EM.tool){ EM.tool=null; render(); } else { EM.inspect=null; render(); } drawEarthMap(); });
+  EM.up=function(e){ if(!EM)return; cv.style.cursor=EM.tool?"crosshair":"grab"; if(EM.build){ var a=emCell(EM.build.x0,EM.build.y0),b=emCell(EM.build.x1,EM.build.y1); placeRect(Math.min(a.gx,b.gx),Math.min(a.gy,b.gy),Math.abs(a.gx-b.gx)+1,Math.abs(a.gy-b.gy)+1,e.shiftKey); EM.build=null; } else if(!EM.tool&&EM.drag&&!EM.moved){ emClickSelect(e.clientX,e.clientY,e.shiftKey); } EM.drag=false; }; window.addEventListener("pointerup",EM.up);
+  cv.addEventListener("contextmenu",function(e){ e.preventDefault(); if(EM.tool){ EM.tool=null; render(); drawEarthMap(); } else if(!emSetRally(e.clientX,e.clientY)){ EM.inspect=null; render(); drawEarthMap(); } });
+  cv.addEventListener("dblclick",function(e){ if(!EM.tool)emDblSelect(e.clientX,e.clientY); });
   cv.addEventListener("pointermove",function(e){ if(!EM)return; if(EM.build){ EM.build.x1=e.clientX; EM.build.y1=e.clientY; drawEarthMap(); return; } if(!EM.drag)return; if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4)EM.moved=true; EM.camX-=(e.clientX-sx); EM.camY+=(e.clientY-sy); sx=e.clientX; sy=e.clientY; drawEarthMap(); });
   cv.addEventListener("wheel",function(e){ e.preventDefault(); if(EM.maxZoom<=1)return; var oz=EM.zoom; EM.zoom=clamp(EM.zoom*(e.deltaY<0?1.12:0.89),1,EM.maxZoom); var f=EM.zoom/oz; EM.camX=(e.clientX+EM.camX)*f-e.clientX; EM.camY=e.clientY-(e.clientY-EM.camY)*f; drawEarthMap(); },{passive:false});
   EM.track=function(e){ EM.mx=e.clientX; EM.my=e.clientY; EM.overUI=(e.target!==cv); }; window.addEventListener("pointermove",EM.track);
@@ -1188,29 +1190,55 @@ function emScreenX(lon){ var worldW=EM.canvas.width*EM.bw*EM.zoom,x=(lon+180)/36
 function emScreenY(lat){ var worldH=EM.canvas.height*EM.bh*EM.zoom; return EM.camY+(90-lat)/180*worldH; }
 function emPick(sx,sy){ var hit=null; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit||!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; if(Math.abs(emScreenX(pl.lon)-sx)<13&&Math.abs(emScreenY(pl.lat)-sy)<13)hit={kind:"pstruct",ref:pl}; });
   if(!hit)rivalEarthSites(EM.loc).forEach(function(s){ if(Math.abs(emScreenX(s.lon)-sx)<12&&Math.abs(emScreenY(s.lat)-sy)<12)hit={kind:"esite",ref:s}; }); return hit; }
-function deselectMap(){ if(OM){ OM.sel=[]; OM.inspect=null; } if(EM)EM.inspect=null; render(); if(EM)drawEarthMap(); }
+function deselectMap(){ if(OM){ OM.sel=[]; OM.selStructs=[]; OM.inspect=null; } if(EM){ EM.sel=[]; EM.inspect=null; } render(); if(EM)drawEarthMap(); }
 function infoCard(){ var ins=OM?OM.inspect:(EM?EM.inspect:null); if(!ins)return ""; var t="",sub="",lines=[],hp=null;
   if(ins.kind==="group"){ t="Selected fleet"; sub=ins.n+" ships"; }
   else if(ins.kind==="unit"||ins.kind==="enemyunit"){ var u=ins.ref,s=SHIPS[u.type]; t=s?s.name:u.type; sub=u.side==="p"?"Your Corporation":((OM&&OM.battleRival?(rivalById(OM.battleRival)||{}).name:null)||"Hostile fleet"); lines.push("Class · "+(s?s.cls:"Line")); lines.push("Firepower · "+Math.round(u.fp)); lines.push("Hull · "+Math.round(u.hp)+" / "+Math.round(u.maxhp)); hp={f:u.hp/u.maxhp,col:u.side==="p"?"#39ff14":"#ff5050"}; }
   else if(ins.kind==="pstruct"){ var b=BUILDINGS[ins.ref.id]; t=b?b.name:ins.ref.id; sub="Your Corporation"; if(b){ lines.push("Class · "+(b.cat||"Structure")); if(b.prod)lines.push("Output · "+Object.keys(b.prod).map(function(k){return fmt(b.prod[k])+" "+k;}).join(", ")); } }
   else if(ins.kind==="ostruct"){ var info=itemOwnerInfo(ins.ref),sh=ins.ref.shape; t=sh==="station"?"Orbital Station":(sh==="frig"||sh==="corv")?"Warship":"Orbital Asset"; sub=info.name+" · "+relLabel(info.rel); }
   else if(ins.kind==="esite"){ t="Ground Installation"; sub=(ins.ref.owner||"Unknown")+" · "+relLabel(ins.ref.rel||"neutral"); }
+  else if(ins.kind==="multi"){ t="Selection"; sub=(ins.nu?ins.nu+" ship"+(ins.nu>1?"s":""):"")+(ins.nu&&ins.ns?" · ":"")+(ins.ns?ins.ns+" structure"+(ins.ns>1?"s":""):""); }
+  else if(ins.kind==="groupstruct"){ var gb=BUILDINGS[ins.id]; t="Selected structures"; sub=ins.n+"× "+(gb?gb.name:ins.id); }
   var html='<div id="infocard" class="panelglass ui" style="position:absolute;left:12px;bottom:118px;width:210px;padding:9px 11px"><div class="row between"><b style="color:#cdeccf">'+esc(t)+'</b><span class="x" data-act="deselect" style="cursor:pointer;color:#789">✕</span></div><div class="small" style="color:#9fb6c4;margin:2px 0 6px">'+esc(sub)+'</div>';
   if(hp)html+='<div class="bar" style="margin-bottom:6px"><i style="width:'+Math.round(clamp(hp.f,0,1)*100)+'%;background:'+hp.col+'"></i></div>';
   html+=lines.map(function(l){return '<div class="small" style="color:#cfe9d4">'+esc(l)+'</div>';}).join("");
   return html+'</div>'; }
+function drawFlag(c,x,y){ c.save(); c.strokeStyle="#39ff14"; c.fillStyle="#39ff14"; c.lineWidth=1.5; c.shadowColor="#39ff14"; c.shadowBlur=4; c.beginPath(); c.moveTo(x,y); c.lineTo(x,y-13); c.stroke(); c.beginPath(); c.moveTo(x,y-13); c.lineTo(x+8,y-10); c.lineTo(x,y-7); c.closePath(); c.fill(); c.restore(); }
+function omSX(fx){ var bw=OM.canvas.width*3*OM.zoom,x=fx*bw-OM.camX; x=((x%bw)+bw)%bw; if(x>OM.canvas.width)x-=bw; return x; }
+function omOnScreen(fx,fy){ var x=omSX(fx),y=omPy(fy); return x>=0&&x<=OM.canvas.width&&y>=0&&y<=OM.canvas.height; }
+function omInspectSummary(){ var nu=(OM.sel||[]).length,ns=(OM.selStructs||[]).length; if(nu+ns===0)OM.inspect=null; else if(nu===1&&ns===0){ var u=S.units.find(function(x){return x.uid===OM.sel[0];}); OM.inspect=u?{kind:"unit",ref:u}:null; } else if(ns===1&&nu===0)OM.inspect={kind:"pstruct",ref:OM.selStructs[0]}; else OM.inspect={kind:"multi",nu:nu,ns:ns}; }
 function clickSelect(sx,sy,shift){ var p=omPick(sx,sy);
-  if(!p){ if(!shift){ OM.sel=[]; OM.inspect=null; } render(); return; }
-  if(p.kind==="unit"){ if(!shift)OM.sel=[]; if(OM.sel.indexOf(p.ref.uid)<0)OM.sel.push(p.ref.uid); OM.inspect=p; }
-  else { if(!shift)OM.sel=[]; OM.inspect=p; }
-  render(); }
-function boxSelect(b,shift){ if(!shift)OM.sel=[]; var x0=Math.min(b.x0,b.x1),x1=Math.max(b.x0,b.x1),y0=Math.min(b.y0,b.y1),y1=Math.max(b.y0,b.y1); S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; var x=omScreenC(u),y=omPy(u.fy); if(x>=x0&&x<=x1&&y>=y0&&y<=y1&&OM.sel.indexOf(u.uid)<0)OM.sel.push(u.uid); });
-  if(OM.sel.length===1){ var su=S.units.find(function(x){return x.uid===OM.sel[0];}); OM.inspect=su?{kind:"unit",ref:su}:null; } else if(OM.sel.length>1)OM.inspect={kind:"group",n:OM.sel.length}; else if(!shift)OM.inspect=null; render(); }
-/* right-click: command selected units (move/attack, queued with shift); with nothing commandable selected, deselect */
-function commandSel(sx,sy,shift){ var sel=(OM.sel||[]).map(function(uid){return S.units.find(function(x){return x.uid===uid;});}).filter(function(u){return u&&u.side==="p"&&u.hp>0&&u.build<=0;});
-  if(!sel.length){ OM.sel=[]; OM.inspect=null; render(); return; }
+  if(!shift){ OM.sel=[]; OM.selStructs=[]; }
+  if(!p){ OM.inspect=null; render(); return; }
+  if(p.kind==="unit"){ if(OM.sel.indexOf(p.ref.uid)<0)OM.sel.push(p.ref.uid); }
+  else if(p.kind==="pstruct"){ if(OM.selStructs.indexOf(p.ref)<0)OM.selStructs.push(p.ref); }
+  else { OM.inspect=p; render(); return; }
+  omInspectSummary(); render(); }
+function dblSelect(sx,sy){ var p=omPick(sx,sy); if(!p)return; OM.sel=[]; OM.selStructs=[];
+  if(p.kind==="unit"){ var t=p.ref.type; S.units.forEach(function(u){ if(u.side==="p"&&u.hp>0&&u.build<=0&&u.type===t&&omOnScreen(u.fx,u.fy))OM.sel.push(u.uid); }); }
+  else if(p.kind==="pstruct"){ var id=p.ref.id; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit&&pl.id===id&&omOnScreen(pl.fx,pl.fy))OM.selStructs.push(pl); }); }
+  else { OM.inspect=p; render(); return; }
+  omInspectSummary(); render(); }
+function boxSelect(b,shift){ if(!shift){ OM.sel=[]; OM.selStructs=[]; } var x0=Math.min(b.x0,b.x1),x1=Math.max(b.x0,b.x1),y0=Math.min(b.y0,b.y1),y1=Math.max(b.y0,b.y1);
+  S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; var x=omScreenC(u),y=omPy(u.fy); if(x>=x0&&x<=x1&&y>=y0&&y<=y1&&OM.sel.indexOf(u.uid)<0)OM.sel.push(u.uid); });
+  (S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; var x=omSX(pl.fx),y=omPy(pl.fy); if(x>=x0&&x<=x1&&y>=y0&&y<=y1&&OM.selStructs.indexOf(pl)<0)OM.selStructs.push(pl); });
+  omInspectSummary(); render(); }
+/* right-click: A-move/attack selected units (queued with shift); set rally point for selected structures; deselect if nothing selected */
+function commandSel(sx,sy,shift){ var sel=(OM.sel||[]).map(function(uid){return S.units.find(function(x){return x.uid===uid;});}).filter(function(u){return u&&u.side==="p"&&u.hp>0&&u.build<=0;}),structs=(OM.selStructs||[]);
+  if(!sel.length&&!structs.length){ OM.sel=[]; OM.selStructs=[]; OM.inspect=null; render(); return; }
   var f=screenToFrac(sx,sy),en=null; (OM.en||[]).forEach(function(u){ if(u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<17&&Math.abs(omPy(u.fy)-sy)<17)en=u; });
-  sel.forEach(function(u){ if(shift){ u.queue=u.queue||[]; u.queue.push(en?{tuid:en.uid}:{fx:f.fx,fy:f.fy}); } else { u.queue=[]; if(en){ u.tuid=en.uid; u.moveTo=null; } else { u.moveTo={fx:f.fx,fy:f.fy}; u.tuid=0; } } }); OM.cmdMark={x:sx,y:sy,t:0.6,enemy:!!en,q:!!shift}; }
+  sel.forEach(function(u){ if(shift){ u.queue=u.queue||[]; u.queue.push(en?{tuid:en.uid}:{fx:f.fx,fy:f.fy,amove:true}); } else { u.queue=[]; if(en){ u.tuid=en.uid; u.moveTo=null; } else { u.moveTo={fx:f.fx,fy:f.fy,amove:true}; u.tuid=0; } } });
+  structs.forEach(function(pl){ pl.rally={fx:f.fx,fy:f.fy}; });
+  OM.cmdMark={x:sx,y:sy,t:0.6,enemy:!!en,rally:structs.length>0&&!sel.length}; }
+/* ---- earth/moon map multi-select + rally ---- */
+function emOnScreen(lon,lat){ var x=emScreenX(lon),y=emScreenY(lat); return x>=0&&x<=EM.canvas.width&&y>=0&&y<=EM.canvas.height; }
+function emInspectSummary(){ var n=(EM.sel||[]).length; if(!n)EM.inspect=null; else if(n===1)EM.inspect={kind:"pstruct",ref:EM.sel[0]}; else EM.inspect={kind:"groupstruct",n:n,id:EM.sel[0].id}; }
+function emClickSelect(sx,sy,shift){ var p=emPick(sx,sy); if(!shift)EM.sel=[];
+  if(!p){ EM.inspect=null; render(); drawEarthMap(); return; }
+  if(p.kind==="pstruct"){ if(EM.sel.indexOf(p.ref)<0)EM.sel.push(p.ref); emInspectSummary(); } else EM.inspect=p;
+  render(); drawEarthMap(); }
+function emDblSelect(sx,sy){ var p=emPick(sx,sy); if(!p){ return; } if(p.kind!=="pstruct"){ EM.inspect=p; render(); drawEarthMap(); return; } var id=p.ref.id; EM.sel=[]; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit||pl.id!==id||!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; if(emOnScreen(pl.lon,pl.lat))EM.sel.push(pl); }); emInspectSummary(); render(); drawEarthMap(); }
+function emSetRally(sx,sy){ if(!EM.sel||!EM.sel.length)return false; var c=emCell(sx,sy); EM.sel.forEach(function(pl){ pl.rally={lon:c.gx*GRID_STEP,lat:c.gy*GRID_STEP}; }); render(); drawEarthMap(); return true; }
 function omStep(dt){ if(!OM)return; var P=S.units.filter(function(u){return u.side==="p"&&u.hp>0;}),E=OM.en||[];
   function act(u,foes){ if(u.build>0)return; u.fireT=Math.max(0,u.fireT-dt); var tgt=null;
     if(!u.tuid&&!u.moveTo&&u.queue&&u.queue.length){ var nx=u.queue.shift(); if(nx.tuid)u.tuid=nx.tuid; else u.moveTo={fx:nx.fx,fy:nx.fy}; }
@@ -1240,6 +1268,7 @@ function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=c
   var oisz=Math.max(1.2,9*zs*0.7/16); /* earth-orbit objects 16× smaller */
   OM.items.forEach(function(it){ var y=py(it.my==null?0.4:it.my),a=clamp(0.22+((it.intel==null?100:it.intel)/100)*0.78,0.22,1); copies.forEach(function(ox){ var x=(it.mx||0)*bw-OM.camX+ox; if(x<-40||x>W+40)return; c.globalAlpha=a; drawIcon(c,x,y,it.shape,hexCol(it.color),oisz); c.globalAlpha=1; }); });
   (S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; copies.forEach(function(ox){ var x=pl.fx*bw-OM.camX+ox; if(x<-30||x>W+30)return; drawIcon(c,x,py(pl.fy),BSHAPE[pl.id]||"sat",hexCol(PCOLORS[0]),oisz); }); });
+  (OM.selStructs||[]).forEach(function(pl){ if(!pl.orbit)return; copies.forEach(function(ox){ var x=pl.fx*bw-OM.camX+ox; if(x<-40||x>W+40)return; var y=py(pl.fy); c.strokeStyle="#39ff14"; c.lineWidth=1.5; c.beginPath(); c.arc(x,y,oisz+6,0,6.28); c.stroke(); if(pl.rally){ var rx=pl.rally.fx*bw-OM.camX+ox,ry=py(pl.rally.fy); c.strokeStyle="rgba(57,255,20,0.6)"; c.setLineDash([5,4]); c.beginPath(); c.moveTo(x,y); c.lineTo(rx,ry); c.stroke(); c.setLineDash([]); drawFlag(c,rx,ry); } }); });
   function beams(arr){ arr.forEach(function(u){ if(u.fireT>0&&u.hp>0){ var x=omScreenC(u),tx=u.ftx*bw-OM.camX; tx=((tx%bw)+bw)%bw; if(tx>W)tx-=bw; c.strokeStyle=hexCol(u.color); c.globalAlpha=0.6; c.beginPath(); c.moveTo(x,py(u.fy)); c.lineTo(tx,py(u.fty)); c.stroke(); c.globalAlpha=1; } }); }
   beams(S.units.filter(function(u){return u.side==="p";})); beams(OM.en||[]);
   function drawUnit(u,sel){ var x=omScreenC(u),y=py(u.fy),sz=8*zs*0.8,shp=u.side==="p"?(BSHAPE[u.type]||"frig"):"gship"; if(sel){ c.strokeStyle="#39ff14"; c.lineWidth=1.5; c.beginPath(); c.arc(x,y,sz+5,0,6.28); c.stroke(); } drawIcon(c,x,y,shp,hexCol(u.color),sz); if(u.build>0){ c.fillStyle="rgba(255,200,80,0.9)"; c.font="9px monospace"; c.textAlign="center"; c.fillText("⚙"+Math.ceil(u.build)+"s",x,y-sz-6); } else if(u.hp<u.maxhp){ c.fillStyle="rgba(0,0,0,0.6)"; c.fillRect(x-sz,y-sz-5,sz*2,2); c.fillStyle=u.side==="p"?"#39ff14":"#ff5050"; c.fillRect(x-sz,y-sz-5,sz*2*Math.max(0,u.hp/u.maxhp),2); } }
@@ -1258,7 +1287,7 @@ function orbitKey(e){ if(!OM||(e.target&&e.target.tagName==="INPUT"))return; var
   else if(/^[0-9]$/.test(k)){ if(e.ctrlKey||e.metaKey){ S.groups[k]=(OM.sel||[]).slice(); save(); } else { OM.sel=(S.groups[k]||[]).filter(function(uid){return S.units.some(function(u){return u.uid===uid&&u.hp>0;});}); render(); } e.preventDefault(); }
   else if(/^F([1-9]|1[0-2])$/.test(k)){ var key="orbit_"+k; if(e.ctrlKey||e.metaKey){ S.bookmarks[key]={camX:OM.camX,camY:OM.camY,zoom:OM.zoom}; save(); } else { var bm=S.bookmarks[key]; if(bm){ OM.camX=bm.camX; OM.camY=bm.camY; OM.zoom=bm.zoom; } } e.preventDefault(); } }
 function mountOrbitMap(){ var d=document.createElement("div"); d.id="orbitmap"; d.innerHTML='<canvas id="omcanvas"></canvas>';
-  document.body.appendChild(d); var cv=d.querySelector("#omcanvas"); OM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,tool:null,sel:[],inspect:null,box:null,build:null,selecting:false,placing:false,en:[],battleActive:false,battleRival:null,battleT:0,cmdMark:null,last:performance.now(),items:orbitItems()};
+  document.body.appendChild(d); var cv=d.querySelector("#omcanvas"); OM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,tool:null,sel:[],selStructs:[],inspect:null,box:null,build:null,selecting:false,placing:false,en:[],battleActive:false,battleRival:null,battleT:0,cmdMark:null,last:performance.now(),items:orbitItems()};
   OM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; OM.camX=(cv.width*3*OM.zoom-cv.width)/2; OM.camY=(cv.height-cv.height*1.5*OM.zoom)/2; }; window.addEventListener("resize",OM.resize); OM.resize();
   OM.refresh=setInterval(function(){ if(OM)OM.items=orbitItems(); },1000);
   var sx=0,sy=0;
@@ -1267,6 +1296,7 @@ function mountOrbitMap(){ var d=document.createElement("div"); d.id="orbitmap"; 
   OM.track=function(e){ OM.mx=e.clientX; OM.my=e.clientY; OM.overUI=(e.target!==cv); }; window.addEventListener("pointermove",OM.track);
   OM.leave=function(e){ if(!e.relatedTarget&&!e.toElement)OM.mx=null; }; window.addEventListener("mouseout",OM.leave);
   cv.addEventListener("contextmenu",function(e){ e.preventDefault(); if(OM.tool){ OM.tool=null; OM.build=null; render(); } else commandSel(e.clientX,e.clientY,e.shiftKey); });
+  cv.addEventListener("dblclick",function(e){ if(!OM.tool)dblSelect(e.clientX,e.clientY); });
   OM.up=function(e){ if(!OM)return; cv.style.cursor=OM.tool?"crosshair":"default"; if(OM.build){ placeOrbitDrag(omCell(OM.build.x0,OM.build.y0),omCell(e.clientX,e.clientY),e.shiftKey); OM.build=null; } else if(OM.placing){ OM.placing=false; placeAtScreenOrbit(sx,sy,e.shiftKey); } else if(OM.selecting){ OM.selecting=false; var moved=Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>5; if(moved&&OM.box)boxSelect(OM.box,e.shiftKey); else clickSelect(sx,sy,e.shiftKey); OM.box=null; } }; window.addEventListener("pointerup",OM.up);
   cv.addEventListener("wheel",function(e){ e.preventDefault(); var oz=OM.zoom; OM.zoom=clamp(OM.zoom*(e.deltaY<0?1.12:0.89),1,8); var f=OM.zoom/oz; OM.camX=(e.clientX+OM.camX)*f-e.clientX; OM.camY=e.clientY-(e.clientY-OM.camY)*f; },{passive:false});
   window.addEventListener("keydown",orbitKey); OM.key=orbitKey; OM.raf=requestAnimationFrame(omLoop); render();
