@@ -1239,7 +1239,6 @@ function addHit(parent,r,loc,pick){ var m=new THREE.Mesh(new THREE.SphereGeometr
 /* A screen-constant marker (dot + name + invisible hit sphere) so every body stays visible & clickable at any zoom;
    scaled each frame by camera distance in loopScene. The detailed body mesh stays true-size for close-ups. */
 function markBody(parent,x,y,z,col,name,loc,pick,focusObj,markers){ var mk=new THREE.Group(); mk.position.set(x,y,z); parent.add(mk);
-  var dot=new THREE.Mesh(new THREE.SphereGeometry(6,16,16),new THREE.MeshBasicMaterial({color:col,depthTest:false,transparent:true,opacity:0.95})); dot.renderOrder=3; mk.add(dot);
   var lab=makeLabel(name,"#cdeccf",46,11.5); lab.position.set(0,9,0); mk.add(lab);
   var hit=new THREE.Mesh(new THREE.SphereGeometry(7.5,10,10),new THREE.MeshBasicMaterial({visible:false})); hit.userData.loc=loc; mk.add(hit); if(pick)pick.push(hit);
   if(focusObj&&!focusObj[loc])focusObj[loc]=mk; markers.push(mk); return mk; }
