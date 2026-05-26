@@ -961,6 +961,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   var sunMesh=new THREE.Mesh(new THREE.SphereGeometry(SUN_R,48,48),new THREE.MeshBasicMaterial({map:makeSunTexture()})); scene.add(sunMesh);
   var glow=new THREE.Mesh(new THREE.SphereGeometry(SUN_R*1.4,32,32),new THREE.MeshBasicMaterial({color:0xff6a1a,transparent:true,opacity:0.2})); scene.add(glow);
   scene.add(makeLabel("Sun","#ffd27a",40,10).translateY(SUN_R+10));
+  var selRing=new THREE.Mesh(new THREE.TorusGeometry(1,0.03,8,72),new THREE.MeshBasicMaterial({color:0x66f0ff,transparent:true,opacity:0.9,depthWrite:false})); selRing.rotation.x=Math.PI/2; selRing.visible=false; selRing.renderOrder=5; scene.add(selRing);
   PLANETS.forEach(function(p){ ringLine(scene,p.au*AU,0x0c3a18); });
   ringLine(scene,2.7*AU,0x3a2a12); ringLine(scene,3.6*AU,0x281240);
   var pick=[],pivots=[],focusObj={},earthGroup,moonPivot,moonMesh;
@@ -977,7 +978,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
       moonMesh.add(makeLabel("Moon","#cdd",26,7).translateY(MOON_R+4)); focusObj.moon=moonMesh;
       addHit(moonMesh,MOON_R+3,"moon",pick);
       var mr=[]; for(var ma=0;ma<=96;ma++){ var maa=ma/96*Math.PI*2; mr.push(new THREE.Vector3(Math.cos(maa)*MOON_DIST,0,Math.sin(maa)*MOON_DIST)); } g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(mr),new THREE.LineBasicMaterial({color:0x9fb6c4,transparent:true,opacity:0.25})));
-      var oring=new THREE.Mesh(new THREE.TorusGeometry(STATION_R,0.45,8,48),new THREE.MeshBasicMaterial({color:0x39ff14,transparent:true,opacity:0.3})); oring.rotation.x=Math.PI/2; g.add(oring); oring.userData.loc="orbit"; pick.push(oring);
+      var oring=new THREE.Mesh(new THREE.TorusGeometry(STATION_R,0.11,8,64),new THREE.MeshBasicMaterial({color:0x9aa3ad,transparent:true,opacity:0.5})); oring.rotation.x=Math.PI/2; g.add(oring); oring.userData.loc="orbit"; pick.push(oring);
       var orbitShell=new THREE.Mesh(new THREE.SphereGeometry(STATION_R,48,32),new THREE.MeshBasicMaterial({map:makeOrbitTexture(),transparent:true,depthWrite:false,side:THREE.DoubleSide})); g.add(orbitShell); orbitShell.userData.loc="orbit"; pick.push(orbitShell);
     } });
   var ast=new THREE.Group(); ast.position.set(2.7*AU*Math.cos(0.6),0,2.7*AU*Math.sin(0.6)); scene.add(ast); for(var i=0;i<30;i++){ var rk=new THREE.Mesh(new THREE.DodecahedronGeometry(1+Math.random()*1.8),new THREE.MeshStandardMaterial({color:0xb08a5a,roughness:0.95})); var an=Math.random()*6.28,rad=6+Math.random()*7; rk.position.set(Math.cos(an)*rad,(Math.random()*2-1)*3,Math.sin(an)*rad); ast.add(rk); } ast.add(makeLabel("Asteroids","#d8b27a",50,11).translateY(12)); addHit(ast,9,"asteroids",pick); focusObj.asteroids=ast;
@@ -986,7 +987,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   var dev={earth:new THREE.Group(),moon:new THREE.Group(),asteroids:new THREE.Group(),deep:new THREE.Group(),orbit:new THREE.Group()};
   earthGroup.add(dev.earth); moonMesh.add(dev.moon); ast.add(dev.asteroids); deep.add(dev.deep); earthGroup.add(dev.orbit);
   var rivalGrp=new THREE.Group(); earthGroup.add(rivalGrp); var neutralGrp=new THREE.Group(); earthGroup.add(neutralGrp);
-  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,sunMesh:sunMesh,earthGroup:earthGroup,ast:ast,deep:deep,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0,lost:false};
+  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,sunMesh:sunMesh,earthGroup:earthGroup,ast:ast,deep:deep,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),tmp2:new THREE.Vector3(),selRing:selRing,selBody:null,selObj:null,selR:10,focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0,lost:false};
   attachControls(canvas); window.addEventListener("resize",onResize);
   document.addEventListener("visibilitychange",function(){ if(!document.hidden&&SC){ SC.dirtyTex=true; try{ SC.renderer.render(SC.scene,SC.cam); }catch(_){} } });
   canvas.addEventListener("dblclick",function(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false); if(hit.length){ var lc=hit[0].object.userData.loc; if(lc==="earth")openEarthMap(); else if(lc==="orbit")openOrbitMap(); else if(lc==="moon")openEarthMap("moon"); } });
@@ -998,9 +999,13 @@ function attachControls(canvas){ var c=SC.cam0,px=0,py=0,moved=false;
   window.addEventListener("pointerup",function(e){ canvas.style.cursor="grab"; if(SC.drag&&!moved)pickAt(e); SC.drag=false; });
   window.addEventListener("pointermove",function(e){ if(!SC.drag)return; if(Math.abs(e.clientX-px)+Math.abs(e.clientY-py)>4)moved=true; c.theta-=(e.clientX-px)*0.006; c.phi=clamp(c.phi-(e.clientY-py)*0.006,0.2,Math.PI-0.2); px=e.clientX; py=e.clientY; });
   canvas.addEventListener("wheel",function(e){ e.preventDefault(); c.r=clamp(c.r+e.deltaY*(c.r*0.0014+0.5),14,1200000); },{passive:false}); }
-function pickAt(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false); if(!hit.length)return; var loc=hit[0].object.userData.loc,gameplay=["earth","orbit","moon","asteroids","deep_space"];
-  if(gameplay.indexOf(loc)>=0){ UI.tab="ops"; UI.open=true; UI.sel=locUnlocked(loc,S.researched)?loc:null; SC.focus=(loc==="orbit"?"earth":loc); SC.cam0.r=(loc==="asteroids"||loc==="deep_space")?90:(loc==="moon"?22:55); render(); }
-  else { SC.focus=loc; SC.cam0.r=40; } }
+function pickAt(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false);
+  if(!hit.length){ SC.selBody=null; SC.selObj=null; render(); return; } /* left-click empty space → deselect */
+  var loc=hit[0].object.userData.loc,gameplay=["earth","orbit","moon","asteroids","deep_space"];
+  if(gameplay.indexOf(loc)>=0){ UI.tab="ops"; UI.open=true; UI.sel=locUnlocked(loc,S.researched)?loc:null; SC.focus=(loc==="orbit"?"earth":loc);
+    SC.selBody=loc; SC.selObj=SC.focusObj[loc==="orbit"?"earth":loc]||SC.earthGroup; SC.selR=loc==="orbit"?STATION_R:loc==="moon"?MOON_R+2.5:loc==="earth"?9:12;
+    if(loc==="asteroids"||loc==="deep_space")SC.cam0.r=90; render(); }
+  else { SC.focus=loc; SC.selBody=loc; SC.selObj=hit[0].object; SC.selR=12; render(); } }
 function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S.buildings)if(BUILDINGS[id]&&BUILDINGS[id].loc===loc)c+=S.buildings[id]; return c; }
   var PC=PCOLORS[0];
   /* only rebuild a group's meshes/labels when its data actually changes — saves the per-tick churn that drove lag */
@@ -1016,6 +1021,7 @@ function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene);
   if(SC.trans){ SC.trans.t+=0.016; var tk=Math.min(1,SC.trans.t/SC.trans.dur); c.r=SC.transStart+(26-SC.transStart)*tk; if(tk>=1)SC.trans=null; }
   var wc=S.worldClock; SC.pivots.forEach(function(p){ p.piv.rotation.y=p.phase+p.omega*wc; p.mesh.rotation.y=p.spin*wc; }); if(SC.moonPivot)SC.moonPivot.rotation.y=SC.moonPhase+SC.moonOmega*wc; SC.fleetGrp.rotation.y+=0.012; if(SC.glow)SC.glow.material.opacity=0.18+Math.sin(SC.t*2)*0.05;
   paintSun(SC.t*3); if(SC.sunMesh)SC.sunMesh.rotation.y+=0.01;
+  if(SC.selRing){ if(SC.selBody&&SC.selObj){ SC.selObj.getWorldPosition(SC.tmp2); SC.selRing.position.copy(SC.tmp2); var sr=SC.selR||10; SC.selRing.scale.set(sr,sr,sr); SC.selRing.visible=true; SC.selRing.material.opacity=0.55+Math.sin(SC.t*5)*0.35; } else SC.selRing.visible=false; }
   var obj=SC.focusObj[SC.focus]||SC.earthGroup; obj.getWorldPosition(SC.tmp); c.tx=SC.tmp.x; c.ty=SC.tmp.y; c.tz=SC.tmp.z;
   SC.cam.position.set(c.tx+Math.sin(c.phi)*Math.cos(c.theta)*c.r,c.ty+Math.cos(c.phi)*c.r,c.tz+Math.sin(c.phi)*Math.sin(c.theta)*c.r); SC.cam.lookAt(c.tx,c.ty,c.tz); try{ SC.renderer.render(SC.scene,SC.cam); }catch(e){ if(gl&&gl.isContextLost())SC.lost=true; } }
 
