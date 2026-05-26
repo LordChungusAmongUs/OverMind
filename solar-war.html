@@ -1277,7 +1277,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
       var orbitShell=new THREE.Mesh(new THREE.SphereGeometry(STATION_R,48,32),new THREE.MeshBasicMaterial({map:makeOrbitTexture(),transparent:true,depthWrite:false,side:THREE.DoubleSide})); g.add(orbitShell); orbitShell.userData.loc="orbit"; pick.push(orbitShell);
     }
     if(p.id==="mars"){ /* Phobos & Deimos — visual moons; inner one orbits much faster (real periods) */
-      [{name:"Phobos",dist:6,r:0.55,period:0.319},{name:"Deimos",dist:10.5,r:0.42,period:1.262}].forEach(function(mo){
+      [{name:"Phobos",dist:8.8,r:0.55,period:0.319},{name:"Deimos",dist:22.1,r:0.42,period:1.262}].forEach(function(mo){
         var mpiv=new THREE.Group(); mpiv.rotation.y=Math.random()*6.28; g.add(mpiv);
         var mm=new THREE.Mesh(new THREE.DodecahedronGeometry(mo.r),new THREE.MeshStandardMaterial({color:0x8a7a6a,emissive:0x2a2420,emissiveIntensity:0.2,roughness:0.95,metalness:0.0})); mm.position.set(mo.dist,0,0); mpiv.add(mm);
         markBody(mpiv,mo.dist,0,0,0x9a8478,mo.name,mo.name.toLowerCase(),pick,focusObj,markers);
