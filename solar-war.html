@@ -58,7 +58,8 @@
   #earthmap canvas{ display:block; width:100%; height:100%; cursor:grab; }
   #emtop{ position:absolute; top:10px; left:12px; right:12px; display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
   #orbitmap{ position:fixed; inset:0; z-index:1; background:#01040a; }
-  #orbitmap canvas{ display:block; width:100%; height:100%; cursor:grab; }
+  #orbitmap canvas{ display:block; width:100%; height:100%; cursor:default; }
+  #ombox{ display:none; }
   #fade{ position:fixed; inset:0; z-index:30; background:#000; opacity:0; pointer-events:none; transition:opacity .42s ease; }
   #hint{ position:absolute; top:54%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#2f8f43; font-size:13px; pointer-events:none; opacity:.8; }
   .reslabel{ text-align:right; font-size:11px; }
@@ -747,7 +748,7 @@ function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(fu
   if(EM||OM){ var armedB=EM&&EM.tool?BUILDINGS[EM.tool]:null,armedT=armedB?terrInfo(armedB):null,legend=(EM&&EM.loc==="earth")?(armedT?'<span style="color:#ffd27a">'+armedT.glyph+' '+armedT.label+'</span>':'<span class="small" style="color:#9fb6c4">⛰ land · ⚓ coast · 🌊 sea · <span style="color:#ffe6a0">●</span> cities · <span style="color:#e8b34a">◆</span> oil <span style="color:#bcc6d0">◆</span> metals <span style="color:#c08bff">◆</span> rare</span>'):"";
     h+='<div id="mapbar" class="panelglass ui" style="position:absolute;top:62px;left:50%;transform:translateX(-50%);padding:6px 12px;display:flex;gap:10px;align-items:center;max-width:92vw;flex-wrap:wrap;justify-content:center"><b style="color:#9dffb0">'+(EM?(EM.loc==="moon"?"🌑 Moon Surface":"🌍 Earth Surface"):"🛰 Earth Orbit")+'</b>'+(legend?'<span>'+legend+'</span>':"")+'<button class="btn ui sm" style="width:auto" data-act="'+(OM?"orbitmap_close":"earthmap_close")+'">↩ Back to System</button></div>'; }
   if(EM||OM)h+=gridCard();
-  if(OM)h+='<div class="panelglass ui" style="position:absolute;left:150px;top:62px;padding:6px 10px;font-size:11px"><div class="lbl">Selected: <span style="color:#39ff14">'+((OM.sel&&OM.sel.length)||0)+'</span>'+(OM.battleActive?' · <span style="color:#ff7a6b">BATTLE</span>':"")+'</div><div class="small">drag-box select · right-click move/attack · 1-0 groups · Q-T/A-G/Z-B build grid</div></div>';
+  if(OM)h+='<div class="panelglass ui" style="position:absolute;left:150px;top:62px;padding:6px 10px;font-size:11px"><div class="lbl">Selected: <span style="color:#39ff14">'+((OM.sel&&OM.sel.length)||0)+'</span>'+(OM.battleActive?' · <span style="color:#ff7a6b">BATTLE</span>':"")+'</div><div class="small">left-drag select · right-click move/attack · right-drag or arrows rotate · scroll zoom · 1-0 groups · Q-T/A-G/Z-B build grid</div></div>';
   if(!UI.open&&!EM&&!OM)h+='<div id="hint">⟲ drag to orbit · scroll to zoom · double-click Earth, the orbit ring, or the Moon · P to pause</div>';
   el("hud").innerHTML=h;
 }
@@ -974,10 +975,8 @@ function pickAt(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.c
 function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S.buildings)if(BUILDINGS[id]&&BUILDINGS[id].loc===loc)c+=S.buildings[id]; return c; }
   var PC=PCOLORS[0];
   /* only rebuild a group's meshes/labels when its data actually changes — saves the per-tick churn that drove lag */
-  var ringSig=cnt("earth")+","+cnt("moon")+","+cnt("asteroids")+","+cnt("deep_space");
-  if(ringSig!==SC.sigRing){ SC.sigRing=ringSig; ringMarks(SC.dev.earth,cnt("earth"),EARTH_R+3,PC); ringMarks(SC.dev.moon,cnt("moon"),MOON_R+2.2,PC); ringMarks(SC.dev.asteroids,cnt("asteroids"),10,PC); ringMarks(SC.dev.deep,cnt("deep_space"),9,PC); }
-  var op=S.orbitAround==="moon"?SC.moonMesh:SC.earthGroup; if(SC.dev.orbit.parent!==op){ if(SC.dev.orbit.parent)SC.dev.orbit.parent.remove(SC.dev.orbit); op.add(SC.dev.orbit); SC.sigOrbit=null; }
-  var orbitSig=S.orbitAround+":"+(S.earthPlacements||[]).filter(function(p){return p.orbit;}).length; if(orbitSig!==SC.sigOrbit){ SC.sigOrbit=orbitSig; orbitMarks3D(SC.dev.orbit,PC); }
+  /* system view shows only the celestial bodies — structures live on the body maps / orbit map, not as clutter here */
+  if(!SC.devCleared){ clearGroup(SC.dev.earth); clearGroup(SC.dev.moon); clearGroup(SC.dev.asteroids); clearGroup(SC.dev.deep); clearGroup(SC.dev.orbit); SC.devCleared=true; }
   var fn=Math.min(milPower(S.fleet).n,18); if(fn!==SC.sigFleet){ SC.sigFleet=fn; clearGroup(SC.fleetGrp); for(var i=0;i<fn;i++){ var g=new THREE.ConeGeometry(1.1,3,5); g.rotateX(Math.PI/2); var mk=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:PC,emissive:PC,emissiveIntensity:0.6})); var an=i/Math.max(1,fn)*Math.PI*2; mk.position.set(Math.cos(an)*16,3,Math.sin(an)*16); SC.fleetGrp.add(mk); } }
   // rival corporations — all Earth-based, clustered in cislunar space, one colour per player
   var rivalSig=(S.rivals||[]).map(function(r){ return r.dead?"x":((r.color||0)+"|"+Math.round(Math.sqrt(Math.max(10,r.eco))/55)+"|"+Math.round((r.mil||0)/40)+"|"+r.treaty); }).join(",");
@@ -1132,17 +1131,20 @@ var UID=1,pendingBattle=null,pendingTool=null;
 function shipStat(t){ var s=SHIPS[t],cls=s?s.cls:"Line"; return {fp:s?s.fp:10,hull:s?s.hull:30,range:cls==="Escort"?0.07:cls==="Line"?0.09:cls==="Heavy"?0.12:0.15,speed:cls==="Escort"?0.11:cls==="Line"?0.08:cls==="Heavy"?0.055:0.04}; }
 function spawnUnit(type,fx,fy,side,color,build){ var st=shipStat(type); return {uid:UID++,type:type,fx:fx,fy:fy,hp:st.hull,maxhp:st.hull,fp:st.fp,range:st.range,speed:st.speed,side:side,color:color,moveTo:null,tuid:0,build:build||0,fireT:0,ftx:0,fty:0}; }
 function fxd(a,b){ var d=a-b; if(d>0.5)d-=1; if(d<-0.5)d+=1; return d; }
-function omScreenC(u){ var bw=OM.canvas.width*3*OM.zoom,x=u.fx*bw-OM.camX; x=((x%bw)+bw)%bw; if(x>OM.canvas.width)x-=bw; return x; }
-function omPy(f){ return OM.camY+OM.canvas.height*1.5*OM.zoom*f; }
-function screenToFrac(sx,sy){ var bw=OM.canvas.width*3*OM.zoom,bh=OM.canvas.height*1.5*OM.zoom; return {fx:((((sx+OM.camX)%bw)+bw)%bw)/bw, fy:clamp((sy-OM.camY)/bh,0.04,0.96)}; }
-function placeAtScreenOrbit(sx,sy){ if(!OM||!OM.tool)return; var f=screenToFrac(sx,sy),id=OM.tool;
+var OM_R=40; /* orbit-map Earth radius = the green ring around Earth in system view */
+function omPos(fx,fy,alt){ var lon=fx*Math.PI*2,lat=(0.5-fy)*Math.PI*0.85,r=OM_R*(alt||1.07),cl=Math.cos(lat); return new THREE.Vector3(r*cl*Math.cos(lon),r*Math.sin(lat),r*cl*Math.sin(lon)); }
+function omFrac(v){ var r=v.length()||1,lat=Math.asin(clamp(v.y/r,-1,1)),lon=Math.atan2(v.z,v.x); return {fx:((lon/(Math.PI*2))%1+1)%1,fy:clamp(0.5-lat/(Math.PI*0.85),0.04,0.96)}; }
+function omRayFrac(cx,cy){ if(!OM||!OM.cam)return null; var m=new THREE.Vector2((cx/window.innerWidth)*2-1,-(cy/window.innerHeight)*2+1); OM.ray.setFromCamera(m,OM.cam); var hit=OM.ray.intersectObject(OM.hitSphere,false); return hit.length?omFrac(hit[0].point):null; }
+function omProject(v){ var p=v.clone().project(OM.cam); return {x:(p.x*0.5+0.5)*window.innerWidth,y:(-p.y*0.5+0.5)*window.innerHeight,vis:p.z<1}; }
+function screenToFrac(sx,sy){ return omRayFrac(sx,sy)||{fx:0.5,fy:0.5}; }
+function placeAtScreenOrbit(sx,sy){ if(!OM||!OM.tool)return; var f=omRayFrac(sx,sy); if(!f)return; var id=OM.tool;
   if(SHIPS[id]){ var s=SHIPS[id]; if(s.req&&S.researched.indexOf(s.req)<0)return; var o=(S.fleet[id]||0)+S.units.filter(function(u){return u.type===id&&u.side==="p";}).length,c=scost(s,o); if(!afford(S.resources,c))return; spend(c); S.units.push(spawnUnit(id,f.fx,f.fy,"p",PCOLORS[0],stime(s))); }
   else { var b=BUILDINGS[id]; if(!b||b.loc!=="orbit")return; var sfx=Math.round(f.fx*48)/48,sfy=clamp(Math.round(f.fy*16)/16,0.06,0.94); A.placeOrbit(id,sfx,sfy); }
   if(!Net.isMirror())save(); render(); }
-function clickSelect(sx,sy,shift){ var hit=null; S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<15&&Math.abs(omPy(u.fy)-sy)<15)hit=u; }); if(!shift)OM.sel=[]; if(hit&&OM.sel.indexOf(hit.uid)<0)OM.sel.push(hit.uid); render(); }
-function boxSelect(b,shift){ if(!shift)OM.sel=[]; var x0=Math.min(b.x0,b.x1),x1=Math.max(b.x0,b.x1),y0=Math.min(b.y0,b.y1),y1=Math.max(b.y0,b.y1); S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; var x=omScreenC(u),y=omPy(u.fy); if(x>=x0&&x<=x1&&y>=y0&&y<=y1&&OM.sel.indexOf(u.uid)<0)OM.sel.push(u.uid); }); render(); }
-function commandSel(sx,sy){ if(!OM.sel||!OM.sel.length)return; var f=screenToFrac(sx,sy),en=null; (OM.en||[]).forEach(function(u){ if(u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<17&&Math.abs(omPy(u.fy)-sy)<17)en=u; });
-  OM.sel.forEach(function(uid){ var u=S.units.find(function(x){return x.uid===uid;}); if(!u||u.build>0)return; if(en){ u.tuid=en.uid; u.moveTo=null; } else { u.moveTo={fx:f.fx,fy:f.fy}; u.tuid=0; } }); OM.cmdMark={x:sx,y:sy,t:0.6,enemy:!!en}; }
+function clickSelect(sx,sy,shift){ if(!OM)return; var m=new THREE.Vector2((sx/window.innerWidth)*2-1,-(sy/window.innerHeight)*2+1); OM.ray.setFromCamera(m,OM.cam); var meshes=[],uid; for(uid in OM.umesh)if(OM.umesh[uid].userData.side==="p")meshes.push(OM.umesh[uid]); var hit=OM.ray.intersectObjects(meshes,false),pick=hit.length?hit[0].object.userData.uid:null; if(!shift)OM.sel=[]; if(pick&&OM.sel.indexOf(pick)<0)OM.sel.push(pick); render(); }
+function boxSelect(b,shift){ if(!shift)OM.sel=[]; var x0=Math.min(b.x0,b.x1),x1=Math.max(b.x0,b.x1),y0=Math.min(b.y0,b.y1),y1=Math.max(b.y0,b.y1); S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; var sp=omProject(omPos(u.fx,u.fy,1.08)); if(sp.vis&&sp.x>=x0&&sp.x<=x1&&sp.y>=y0&&sp.y<=y1&&OM.sel.indexOf(u.uid)<0)OM.sel.push(u.uid); }); render(); }
+function commandSel(sx,sy){ if(!OM||!OM.sel||!OM.sel.length)return; var f=omRayFrac(sx,sy); if(!f)return; var m=new THREE.Vector2((sx/window.innerWidth)*2-1,-(sy/window.innerHeight)*2+1); OM.ray.setFromCamera(m,OM.cam); var em=[]; (OM.en||[]).forEach(function(u){ if(OM.umesh[u.uid])em.push(OM.umesh[u.uid]); }); var hit=OM.ray.intersectObjects(em,false),en=hit.length?hit[0].object.userData.uid:null;
+  OM.sel.forEach(function(uid){ var u=S.units.find(function(x){return x.uid===uid;}); if(!u||u.build>0)return; if(en){ u.tuid=en; u.moveTo=null; } else { u.moveTo={fx:f.fx,fy:f.fy}; u.tuid=0; } }); OM.cmdMark={fx:f.fx,fy:f.fy,t:0.6,enemy:!!en}; }
 function omStep(dt){ if(!OM)return; var P=S.units.filter(function(u){return u.side==="p"&&u.hp>0;}),E=OM.en||[];
   function act(u,foes){ if(u.build>0)return; u.fireT=Math.max(0,u.fireT-dt); var tgt=null;
     if(u.tuid){ tgt=foes.find(function(o){return o.uid===u.tuid&&o.hp>0;}); if(!tgt)u.tuid=0; }
@@ -1157,45 +1159,57 @@ function omStep(dt){ if(!OM)return; var P=S.units.filter(function(u){return u.si
 function endOrbitBattle(){ var r=S.rivals.find(function(x){return x.id===OM.battleRival;}),survFp=(OM.en||[]).reduce(function(a,u){return a+u.fp;},0);
   if(r){ r.mil=survFp; r.host=clamp(r.host+25,0,100); r.treaty="none"; r.intel=100; r.crip+=40; if(OM.en.length===0){ r.eco*=0.45; if(r.eco<800*CAP_SCALE){ r.dead=true; r.deadby="destroyed"; pushEvent(S,"war",r.name+" was destroyed in orbital combat."); } else pushEvent(S,"war","You crushed "+r.name+"'s fleet in orbit."); } else pushEvent(S,"war","Orbital battle with "+r.name+" ended."); }
   OM.battleActive=false; OM.en=[]; OM.battleRival=null; save(); render(); }
-function startOrbitBattle(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r)return; if(!OM){ pendingBattle=id; openOrbitMap(); return; } OM.battleRival=id; OM.battleActive=true; OM.battleT=0; OM.en=[]; var k=clamp(Math.round(r.mil/30),3,16),eF=Math.max(2,r.mil/k),eH=Math.max(20,(r.mil*2.4+40)/k),cx=screenToFrac(OM.canvas.width*0.66,0).fx; for(var i=0;i<k;i++){ var u=spawnUnit("frigate",(cx+Math.random()*0.06)%1,0.3+Math.random()*0.4,"e",r.color,0); u.fp=eF; u.hp=eH; u.maxhp=eH; OM.en.push(u); } pushEvent(S,"war","Engaging "+r.name+" in orbit."); render(); }
-function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=cv.height,bw=W*3*OM.zoom,bh=H*1.5*OM.zoom,i; OM.camX=((OM.camX%bw)+bw)%bw; OM.camY=clamp(OM.camY,Math.min(0,H-bh),0);
-  function py(f){ return OM.camY+bh*f; }
-  var g=c.createLinearGradient(0,0,0,H); g.addColorStop(0,"#01030a"); g.addColorStop(0.7,"#02060f"); g.addColorStop(1,"#061322"); c.fillStyle=g; c.fillRect(0,0,W,H);
-  c.fillStyle="rgba(160,255,190,0.4)"; for(i=0;i<220;i++)c.fillRect((i*7919)%W,(i*104729)%H,1,1);
-  var by=py(1),eg=c.createLinearGradient(0,by-H*0.25,0,by); eg.addColorStop(0,"rgba(47,127,255,0)"); eg.addColorStop(1,"rgba(47,127,255,0.55)"); c.fillStyle=eg; c.fillRect(0,by-H*0.25,W,H*0.25);
-  c.fillStyle="rgba(150,200,255,0.7)"; c.font="12px monospace"; c.textAlign="left"; c.fillText("◣ EARTH",10,Math.min(H-8,Math.max(14,by-6)));
-  c.strokeStyle="rgba(0,255,65,0.08)"; c.textAlign="right";
-  [["LEO",0.74],["MEO",0.47],["GEO",0.2]].forEach(function(b){ var y=py(b[1]); if(y<-2||y>H+2)return; c.beginPath(); c.moveTo(0,y); c.lineTo(W,y); c.stroke(); c.fillStyle="rgba(0,255,65,0.3)"; c.fillText(b[0],W-8,y-4); });
-  var copies=[-bw,0,bw],zs=OM.zoom;
-  var oisz=Math.max(1.2,9*zs*0.7/16); /* earth-orbit objects 16× smaller */
-  OM.items.forEach(function(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17), fx=((hash*97+idx*131)%1000)/1000, y=py(0.88-Math.min(it.alt,1.25)*0.62)+((idx*37)%30-15),a=clamp(0.22+((it.intel==null?100:it.intel)/100)*0.78,0.22,1); copies.forEach(function(ox){ var x=fx*bw-OM.camX+ox; if(x<-40||x>W+40)return; c.globalAlpha=a; drawIcon(c,x,y,it.shape,hexCol(it.color),oisz); c.globalAlpha=1; }); });
-  (S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; copies.forEach(function(ox){ var x=pl.fx*bw-OM.camX+ox; if(x<-30||x>W+30)return; drawIcon(c,x,py(pl.fy),BSHAPE[pl.id]||"sat",hexCol(PCOLORS[0]),oisz); }); });
-  function beams(arr){ arr.forEach(function(u){ if(u.fireT>0&&u.hp>0){ var x=omScreenC(u),tx=u.ftx*bw-OM.camX; tx=((tx%bw)+bw)%bw; if(tx>W)tx-=bw; c.strokeStyle=hexCol(u.color); c.globalAlpha=0.6; c.beginPath(); c.moveTo(x,py(u.fy)); c.lineTo(tx,py(u.fty)); c.stroke(); c.globalAlpha=1; } }); }
-  beams(S.units.filter(function(u){return u.side==="p";})); beams(OM.en||[]);
-  function drawUnit(u,sel){ var x=omScreenC(u),y=py(u.fy),sz=8*zs*0.8,shp=u.side==="p"?(BSHAPE[u.type]||"frig"):"gship"; if(sel){ c.strokeStyle="#39ff14"; c.lineWidth=1.5; c.beginPath(); c.arc(x,y,sz+5,0,6.28); c.stroke(); } drawIcon(c,x,y,shp,hexCol(u.color),sz); if(u.build>0){ c.fillStyle="rgba(255,200,80,0.9)"; c.font="9px monospace"; c.textAlign="center"; c.fillText("⚙"+Math.ceil(u.build)+"s",x,y-sz-6); } else if(u.hp<u.maxhp){ c.fillStyle="rgba(0,0,0,0.6)"; c.fillRect(x-sz,y-sz-5,sz*2,2); c.fillStyle=u.side==="p"?"#39ff14":"#ff5050"; c.fillRect(x-sz,y-sz-5,sz*2*Math.max(0,u.hp/u.maxhp),2); } }
-  S.units.forEach(function(u){ if(u.side==="p"&&u.hp>0)drawUnit(u,OM.sel&&OM.sel.indexOf(u.uid)>=0); });
-  (OM.en||[]).forEach(function(u){ if(u.hp>0)drawUnit(u,false); });
-  if(OM.cmdMark){ c.strokeStyle=OM.cmdMark.enemy?"#ff5050":"#39ff14"; c.lineWidth=2; c.globalAlpha=Math.max(0,OM.cmdMark.t/0.6); c.beginPath(); c.arc(OM.cmdMark.x,OM.cmdMark.y,(1-OM.cmdMark.t/0.6)*14+4,0,6.28); c.stroke(); c.globalAlpha=1; }
-  if(OM.box&&OM.selecting){ var x0=Math.min(OM.box.x0,OM.box.x1),y0=Math.min(OM.box.y0,OM.box.y1); c.strokeStyle="rgba(57,255,20,0.8)"; c.lineWidth=1; c.fillStyle="rgba(57,255,20,0.1)"; c.fillRect(x0,y0,Math.abs(OM.box.x1-OM.box.x0),Math.abs(OM.box.y1-OM.box.y0)); c.strokeRect(x0,y0,Math.abs(OM.box.x1-OM.box.x0),Math.abs(OM.box.y1-OM.box.y0)); } }
+function startOrbitBattle(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r)return; if(!OM){ pendingBattle=id; openOrbitMap(); return; } OM.battleRival=id; OM.battleActive=true; OM.battleT=0; OM.en=[]; var k=clamp(Math.round(r.mil/30),3,16),eF=Math.max(2,r.mil/k),eH=Math.max(20,(r.mil*2.4+40)/k),cx=0.5; for(var i=0;i<k;i++){ var u=spawnUnit("frigate",(cx+Math.random()*0.18)%1,0.3+Math.random()*0.4,"e",r.color,0); u.fp=eF; u.hp=eH; u.maxhp=eH; OM.en.push(u); } pushEvent(S,"war","Engaging "+r.name+" in orbit."); render(); }
+function omItemFrac(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17); return {fx:((hash*97+idx*131)%1000)/1000,fy:clamp(0.12+((idx*37)%62)/62*0.76,0.05,0.95)}; }
+function drawOrbitMap(){ if(!OM||!OM.renderer)return;
+  var cam=OM.cam; cam.position.set(OM.camR*Math.sin(OM.phi)*Math.cos(OM.theta),OM.camR*Math.cos(OM.phi),OM.camR*Math.sin(OM.phi)*Math.sin(OM.theta)); cam.lookAt(0,0,0);
+  // player orbital structures (rebuild only on change)
+  var ss=(S.earthPlacements||[]).filter(function(p){return p.orbit;}); var structSig=ss.map(function(p){return p.id+","+(p.fx||0).toFixed(3)+","+(p.fy||0).toFixed(3);}).join("|");
+  if(structSig!==OM.sigStruct){ OM.sigStruct=structSig; clearGroup(OM.structGrp); ss.forEach(function(pl){ var mk=new THREE.Mesh(OM.structGeo,new THREE.MeshStandardMaterial({color:PCOLORS[0],emissive:PCOLORS[0],emissiveIntensity:0.6})); mk.position.copy(omPos(pl.fx,pl.fy,1.03)); OM.structGrp.add(mk); }); }
+  // rival & neutral presence (rebuild when the roster signature changes)
+  var itemSig=OM.items.map(function(it){return it.owner+it.shape;}).join(",");
+  if(itemSig!==OM.sigItems){ OM.sigItems=itemSig; clearGroup(OM.itemGrp); OM.items.forEach(function(it,idx){ var f=omItemFrac(it,idx),mat=new THREE.MeshStandardMaterial({color:it.color,emissive:it.color,emissiveIntensity:0.5,transparent:true,opacity:clamp(0.25+((it.intel==null?100:it.intel)/100)*0.75,0.25,1)}),mk=new THREE.Mesh(it.shape==="station"?OM.structGeo:OM.itemGeo,mat); mk.position.copy(omPos(f.fx,f.fy,1.05)); OM.itemGrp.add(mk); }); }
+  // units (player + enemy): persistent meshes, positions updated every frame
+  var seen={}; function upd(u){ if(u.hp<=0)return; seen[u.uid]=1; var mesh=OM.umesh[u.uid]; if(!mesh){ mesh=new THREE.Mesh(OM.unitGeo,new THREE.MeshStandardMaterial({color:u.color,emissive:u.color,emissiveIntensity:0.7})); mesh.userData={uid:u.uid,side:u.side}; OM.unitGrp.add(mesh); OM.umesh[u.uid]=mesh; } mesh.position.copy(omPos(u.fx,u.fy,1.08)); var seld=u.side==="p"&&OM.sel&&OM.sel.indexOf(u.uid)>=0; mesh.scale.setScalar(seld?2.3:(u.side==="p"?1.4:1.15)); mesh.material.emissive.setHex(u.color); mesh.material.color.setHex(seld?0x9dffb0:u.color); mesh.material.emissiveIntensity=u.build>0?0.25:(seld?1.1:0.7); }
+  S.units.forEach(function(u){ if(u.side==="p")upd(u); }); (OM.en||[]).forEach(upd);
+  for(var uid in OM.umesh){ if(!seen[uid]){ var mm=OM.umesh[uid]; OM.unitGrp.remove(mm); if(mm.material&&mm.material.dispose)mm.material.dispose(); delete OM.umesh[uid]; } }
+  // destination / attack marker
+  if(OM.cmdMark){ if(!OM.cmdMesh){ OM.cmdMesh=new THREE.Mesh(new THREE.RingGeometry(1.4,2.1,18),new THREE.MeshBasicMaterial({color:0x39ff14,side:THREE.DoubleSide,transparent:true,depthTest:false})); OM.scene.add(OM.cmdMesh); } OM.cmdMesh.visible=true; OM.cmdMesh.material.color.setHex(OM.cmdMark.enemy?0xff5050:0x39ff14); OM.cmdMesh.material.opacity=clamp(OM.cmdMark.t/0.6,0,1); OM.cmdMesh.position.copy(omPos(OM.cmdMark.fx,OM.cmdMark.fy,1.1)); OM.cmdMesh.lookAt(0,0,0); } else if(OM.cmdMesh){ OM.cmdMesh.visible=false; }
+  OM.renderer.render(OM.scene,cam); }
 function omLoop(){ if(!OM)return; OM.raf=requestAnimationFrame(omLoop); var now=performance.now(),dt=Math.min(0.05,(now-(OM.last||now))/1000); OM.last=now; if(!UI.menu)omStep(dt); drawOrbitMap(); }
 function orbitKey(e){ if(!OM||(e.target&&e.target.tagName==="INPUT"))return; var k=e.key;
-  if(k==="ArrowLeft"){ OM.camX-=90; e.preventDefault(); } else if(k==="ArrowRight"){ OM.camX+=90; e.preventDefault(); } else if(k==="ArrowUp"){ OM.camY+=90; e.preventDefault(); } else if(k==="ArrowDown"){ OM.camY-=90; e.preventDefault(); }
+  if(k==="ArrowLeft"){ OM.theta-=0.13; e.preventDefault(); } else if(k==="ArrowRight"){ OM.theta+=0.13; e.preventDefault(); } else if(k==="ArrowUp"){ OM.phi=clamp(OM.phi-0.1,0.2,Math.PI-0.2); e.preventDefault(); } else if(k==="ArrowDown"){ OM.phi=clamp(OM.phi+0.1,0.2,Math.PI-0.2); e.preventDefault(); }
   else if(/^[0-9]$/.test(k)){ if(e.ctrlKey||e.metaKey){ S.groups[k]=(OM.sel||[]).slice(); save(); } else { OM.sel=(S.groups[k]||[]).filter(function(uid){return S.units.some(function(u){return u.uid===uid&&u.hp>0;});}); render(); } e.preventDefault(); }
-  else if(/^F([1-9]|1[0-2])$/.test(k)){ var key="orbit_"+k; if(e.ctrlKey||e.metaKey){ S.bookmarks[key]={camX:OM.camX,camY:OM.camY,zoom:OM.zoom}; save(); } else { var bm=S.bookmarks[key]; if(bm){ OM.camX=bm.camX; OM.camY=bm.camY; OM.zoom=bm.zoom; } } e.preventDefault(); } }
-function mountOrbitMap(){ var d=document.createElement("div"); d.id="orbitmap"; d.innerHTML='<canvas id="omcanvas"></canvas>';
-  document.body.appendChild(d); var cv=d.querySelector("#omcanvas"); OM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,tool:null,sel:[],box:null,selecting:false,placing:false,en:[],battleActive:false,battleRival:null,battleT:0,cmdMark:null,last:performance.now(),items:orbitItems()};
-  OM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; OM.camX=(cv.width*3*OM.zoom-cv.width)/2; OM.camY=(cv.height-cv.height*1.5*OM.zoom)/2; }; window.addEventListener("resize",OM.resize); OM.resize();
+  else if(/^F([1-9]|1[0-2])$/.test(k)){ var key="orbit_"+k; if(e.ctrlKey||e.metaKey){ S.bookmarks[key]={theta:OM.theta,phi:OM.phi,camR:OM.camR}; save(); } else { var bm=S.bookmarks[key]; if(bm){ OM.theta=bm.theta; OM.phi=bm.phi; OM.camR=bm.camR; } } e.preventDefault(); } }
+function mountOrbitMap(){ var d=document.createElement("div"); d.id="orbitmap"; d.innerHTML='<canvas id="omcanvas"></canvas><div id="ombox"></div>'; document.body.appendChild(d);
+  var cv=d.querySelector("#omcanvas"),boxEl=d.querySelector("#ombox"),renderer; try{ renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true}); }catch(e){ d.remove(); return; }
+  renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1)); renderer.setSize(window.innerWidth,window.innerHeight,false); renderer.setClearColor(0x01030a,1);
+  var scene=new THREE.Scene(); scene.add(new THREE.AmbientLight(0x99aabb,0.75)); var lt=new THREE.DirectionalLight(0xffffff,1.1); lt.position.set(1,0.6,0.8); scene.add(lt);
+  var sg=new THREE.BufferGeometry(),sp=[]; for(var i=0;i<700;i++){ var R=400+Math.random()*700,th=Math.random()*6.28,ph=Math.acos(Math.random()*2-1); sp.push(R*Math.sin(ph)*Math.cos(th),R*Math.cos(ph),R*Math.sin(ph)*Math.sin(th)); } sg.setAttribute("position",new THREE.Float32BufferAttribute(sp,3)); scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0x9fffc0,size:1.4,sizeAttenuation:false,transparent:true,opacity:0.7})));
+  /* wrapped Earth as a transparent sphere at the green-ring radius — see structures & units on the far side through it */
+  var tex=EARTH_TEX||makeEarthTexture(),earth=new THREE.Mesh(new THREE.SphereGeometry(OM_R,48,32),new THREE.MeshPhongMaterial({map:tex,transparent:true,opacity:0.5,depthWrite:false,emissive:0x0a2236,emissiveIntensity:0.35}));scene.add(earth);
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(OM_R*1.002,24,16),new THREE.MeshBasicMaterial({color:0x2f7fff,wireframe:true,transparent:true,opacity:0.1})));
+  var ring=new THREE.Mesh(new THREE.TorusGeometry(OM_R*1.1,0.25,8,72),new THREE.MeshBasicMaterial({color:0x39ff14,transparent:true,opacity:0.4})); ring.rotation.x=Math.PI/2; scene.add(ring);
+  var hitSphere=new THREE.Mesh(new THREE.SphereGeometry(OM_R*1.06,28,18),new THREE.MeshBasicMaterial({visible:false})); scene.add(hitSphere);
+  var unitGrp=new THREE.Group(),structGrp=new THREE.Group(),itemGrp=new THREE.Group(); scene.add(unitGrp); scene.add(structGrp); scene.add(itemGrp);
+  OM={canvas:cv,renderer:renderer,scene:scene,cam:new THREE.PerspectiveCamera(50,window.innerWidth/window.innerHeight,0.5,5000),ray:new THREE.Raycaster(),hitSphere:hitSphere,earth:earth,
+    unitGrp:unitGrp,structGrp:structGrp,itemGrp:itemGrp,umesh:{},unitGeo:new THREE.OctahedronGeometry(0.7),structGeo:new THREE.BoxGeometry(1.1,1.1,1.1),itemGeo:new THREE.OctahedronGeometry(0.55),
+    camR:OM_R*3.0,theta:0.6,phi:1.05,tool:null,sel:[],box:null,selecting:false,placing:false,en:[],battleActive:false,battleRival:null,battleT:0,cmdMark:null,last:performance.now(),items:orbitItems()};
+  OM.resize=function(){ renderer.setSize(window.innerWidth,window.innerHeight,false); OM.cam.aspect=window.innerWidth/window.innerHeight; OM.cam.updateProjectionMatrix(); }; window.addEventListener("resize",OM.resize); OM.resize();
   OM.refresh=setInterval(function(){ if(OM)OM.items=orbitItems(); },1000);
-  var sx=0,sy=0;
-  cv.addEventListener("pointerdown",function(e){ if(e.button!==0)return; sx=e.clientX; sy=e.clientY; if(OM.tool)OM.placing=true; else { OM.selecting=true; OM.box={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } });
-  cv.addEventListener("pointermove",function(e){ if(OM.selecting&&OM.box){ OM.box.x1=e.clientX; OM.box.y1=e.clientY; } });
-  cv.addEventListener("contextmenu",function(e){ e.preventDefault(); if(!OM.tool)commandSel(e.clientX,e.clientY); });
-  OM.up=function(e){ if(!OM)return; cv.style.cursor=OM.tool?"crosshair":"default"; if(OM.placing){ OM.placing=false; placeAtScreenOrbit(sx,sy); } else if(OM.selecting){ OM.selecting=false; var moved=Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>5; if(moved&&OM.box)boxSelect(OM.box,e.shiftKey); else clickSelect(sx,sy,e.shiftKey); OM.box=null; } }; window.addEventListener("pointerup",OM.up);
-  cv.addEventListener("wheel",function(e){ e.preventDefault(); var oz=OM.zoom; OM.zoom=clamp(OM.zoom*(e.deltaY<0?1.12:0.89),1,8); var f=OM.zoom/oz; OM.camX=(e.clientX+OM.camX)*f-e.clientX; OM.camY=e.clientY-(e.clientY-OM.camY)*f; },{passive:false});
+  var down=null;
+  cv.addEventListener("pointerdown",function(e){ down={x:e.clientX,y:e.clientY,lx:e.clientX,ly:e.clientY,button:e.button,moved:false}; if(e.button===0&&!OM.tool){ OM.selecting=true; OM.box={x0:e.clientX,y0:e.clientY,x1:e.clientX,y1:e.clientY}; } cv.style.cursor=e.button===2?"grabbing":(OM.tool?"crosshair":"default"); });
+  cv.addEventListener("pointermove",function(e){ if(!down)return; if(Math.abs(e.clientX-down.x)+Math.abs(e.clientY-down.y)>4)down.moved=true; if(down.button===2){ OM.theta-=(e.clientX-down.lx)*0.007; OM.phi=clamp(OM.phi-(e.clientY-down.ly)*0.007,0.2,Math.PI-0.2); down.lx=e.clientX; down.ly=e.clientY; } else if(OM.selecting&&OM.box){ OM.box.x1=e.clientX; OM.box.y1=e.clientY; var x0=Math.min(OM.box.x0,OM.box.x1),y0=Math.min(OM.box.y0,OM.box.y1); boxEl.style.cssText="position:absolute;border:1px solid rgba(57,255,20,.8);background:rgba(57,255,20,.1);pointer-events:none;left:"+x0+"px;top:"+y0+"px;width:"+Math.abs(OM.box.x1-OM.box.x0)+"px;height:"+Math.abs(OM.box.y1-OM.box.y0)+"px"; } });
+  cv.addEventListener("contextmenu",function(e){ e.preventDefault(); });
+  OM.up=function(e){ if(!OM||!down)return; var dn=down; down=null; cv.style.cursor=OM.tool?"crosshair":"default"; if(boxEl)boxEl.style.cssText="display:none";
+    if(dn.button===0){ if(OM.tool){ placeAtScreenOrbit(dn.x,dn.y); } else if(OM.selecting){ OM.selecting=false; if(dn.moved&&OM.box)boxSelect(OM.box,e.shiftKey); else clickSelect(dn.x,dn.y,e.shiftKey); OM.box=null; } } else if(dn.button===2){ if(!dn.moved&&!OM.tool)commandSel(dn.x,dn.y); } }; window.addEventListener("pointerup",OM.up);
+  cv.addEventListener("wheel",function(e){ e.preventDefault(); OM.camR=clamp(OM.camR*(e.deltaY<0?0.9:1.11),OM_R*1.35,OM_R*8); },{passive:false});
   window.addEventListener("keydown",orbitKey); OM.key=orbitKey; OM.raf=requestAnimationFrame(omLoop); render();
   if(pendingTool){ OM.tool=pendingTool; pendingTool=null; render(); } if(pendingBattle){ startOrbitBattle(pendingBattle); pendingBattle=null; } }
 function openOrbitMap(){ if(OM||EM)return; var f=el("fade"); if(f)f.style.opacity="1"; if(SC){ SC.transStart=SC.cam0.r; SC.trans={t:0,dur:0.42}; } setTimeout(function(){ mountOrbitMap(); if(f)f.style.opacity="0"; },460); }
-function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; render(); },300); }
+function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key);
+    try{ clearGroup(OM.unitGrp); clearGroup(OM.structGrp); clearGroup(OM.itemGrp); [OM.unitGeo,OM.structGeo,OM.itemGeo].forEach(function(g){ if(g&&g.dispose)g.dispose(); }); if(OM.renderer)OM.renderer.dispose(); }catch(_){}
+    var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; render(); },300); }
 
 /* ============================================================ MULTIPLAYER CLIENT (scaffold)
    Inert until Net.connect() is called from the Multiplayer lobby. Offline play is unaffected.
