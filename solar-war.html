@@ -926,6 +926,16 @@ function paintOrbitCanvas(cv){ var W=cv.width,H=cv.height,c=cv.getContext("2d");
 function makeOrbitTexture(){ var cv=document.createElement("canvas"); cv.width=4096; cv.height=2048; ORBIT_CV=cv; ORBIT_TEX=new THREE.CanvasTexture(cv); paintOrbitCanvas(cv); ORBIT_TEX.needsUpdate=true; return ORBIT_TEX; }
 function orbitTexSig(){ return (S.earthPlacements||[]).filter(function(p){return p.orbit;}).map(function(p){return p.id+(p.fx||0).toFixed(2)+(p.fy||0).toFixed(2);}).join(",")+"|"+(S.units||[]).filter(function(u){return u.side==="p"&&u.hp>0&&u.build<=0;}).map(function(u){return u.type+u.fx.toFixed(2)+u.fy.toFixed(2);}).join(",")+"|"+(S.rivals||[]).filter(function(r){return !r.dead;}).map(function(r){return r.id+r.treaty+(r.neutral?"N":"")+Math.round(r.mil/45)+Math.round(Math.sqrt(Math.max(10,r.eco))/90);}).join(",")+"|"+NEUTRAL.map(function(co){return S.neutral[co.id]||"n";}).join(","); }
 function updateOrbitTexture(force){ if(!ORBIT_CV||!ORBIT_TEX)return; var sig=orbitTexSig(); if(!force&&sig===ORBIT_SIG)return; ORBIT_SIG=sig; paintOrbitCanvas(ORBIT_CV); ORBIT_TEX.needsUpdate=true; }
+/* fiery kaleidoscope sun — fast-churning mirrored fire painted onto a canvas texture each frame */
+var SUN_CV=null,SUN_TEX=null;
+function paintSun(t){ if(!SUN_CV)return; var cv=SUN_CV,W=cv.width,c=cv.getContext("2d"),cx=W/2,cy=W/2,R=W/2,seg=8,i,j,m;
+  var bg=c.createRadialGradient(cx,cy,0,cx,cy,R); bg.addColorStop(0,"#fff6c0"); bg.addColorStop(0.45,"#ff9020"); bg.addColorStop(0.8,"#e22a06"); bg.addColorStop(1,"#5e0f01"); c.fillStyle=bg; c.fillRect(0,0,W,W);
+  c.globalCompositeOperation="lighter";
+  for(i=0;i<seg;i++)for(m=0;m<2;m++){ c.save(); c.translate(cx,cy); c.rotate(t*0.6+i*Math.PI*2/seg); if(m)c.scale(-1,1);
+    for(j=0;j<3;j++){ var ph=t*1.7+i*0.7+j*2.1,rr=R*(0.24+0.2*j),ox=Math.cos(ph)*R*0.3,oy=-R*0.5+Math.sin(ph*1.3)*R*0.13,g=c.createRadialGradient(ox,oy,0,ox,oy,rr); g.addColorStop(0,"rgba(255,245,170,0.5)"); g.addColorStop(0.45,"rgba(255,130,30,0.32)"); g.addColorStop(1,"rgba(255,40,0,0)"); c.fillStyle=g; c.beginPath(); c.arc(ox,oy,rr,0,6.28); c.fill(); }
+    c.restore(); }
+  c.globalCompositeOperation="source-over"; SUN_TEX.needsUpdate=true; }
+function makeSunTexture(){ var cv=document.createElement("canvas"); cv.width=256; cv.height=256; SUN_CV=cv; SUN_TEX=new THREE.CanvasTexture(cv); paintSun(0); return SUN_TEX; }
 function makeMoonTexture(){ var W=512,H=256,cv=document.createElement("canvas"); cv.width=W; cv.height=H; var c=cv.getContext("2d"); c.fillStyle="#8a8b90"; c.fillRect(0,0,W,H);
   (typeof MOON_CRATERS!=="undefined"?MOON_CRATERS:[]).forEach(function(k){ var x=(k.lon+180)/360*W,y=(90-k.lat)/180*H,r=Math.max(2,k.r/360*W),rg=c.createRadialGradient(x,y,r*0.2,x,y,r); if(k.mare){ rg.addColorStop(0,"#5f6066"); rg.addColorStop(1,"#7c7d82"); } else { rg.addColorStop(0,"#a8a9ae"); rg.addColorStop(0.7,"#74757a"); rg.addColorStop(1,"#8a8b90"); } c.fillStyle=rg; c.beginPath(); c.arc(x,y,r,0,6.28); c.fill(); }); return new THREE.CanvasTexture(cv); }
 function makeLabel(text,color,sx,sy){ var c=document.createElement("canvas"); c.width=256; c.height=64; var x=c.getContext("2d"); x.font="bold 30px monospace"; x.fillStyle=color; x.textAlign="center"; x.fillText(text,128,42); var t=new THREE.CanvasTexture(c); var sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthTest:false})); sp.scale.set(sx||46,sy||11.5,1); return sp; }
@@ -948,9 +958,9 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   var scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,1,4000000);
   scene.add(new THREE.AmbientLight(0x8899bb,0.55)); var sunlight=new THREE.PointLight(0xffffff,2.4,0); scene.add(sunlight);
   var sg=new THREE.BufferGeometry(),sp=[]; for(var i=0;i<1600;i++){ var R=500000+Math.random()*1800000,th=Math.random()*Math.PI*2,ph=Math.acos(Math.random()*2-1); sp.push(R*Math.sin(ph)*Math.cos(th),R*Math.cos(ph)*0.6,R*Math.sin(ph)*Math.sin(th)); } sg.setAttribute("position",new THREE.Float32BufferAttribute(sp,3)); scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0xffffff,size:1.6,sizeAttenuation:false,transparent:true,opacity:0.7})));
-  var sunMesh=new THREE.Mesh(new THREE.SphereGeometry(SUN_R,32,32),new THREE.MeshBasicMaterial({color:0xffffff})); scene.add(sunMesh);
-  var glow=new THREE.Mesh(new THREE.SphereGeometry(SUN_R*1.4,32,32),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.14})); scene.add(glow);
-  scene.add(makeLabel("Sun","#ffffff",40,10).translateY(SUN_R+10));
+  var sunMesh=new THREE.Mesh(new THREE.SphereGeometry(SUN_R,48,48),new THREE.MeshBasicMaterial({map:makeSunTexture()})); scene.add(sunMesh);
+  var glow=new THREE.Mesh(new THREE.SphereGeometry(SUN_R*1.4,32,32),new THREE.MeshBasicMaterial({color:0xff6a1a,transparent:true,opacity:0.2})); scene.add(glow);
+  scene.add(makeLabel("Sun","#ffd27a",40,10).translateY(SUN_R+10));
   PLANETS.forEach(function(p){ ringLine(scene,p.au*AU,0x0c3a18); });
   ringLine(scene,2.7*AU,0x3a2a12); ringLine(scene,3.6*AU,0x281240);
   var pick=[],pivots=[],focusObj={},earthGroup,moonPivot,moonMesh;
@@ -976,7 +986,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   var dev={earth:new THREE.Group(),moon:new THREE.Group(),asteroids:new THREE.Group(),deep:new THREE.Group(),orbit:new THREE.Group()};
   earthGroup.add(dev.earth); moonMesh.add(dev.moon); ast.add(dev.asteroids); deep.add(dev.deep); earthGroup.add(dev.orbit);
   var rivalGrp=new THREE.Group(); earthGroup.add(rivalGrp); var neutralGrp=new THREE.Group(); earthGroup.add(neutralGrp);
-  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,earthGroup:earthGroup,ast:ast,deep:deep,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0,lost:false};
+  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,sunMesh:sunMesh,earthGroup:earthGroup,ast:ast,deep:deep,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0,lost:false};
   attachControls(canvas); window.addEventListener("resize",onResize);
   document.addEventListener("visibilitychange",function(){ if(!document.hidden&&SC){ SC.dirtyTex=true; try{ SC.renderer.render(SC.scene,SC.cam); }catch(_){} } });
   canvas.addEventListener("dblclick",function(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false); if(hit.length){ var lc=hit[0].object.userData.loc; if(lc==="earth")openEarthMap(); else if(lc==="orbit")openOrbitMap(); else if(lc==="moon")openEarthMap("moon"); } });
@@ -1004,7 +1014,8 @@ function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene);
   if(SC.lost){ if(gl&&!gl.isContextLost()){ SC.lost=false; SC.dirtyTex=true; } else return; }      /* skip while context is gone; auto-resume even if the restore event was missed */
   var c=SC.cam0; SC.t+=0.016;
   if(SC.trans){ SC.trans.t+=0.016; var tk=Math.min(1,SC.trans.t/SC.trans.dur); c.r=SC.transStart+(26-SC.transStart)*tk; if(tk>=1)SC.trans=null; }
-  var wc=S.worldClock; SC.pivots.forEach(function(p){ p.piv.rotation.y=p.phase+p.omega*wc; p.mesh.rotation.y=p.spin*wc; }); if(SC.moonPivot)SC.moonPivot.rotation.y=SC.moonPhase+SC.moonOmega*wc; SC.fleetGrp.rotation.y+=0.012; if(SC.glow)SC.glow.material.opacity=0.14+Math.sin(SC.t*2)*0.04;
+  var wc=S.worldClock; SC.pivots.forEach(function(p){ p.piv.rotation.y=p.phase+p.omega*wc; p.mesh.rotation.y=p.spin*wc; }); if(SC.moonPivot)SC.moonPivot.rotation.y=SC.moonPhase+SC.moonOmega*wc; SC.fleetGrp.rotation.y+=0.012; if(SC.glow)SC.glow.material.opacity=0.18+Math.sin(SC.t*2)*0.05;
+  paintSun(SC.t*3); if(SC.sunMesh)SC.sunMesh.rotation.y+=0.01;
   var obj=SC.focusObj[SC.focus]||SC.earthGroup; obj.getWorldPosition(SC.tmp); c.tx=SC.tmp.x; c.ty=SC.tmp.y; c.tz=SC.tmp.z;
   SC.cam.position.set(c.tx+Math.sin(c.phi)*Math.cos(c.theta)*c.r,c.ty+Math.cos(c.phi)*c.r,c.tz+Math.sin(c.phi)*Math.sin(c.theta)*c.r); SC.cam.lookAt(c.tx,c.ty,c.tz); try{ SC.renderer.render(SC.scene,SC.cam); }catch(e){ if(gl&&gl.isContextLost())SC.lost=true; } }
 
