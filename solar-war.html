@@ -396,18 +396,29 @@ function freshState(){ var sr=SETTINGS.startRes,r0=zero(); for(var k in sr)if(r0
 function techMult(r){ var m=zero(),k; for(k in m)m[k]=1; var g=1; r.forEach(function(id){ var t=TECHS[id]; if(!t)return; if(t.gm)g*=t.gm; if(t.mult)for(var kk in t.mult)if(m[kk]!==undefined)m[kk]*=t.mult[kk]; }); for(k in m)m[k]*=g; return m; }
 var RUNWIN=1.5;
 function extractionFactors(S){ var sum={},cnt={}; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit)return; var b=BUILDINGS[pl.id]; if(!b||!b.dep)return; var lon=pl.lon!==undefined?pl.lon:(pl.gx||0)*GRID_STEP,lat=pl.lat!==undefined?pl.lat:(pl.gy||0)*GRID_STEP,r=depRichness(lon,lat,b.dep)||1; sum[pl.id]=(sum[pl.id]||0)+r; cnt[pl.id]=(cnt[pl.id]||0)+1; }); var f={}; for(var id in sum)f[id]=sum[id]/cnt[id]; return f; }
+/* ===== per-structure management ===== Each placed structure is run individually. AI autopilot is sub-optimal;
+   hands-on player management (a limited pool of attention) or humanoid-robot crews bring it to peak efficiency.
+   Structures of the same type share identical controls but each keeps its own separate state (pl.mg, pl.mode...). */
+function autopilotEff(S){ var e=0.55,has=function(t){return (S.researched||[]).indexOf(t)>=0;};
+  if(has("ai_models"))e+=0.06; if(has("chip_design"))e+=0.05; if(has("personal_ai"))e+=0.04; if(has("enterprise_ai"))e+=0.04; if(has("agi"))e+=0.12; if(has("humanoid_robots"))e+=0.06; return clamp(e,0.4,0.95); }
+function instanceEff(pl,S){ if(pl.uc)return 0; var mg=pl.mg||"auto"; if(mg==="humanoid")return 1.0; if(mg==="manage")return 0.95; if(mg==="staff")return 0.78; return autopilotEff(S); }
+function mgmtCapacity(S){ return 3+(S.buildings.operations_center||0)*3+(S.buildings.corporate_office||0)+(S.buildings.regional_hq||0)*2; }
+function humanoidCap(S){ if((S.researched||[]).indexOf("humanoid_robots")<0)return 0; return (S.buildings.robotic_factory||0)*4+(S.buildings.drone_facility||0)*3+(S.buildings.lunar_manufacturing||0)*6+(S.buildings.orbital_manufacturing||0)*6; }
+function mgmtUsage(S){ var u={manage:0,humanoid:0}; (S.earthPlacements||[]).forEach(function(pl){ if(pl.uc)return; if(pl.mg==="manage")u.manage++; else if(pl.mg==="humanoid")u.humanoid++; }); return u; }
+function effCounts(S){ var ec={},arr=S.earthPlacements||[],i; for(i=0;i<arr.length;i++){ var pl=arr[i]; if(pl.uc||!BUILDINGS[pl.id])continue; ec[pl.id]=(ec[pl.id]||0)+instanceEff(pl,S); } for(var id in S.buildings){ if(ec[id]===undefined&&S.buildings[id]>0)ec[id]=S.buildings[id]*autopilotEff(S); } return ec; }
 function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),nodeGross={},eS=0,eD=0,k,rf,xf=extractionFactors(S),cm=corpMod();
   /* SURFACE freight (truck/rail/sea/air) throttles Earth physical production at source. Off-world goods are NOT throttled
      at the source — they pile up at the body where they are mined and must be hauled home by SPACE lift (see haulTick). */
   var surfCap=LOGI_BASE+cm.surfAdd,surfDem=0,spCap=SPACE_BASE; for(var lid in S.buildings){ var lc=S.buildings[lid],lb=BUILDINGS[lid]; if(!lc||!lb)continue; if(lb.logi){ if(lb.logiDom==="space")spCap+=lb.logi*lc; else surfCap+=lb.logi*lc; } if(lb.loc==="earth"){ var t=0; if(lb.prod)for(k in lb.prod){ if(PHYS[k])t+=lb.prod[k]; } if(lb.con)for(k in lb.con){ if(PHYS[k])t+=lb.con[k]; } surfDem+=t*lc; } }
   surfCap*=cm.logi; spCap*=cm.logi;
   var lrS=surfDem<=0?1:clamp(surfCap/surfDem,0,1);
-  for(var id in S.buildings){ var c=S.buildings[id]; if(!c)continue; var b=BUILDINGS[id]; if(!b)continue;
+  var EFF=effCounts(S);
+  for(var id in S.buildings){ var c=S.buildings[id]; if(!c)continue; var b=BUILDINGS[id]; if(!b)continue; var ec=EFF[id]!==undefined?EFF[id]:c;
     rf=1; if(b.con)for(k in b.con){ if(k==="energy")continue; var nd=b.con[k]*c,av=S.resources[k]||0,f=nd<=0?1:clamp(av/(nd*RUNWIN),0,1); if(f<rf)rf=f; }
     var xr=(b.dep&&xf[id]!==undefined)?xf[id]:1,off=b.loc!=="earth";
-    if(b.prod)for(k in b.prod){ if(k==="energy"){ eS+=b.prod[k]*c*rf; continue; } var amt=b.prod[k]*c*rf*xr; if(off&&PHYS[k]){ var ng=nodeGross[b.loc]||(nodeGross[b.loc]={}); ng[k]=(ng[k]||0)+amt; } else gross[k]+=amt*(PHYS[k]?lrS:1); }
-    if(b.gpu){ var gm=S.gpuMode||"ai"; if(gm==="ai")gross.compute+=14*c; else if(gm==="render")gross.capital+=10*c; }
-    if(b.con)for(k in b.con){ if(k==="energy")eD+=b.con[k]*c*rf; else con[k]+=b.con[k]*c*rf; } }
+    if(b.prod)for(k in b.prod){ if(k==="energy"){ eS+=b.prod[k]*ec*rf; continue; } var amt=b.prod[k]*ec*rf*xr; if(off&&PHYS[k]){ var ng=nodeGross[b.loc]||(nodeGross[b.loc]={}); ng[k]=(ng[k]||0)+amt; } else gross[k]+=amt*(PHYS[k]?lrS:1); }
+    if(b.gpu){ var gm=S.gpuMode||"ai"; if(gm==="ai")gross.compute+=14*ec; else if(gm==="render")gross.capital+=10*ec; }
+    if(b.con)for(k in b.con){ var u=(k==="capital")?c:ec; if(k==="energy")eD+=b.con[k]*u*rf; else con[k]+=b.con[k]*u*rf; } }
   if(cm.computeAdd)gross.compute+=cm.computeAdd; /* R&D subsidiaries contribute synthetic compute */
   for(var fid in S.fleet){ var fc=S.fleet[fid]; if(!fc)continue; var sh=SHIPS[fid]; if(!sh||!sh.up)continue; for(k in sh.up){ if(k==="energy")eD+=sh.up[k]*fc; else con[k]+=sh.up[k]*fc; } }
   var ext=zero(); NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]; if(st==="leased"){ for(var k in co.lease){ if(k==="energy")eS+=co.lease[k]; else ext[k]+=co.lease[k]; } con.capital+=co.rent; } else if(st==="owned"){ for(var k in co.own){ if(k==="energy")eS+=co.own[k]; else ext[k]+=co.own[k]; } } });
@@ -833,16 +844,16 @@ function corpPanel(){ var cur=curStruct(),fee=restructureFee(),sc=subCost(),mx=m
 function resourceLedger(S){
   var m=techMult(S.researched),cm=corpMod(),xf=extractionFactors(S),ts=talentStats(S),staff=ts.staffRatio,head=ts.headroom,r=rates(S),pr=r.pr,lrS=r.lrS;
   var L={}; STOCKS.forEach(function(k){ L[k]={onHand:S.resources[k]||0,net:r.net[k],inflow:[],outflow:[],off:[],transit:0,owed:0}; });
-  var ePlus=[],eMinus=[],id,k;
-  for(id in S.buildings){ var c=S.buildings[id]; if(!c)continue; var b=BUILDINGS[id]; if(!b)continue;
+  var ePlus=[],eMinus=[],id,k,EFF=effCounts(S);
+  for(id in S.buildings){ var c=S.buildings[id]; if(!c)continue; var b=BUILDINGS[id]; if(!b)continue; var ec=EFF[id]!==undefined?EFF[id]:c;
     var rf=1; if(b.con)for(k in b.con){ if(k==="energy")continue; var nd=b.con[k]*c,av=S.resources[k]||0,f=nd<=0?1:clamp(av/(nd*RUNWIN),0,1); if(f<rf)rf=f; }
     var xr=(b.dep&&xf[id]!==undefined)?xf[id]:1,off=b.loc!=="earth",nm=b.name+(c>1?" ×"+c:"");
-    if(b.prod)for(k in b.prod){ if(k==="energy"){ var ev=b.prod[k]*c*rf; if(ev>0)ePlus.push({src:nm,amt:ev}); continue; }
-      var base=b.prod[k]*c*rf*xr;
+    if(b.prod)for(k in b.prod){ if(k==="energy"){ var ev=b.prod[k]*ec*rf; if(ev>0)ePlus.push({src:nm,amt:ev}); continue; }
+      var base=b.prod[k]*ec*rf*xr;
       if(off&&PHYS[k]){ var ov=base*m[k]*pr*staff; if(ov>0)L[k].off.push({src:nm+" · "+b.loc,amt:ov}); }
       else { var v=base*(PHYS[k]?lrS:1)*m[k]*pr*(k==="talent"?head:staff); if(v>0)L[k].inflow.push({src:nm,amt:k==="capital"?v*CAP_SCALE:v}); } }
-    if(b.gpu){ var gm=S.gpuMode||"ai"; if(gm==="ai")L.compute.inflow.push({src:nm+" (AI workload)",amt:14*c*m.compute*pr*staff}); else if(gm==="render")L.capital.inflow.push({src:nm+" (render)",amt:10*c*m.capital*pr*staff*CAP_SCALE}); }
-    if(b.con)for(k in b.con){ var cv=b.con[k]*c*rf; if(cv<=0)continue; if(k==="energy")eMinus.push({src:nm,amt:cv}); else L[k].outflow.push({src:nm,amt:k==="capital"?cv*CAP_SCALE:cv}); } }
+    if(b.gpu){ var gm=S.gpuMode||"ai"; if(gm==="ai")L.compute.inflow.push({src:nm+" (AI workload)",amt:14*ec*m.compute*pr*staff}); else if(gm==="render")L.capital.inflow.push({src:nm+" (render)",amt:10*ec*m.capital*pr*staff*CAP_SCALE}); }
+    if(b.con)for(k in b.con){ var u=(k==="capital")?c:ec,cv=b.con[k]*u*rf; if(cv<=0)continue; if(k==="energy")eMinus.push({src:nm,amt:cv}); else L[k].outflow.push({src:nm,amt:k==="capital"?cv*CAP_SCALE:cv}); } }
   for(var fid in S.fleet){ var fc=S.fleet[fid]; if(!fc)continue; var sh=SHIPS[fid]; if(!sh||!sh.up)continue; for(k in sh.up){ var uv=sh.up[k]*fc; if(uv<=0)continue; if(k==="energy")eMinus.push({src:sh.name+" ×"+fc,amt:uv}); else L[k].outflow.push({src:sh.name+" upkeep ×"+fc,amt:k==="capital"?uv*CAP_SCALE:uv}); } }
   NEUTRAL.forEach(function(co){ var st=S.neutral[co.id],kk; if(st==="leased"){ for(kk in co.lease){ var lv=co.lease[kk]; if(lv<=0)continue; if(kk==="energy")ePlus.push({src:co.name+" (leased)",amt:lv}); else L[kk].inflow.push({src:co.name+" (leased)",amt:kk==="capital"?lv*CAP_SCALE:lv}); } if(co.rent>0)L.capital.outflow.push({src:co.name+" lease rent",amt:co.rent*CAP_SCALE}); } else if(st==="owned"){ for(kk in co.own){ var ow=co.own[kk]; if(ow<=0)continue; if(kk==="energy")ePlus.push({src:co.name+" (owned)",amt:ow}); else L[kk].inflow.push({src:co.name+" (owned)",amt:kk==="capital"?ow*CAP_SCALE:ow}); } } });
   if(cm.computeAdd)L.compute.inflow.push({src:"R&D subsidiaries",amt:cm.computeAdd*m.compute*pr*staff});
@@ -1000,6 +1011,7 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="ship"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; }
   if(act==="omtool"){ if(OM){ OM.tool=OM.tool===id?null:id; render(); } return; }
   if(act==="deselect"){ deselectMap(); return; }
+  if(act==="mgmt"){ var mp=mgmtSelection(); if(mp.length){ applyMgmt(mp,arg); save(); render(); if(EM)drawEarthMap(); if(OM)drawOrbitMap(); } return; }
   if(act==="cmd_ship"){ var ow=(S.fleet[id]||0)+queued("ship",id); A.ship(id); save(); syncScene(); render(); grpToast((S.fleet[id]||0)+queued("ship",id)>ow?"Building "+(SHIPS[id]?SHIPS[id].name:id):"Cannot build — check cost"); return; }
   if(act==="cmd_research"){ var was=queued("tech",id); A.research(id); save(); render(); grpToast(queued("tech",id)>was?"Researching "+(TECHS[id]?TECHS[id].name:id):"Cannot research — check cost"); return; }
   if(act==="gridcell"){ if(EM)EM.tool=EM.tool===id?null:id; else if(OM)OM.tool=OM.tool===id?null:id; render(); return; }
@@ -1435,6 +1447,23 @@ function emScreenY(lat){ var worldH=EM.canvas.height*EM.bh*EM.zoom; return EM.ca
 function emPick(sx,sy){ var hit=null; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit||!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; if(Math.abs(emScreenX(pl.lon)-sx)<13&&Math.abs(emScreenY(pl.lat)-sy)<13)hit={kind:"pstruct",ref:pl}; });
   if(!hit)rivalEarthSites(EM.loc).forEach(function(s){ if(Math.abs(emScreenX(s.lon)-sx)<12&&Math.abs(emScreenY(s.lat)-sy)<12)hit={kind:"esite",ref:s}; }); return hit; }
 function deselectMap(){ if(OM){ OM.sel=[]; OM.selStructs=[]; OM.inspect=null; } if(EM){ EM.sel=[]; EM.inspect=null; } render(); if(EM)drawEarthMap(); }
+function mgmtSelection(){ if(OM&&(OM.selStructs||[]).length)return OM.selStructs.filter(function(p){return p&&p.orbit&&BUILDINGS[p.id];}); if(EM&&(EM.sel||[]).length)return EM.sel.filter(function(p){return p&&BUILDINGS[p.id];}); return []; }
+function applyMgmt(pls,mode){ var capN=mgmtCapacity(S),hc=humanoidCap(S),u=mgmtUsage(S);
+  pls.forEach(function(pl){ if(pl.uc)return; var prev=pl.mg||"auto"; if(mode===prev)return;
+    if(mode==="manage"&&u.manage>=capN)return; if(mode==="humanoid"&&(hc<=0||u.humanoid>=hc))return;
+    if(prev==="manage")u.manage--; else if(prev==="humanoid")u.humanoid--;
+    pl.mg=mode; if(mode==="manage")u.manage++; else if(mode==="humanoid")u.humanoid++; }); }
+function mgmtCard(pls){ if(!pls||!pls.length)return ""; var cap=mgmtCapacity(S),hc=humanoidCap(S),u=mgmtUsage(S),eff=0;
+  pls.forEach(function(p){ eff+=instanceEff(p,S); }); eff/=pls.length;
+  var cur=pls[0].mg||"auto",uniform=pls.every(function(p){return (p.mg||"auto")===cur;}),ec=eff>=0.95?"#39ff14":eff>=0.75?"#9dffb0":eff>=0.6?"#ffd27a":"#ff9d9d";
+  var modes=[["auto","🤖 Autopilot"],["manage","👤 Hands-on"],["humanoid","🦾 Humanoid"]];
+  var h='<div class="small" style="color:#9fb6c4;margin:8px 0 3px;border-top:1px solid rgba(0,255,65,.12);padding-top:6px">🛠 Management · <b style="color:'+ec+'">'+Math.round(eff*100)+'% efficiency</b></div><div class="row" style="gap:4px;flex-wrap:wrap">';
+  h+=modes.map(function(o){ var on=uniform&&cur===o[0],dis=false,note="";
+    if(o[0]==="manage"){ if(u.manage>=cap&&!(uniform&&cur==="manage"))dis=true; note=" "+u.manage+"/"+cap; }
+    if(o[0]==="humanoid"){ if(hc<=0||(u.humanoid>=hc&&!(uniform&&cur==="humanoid")))dis=true; note=hc>0?" "+u.humanoid+"/"+hc:" 🔒"; }
+    return '<button class="btn ui sm'+(dis?" dis":"")+'" data-act="mgmt" data-arg="'+o[0]+'" style="width:auto;font-size:9px;padding:3px 6px;'+(on?"background:rgba(0,255,65,.3);border-color:rgba(0,255,65,.7)":"")+'">'+o[1]+'<span class="small" style="opacity:.7">'+note+'</span></button>'; }).join("");
+  h+='</div><div class="small" style="color:#789;margin-top:3px">AI autopilot runs at '+Math.round(autopilotEff(S)*100)+'% (rises with AI research). Hands-on uses limited attention; humanoid crews need Humanoid Robotics.'+(pls.length>1?' · '+pls.length+' selected → applied to each.':'')+'</div>';
+  return h; }
 function infoCard(){ var ins=OM?OM.inspect:(EM?EM.inspect:null); if(!ins)return ""; var t="",sub="",lines=[],hp=null;
   if(ins.kind==="group"){ t="Selected fleet"; sub=ins.n+" ships"; }
   else if(ins.kind==="unit"||ins.kind==="enemyunit"){ var u=ins.ref,s=SHIPS[u.type]; t=s?s.name:u.type; sub=u.side==="p"?"Your Corporation":((OM&&OM.battleRival?(rivalById(OM.battleRival)||{}).name:null)||"Hostile fleet"); lines.push("Class · "+(s?s.cls:"Line")); lines.push("Firepower · "+Math.round(u.fp)); lines.push("Hull · "+Math.round(u.hp)+" / "+Math.round(u.maxhp)); hp={f:u.hp/u.maxhp,col:u.side==="p"?"#39ff14":"#ff5050"}; }
@@ -1449,6 +1478,7 @@ function infoCard(){ var ins=OM?OM.inspect:(EM?EM.inspect:null); if(!ins)return 
   var ucPl=ins.kind==="pstruct"?(ins.ref&&ins.ref.uc?ins.ref:null):null;
   if(!ucPl&&ins.kind==="groupstruct"&&EM){ var ucs=(EM.sel||[]).filter(function(p){return p.uc;}); if(ucs.length){ ucPl=ucs[0]; html+='<div class="small" style="color:#ffc24d;margin-top:6px">⚙ Under construction · '+ucs.length+'/'+(EM.sel||[]).length+'</div>'+prog$("build",ucPl.id); } }
   else if(ucPl)html+='<div class="small" style="color:#ffc24d;margin-top:6px">⚙ Under construction</div>'+prog$("build",ucPl.id);
+  if(!ucPl){ var mgPls=mgmtSelection(); if(mgPls.length)html+=mgmtCard(mgPls); }
   var ct=selStructType(); if(ct&&!ucPl)html+=commandCardHtml(ct);
   return html+'</div>'; }
 function drawFlag(c,x,y){ c.save(); c.strokeStyle="#39ff14"; c.fillStyle="#39ff14"; c.lineWidth=1.5; c.shadowColor="#39ff14"; c.shadowBlur=4; c.beginPath(); c.moveTo(x,y); c.lineTo(x,y-13); c.stroke(); c.beginPath(); c.moveTo(x,y-13); c.lineTo(x+8,y-10); c.lineTo(x,y-7); c.closePath(); c.fill(); c.restore(); }
