@@ -393,6 +393,10 @@ var WATER_INTENSITY=0.4, WATER_FREE=120, WATER_BASE=600, WATER_PRICE=0.02, WATER
    both raise your competitive strength for share of the consumer/enterprise/government population pools. */
 var BRAND_DECAY=0.05, BRAND_EFF=0.05, BRAND_STR=1.0, SALES_WAGE=1.0, SALES_STR=1.5;
 var RIVAL_FIELD=2.5, REF_ECO=2e9; /* normalizes each rival's competitive presence onto the player-strength scale so your consumer-business investment (divisions/brand/salesforce) determines market share; rivals contest harder as their economies grow */
+/* Stage D: a revenue division only earns from customers it actually has. Its capital output is capped by the spending
+   power of its won customer base (market share x market size x DEMAND_VALUE); output beyond that goes unsold until you
+   grow share via products/marketing/salesforce. Sized so a healthy market position sells through fully. */
+var DEMAND_VALUE=0.02, BIZ_CHANNEL={consumer_division:"consumer",retail_ai_center:"consumer",enterprise_division:"enterprise",gov_relations:"government"};
 var CAP_SCALE=1e6; /* dollar calibration: every capital cost/flow is in real dollars (game-unit × $1M). A hyperscale
    data center lands near $0.6B, a fab near $18B, etc., so a $1T balance funds hundreds of builds, not billions. */
 function fmtRate(n){ return (n>0?"+":n<0?"−":"")+fmt(Math.abs(n))+"/s"; }
@@ -460,7 +464,7 @@ function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),nodeGros
   var surfCap=LOGI_BASE+cm.surfAdd,surfDem=0,spCap=SPACE_BASE; for(var lid in S.buildings){ var lc=S.buildings[lid],lb=BUILDINGS[lid]; if(!lc||!lb)continue; if(lb.logi){ if(lb.logiDom==="space")spCap+=lb.logi*lc; else surfCap+=lb.logi*lc; } if(lb.loc==="earth"){ var t=0; if(lb.prod)for(k in lb.prod){ if(PHYS[k])t+=lb.prod[k]; } if(lb.con)for(k in lb.con){ if(PHYS[k])t+=lb.con[k]; } surfDem+=t*lc; } }
   surfCap*=cm.logi; spCap*=cm.logi;
   var lrS=surfDem<=0?1:clamp(surfCap/surfDem,0,1);
-  var EFF=effCounts(S),MB=modeBuckets(S);
+  var EFF=effCounts(S),MB=modeBuckets(S),chanRaw={consumer:0,enterprise:0,government:0};
   for(var id in S.buildings){ var c=S.buildings[id]; if(!c)continue; var b=BUILDINGS[id]; if(!b)continue; var ec=EFF[id]!==undefined?EFF[id]:c;
     rf=1; if(b.con)for(k in b.con){ if(k==="energy")continue; var nd=b.con[k]*c,av=S.resources[k]||0,f=nd<=0?1:clamp(av/(nd*RUNWIN),0,1); if(f<rf)rf=f; }
     var xr=(b.dep&&xf[id]!==undefined)?xf[id]:1,off=b.loc!=="earth";
@@ -473,7 +477,7 @@ function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),nodeGros
             else gross[k]+=amt*(PHYS[k]?lrS:1); }
           var bc=md.con||b.con; if(bc)for(k in bc){ if(k==="energy")eD+=bc[k]*ecm*rf; else con[k]+=bc[k]*ecm*rf; } } }
       continue; }
-    if(b.prod)for(k in b.prod){ if(k==="energy"){ eS+=b.prod[k]*ec*rf; continue; } var amt=b.prod[k]*ec*rf*xr; if(off&&PHYS[k]){ var ng=nodeGross[b.loc]||(nodeGross[b.loc]={}); ng[k]=(ng[k]||0)+amt; } else gross[k]+=amt*(PHYS[k]?lrS:1); }
+    if(b.prod)for(k in b.prod){ if(k==="energy"){ eS+=b.prod[k]*ec*rf; continue; } var amt=b.prod[k]*ec*rf*xr; if(off&&PHYS[k]){ var ng=nodeGross[b.loc]||(nodeGross[b.loc]={}); ng[k]=(ng[k]||0)+amt; } else { gross[k]+=amt*(PHYS[k]?lrS:1); if(k==="capital"&&BIZ_CHANNEL[id])chanRaw[BIZ_CHANNEL[id]]+=amt; } }
     if(b.gpu){ var gm=S.gpuMode||"ai"; if(gm==="ai")gross.compute+=14*ec; else if(gm==="render")gross.capital+=10*ec; }
     if(b.con)for(k in b.con){ var u=(k==="capital")?c:ec; if(k==="energy")eD+=b.con[k]*u*rf; else con[k]+=b.con[k]*u*rf; } }
   if(cm.computeAdd)gross.compute+=cm.computeAdd; /* R&D subsidiaries contribute synthetic compute */
@@ -485,6 +489,11 @@ function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),nodeGros
   /* structures must be staffed to run: understaffed output is throttled by staffRatio (like the power ratio). Recruitment
      (talent) is exempt and instead gated by your influence-derived access to the global workforce (headroom). */
   var ts=talentStats(S); for(k in pg){ if(k!=="talent")pg[k]*=ts.staffRatio; } pg.talent*=ts.headroom;
+  /* Stage D: revenue divisions can only sell what their won customer base will buy — cap each channel's capital output
+     at its customers' spending power; the rest goes unsold until you grow market share. */
+  var capThr=(m.capital||1)*pr*wr*ts.staffRatio,sellThru={},chanUnsold={},dUnsold=0;
+  for(var ch in chanRaw){ var prodc=chanRaw[ch]*capThr,dcap=(S.marketShare[ch]||0)*(S.marketSize[ch]||0)*DEMAND_VALUE,sold=Math.min(prodc,dcap),uns=Math.max(0,prodc-sold); sellThru[ch]=prodc>1e-9?sold/prodc:1; chanUnsold[ch]=uns; dUnsold+=uns; }
+  pg.capital=Math.max(0,pg.capital-dUnsold);
   var nodeProd={},spDem=0; for(var nb in nodeGross){ nodeProd[nb]={}; for(var nk in nodeGross[nb]){ var nv=nodeGross[nb][nk]*m[nk]*pr*wr*ts.staffRatio; nodeProd[nb][nk]=nv; spDem+=nv; } }
   var lrSp=spDem<=0?1:clamp(spCap/spDem,0,1),lr=Math.min(lrS,lrSp);
   var mRev=0,mInf=0; MARKETS.forEach(function(mk){ var rev=S.marketSize[mk.id]*S.marketShare[mk.id]*MARKET_MARGIN; mRev+=rev; if(mk.id==="consumer")mInf+=rev*0.02; if(mk.id==="government")mInf+=rev*0.015; });
@@ -494,7 +503,7 @@ function rates(S){ var m=techMult(S.researched),gross=zero(),con=zero(),nodeGros
   var conCapital=con.capital*CAP_SCALE,capInc=(pg.capital+mRev+ext.capital)*CAP_SCALE,tax=REG_TAX_MAX*(S.regulation/100)*capInc,payroll=(S.resources.talent||0)*PAYROLL_WAGE*CAP_SCALE*ts.wageMult*corpMod().payroll,interest=(S.debt||0)*(S.fedRate||0.05)/365/DAY_SECONDS;
   var mk=S.marketing||{},sf=S.salesforce||{},mktgCost=(mk.consumer||0)+(mk.enterprise||0)+(mk.government||0),salesHead=(sf.consumer||0)+(sf.enterprise||0)+(sf.government||0),salesPay=salesHead*SALES_WAGE,demandCost=(mktgCost+salesPay)*CAP_SCALE;
   net.capital=capInc-conCapital-tax-payroll-interest-demandCost; net.influence=pg.influence+mInf+ext.influence-con.influence;
-  return {eS:eS,eD:eD,eSgen:eSgen,gridBought:gd.bought,gridCost:gd.cost,gridCap:gd.cap,gridPrice:gd.price,gridContract:gd.contract,gridUncovered:gd.uncovered,pr:pr,wr:wr,waterDemand:wd.demand,waterFree:wd.free,waterBought:wd.bought,waterSupply:wd.supply,waterCost:wd.cost,waterCap:wd.cap,waterPrice:wd.price,waterContract:wd.contract,waterUncovered:wd.uncovered,net:net,nodeProd:nodeProd,payroll:payroll,capInc:capInc,tax:tax,interest:interest,conCapital:conCapital,mktgCost:mktgCost,salesPay:salesPay,surfCap:surfCap,surfDem:surfDem,lrS:lrS,spCap:spCap,spDem:spDem,lrSp:lrSp,lr:lr}; }
+  return {eS:eS,eD:eD,eSgen:eSgen,gridBought:gd.bought,gridCost:gd.cost,gridCap:gd.cap,gridPrice:gd.price,gridContract:gd.contract,gridUncovered:gd.uncovered,pr:pr,wr:wr,waterDemand:wd.demand,waterFree:wd.free,waterBought:wd.bought,waterSupply:wd.supply,waterCost:wd.cost,waterCap:wd.cap,waterPrice:wd.price,waterContract:wd.contract,waterUncovered:wd.uncovered,sellThru:sellThru,chanUnsold:chanUnsold,unsoldTotal:dUnsold,net:net,nodeProd:nodeProd,payroll:payroll,capInc:capInc,tax:tax,interest:interest,conCapital:conCapital,mktgCost:mktgCost,salesPay:salesPay,surfCap:surfCap,surfDem:surfDem,lrS:lrS,spCap:spCap,spDem:spDem,lrSp:lrSp,lr:lr}; }
 function advance(S,dt){ var r=rates(S),o={}; STOCKS.forEach(function(k){ if(k==="capital"){ o[k]=S.resources[k]; return; } o[k]=Math.max(0,S.resources[k]+r.net[k]*dt); }); return o; }
 var BODIES=["orbit","moon","asteroids","deep_space"];
 /* Physical haulage: off-world production lands at the body where it is mined (S.nodes[body]); SPACE lift (r.spCap)
@@ -852,14 +861,15 @@ function researchPanel(){ var ids=Object.keys(TECHS),memo={};
       +'</div>';
   }).join("");
   return '<div style="position:relative;width:'+width+'px;height:'+height+'px">'+svg+nodes+'</div>'; }
-function marketsPanel(){ var b=standings(S),mp=Math.max.apply(null,b.map(function(r){return r.pow;}).concat([1]));
+function marketsPanel(){ var b=standings(S),mp=Math.max.apply(null,b.map(function(r){return r.pow;}).concat([1])),rD=rates(S);
   var h='<b style="color:#9dffb0;text-transform:uppercase;letter-spacing:.12em;font-size:13px">👑 Standings</b><div class="panelglass" style="margin-top:8px"><div class="gridhdr"><span>Corp</span><span style="text-align:right">Val</span><span style="text-align:right">Tech</span><span style="text-align:right">Infl</span><span style="text-align:right">Mil</span></div>';
   var top=b.slice(0,24); if(!top.some(function(r){return r.me;})){ var me=b.filter(function(r){return r.me;})[0]; if(me)top.push(me); }
   top.forEach(function(r){ var rank=b.indexOf(r)+1,t=r.me?3:fogTier(r.intel),ec=t>=1?fmt(r.m.eco):"???",tc=t>=2?Math.floor(r.m.tech):"?",ic=t>=2?fmt(r.m.inf):"???",mc=t>=3?fmt(r.m.mil):t>=2?"~"+fmt(r.m.mil):"???"; h+='<div class="gridrow'+(r.me?" me":"")+(r.dead?" dead":"")+'"><div><b style="color:'+(r.me?"#9dffb0":"#cdeccf")+'"><span style="color:'+hexCol(r.color)+'">●</span> #'+rank+' '+r.name+'</b>'+(r.dead?' 💀':r.neutral?' <span style="color:#8fd6ff">🕊</span>':r.me?"":' <span class="small">'+Math.round(r.intel)+'%</span>')+'<div class="bar" style="margin-top:3px"><i style="width:'+(r.pow/mp*100)+'%;background:'+(r.me?"#39ff14":"#1c7a32")+'"></i></div></div><span style="text-align:right;color:#39ff14">'+ec+'</span><span style="text-align:right;color:#33d6ff">'+tc+'</span><span style="text-align:right;color:#ff5d8f">'+ic+'</span><span style="text-align:right;color:#ffb14d">'+mc+'</span></div>'; });
   if(b.length>top.length)h+='<div class="gridrow small" style="opacity:.7"><div>…and '+(b.length-24)+' more companies</div><span></span><span></span><span></span><span></span></div>';
   h+='</div><div style="margin-top:10px"><b style="color:#9dffb0;text-transform:uppercase;letter-spacing:.12em;font-size:13px">Markets</b><div class="grid" style="margin-top:8px">';
-  MARKETS.forEach(function(mk){ var sh=S.marketShare[mk.id],sz=S.marketSize[mk.id],br=(S.brand&&S.brand[mk.id])||0,mb=(S.marketing&&S.marketing[mk.id])||0,sfn=(S.salesforce&&S.salesforce[mk.id])||0;
+  MARKETS.forEach(function(mk){ var sh=S.marketShare[mk.id],sz=S.marketSize[mk.id],br=(S.brand&&S.brand[mk.id])||0,mb=(S.marketing&&S.marketing[mk.id])||0,sfn=(S.salesforce&&S.salesforce[mk.id])||0,st=(rD.sellThru&&rD.sellThru[mk.id]!=null)?rD.sellThru[mk.id]:1,uns=(rD.chanUnsold&&rD.chanUnsold[mk.id])||0;
     h+='<div class="item"><div class="row between"><span class="nm">'+mk.name+'</span><b style="color:#39ff14">'+(sh*100).toFixed(1)+'%</b></div><div class="bar"><i style="width:'+(sh*100)+'%"></i></div><div class="small">revenue +'+money(sz*sh*MARKET_MARGIN*CAP_SCALE)+'/s · '+fmt(Math.round(sh*sz))+' of '+fmt(Math.round(sz))+' customers · demand pool '+money((S.econ&&S.econ[mk.id])||0)+'</div>'
+      +(st<0.999?'<div class="small" style="margin-top:3px;color:#ffb14d">⚠ division sell-through '+Math.round(st*100)+'% — '+money(uns*CAP_SCALE*DAY_SECONDS)+'/day of product unsold; win more customers to monetize it</div>':'')
       +'<div class="small" style="margin-top:5px;color:#c89dff">📣 Advertising '+money(mb*CAP_SCALE*DAY_SECONDS)+'/day · brand equity '+fmt(br)+'</div>'
       +'<div class="row" style="gap:3px;margin-top:2px"><button class="btn ui sm" data-act="mktg" data-id="'+mk.id+'" data-arg="-5" style="width:auto;padding:3px 7px">−</button><button class="btn ui sm" data-act="mktg" data-id="'+mk.id+'" data-arg="5" style="width:auto;padding:3px 7px">+$5M/s</button><button class="btn ui sm" data-act="mktg" data-id="'+mk.id+'" data-arg="25" style="width:auto;padding:3px 7px">+$25M/s</button><button class="btn ui sm" data-act="mktg" data-id="'+mk.id+'" data-arg="stop" style="width:auto;padding:3px 7px">Stop</button></div>'
       +'<div class="small" style="margin-top:5px;color:#8fd6ff">🧑‍💼 Salesforce '+fmt(sfn)+' reps · '+money(sfn*SALES_WAGE*CAP_SCALE*DAY_SECONDS)+'/day</div>'
