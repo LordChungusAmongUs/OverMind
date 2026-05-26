@@ -910,14 +910,13 @@ function updateEarthTexture(force){ if(!EARTH_CV||!EARTH_TEX)return; var n=(S.ea
 /* Orbit shell: a transparent equirectangular texture showing ONLY your orbital structures & units, wrapped onto a fully
    transparent sphere at the green-ring radius — the orbit map's contents made visible around Earth in system view. */
 var ORBIT_CV=null,ORBIT_TEX=null,ORBIT_SIG="";
-function paintOrbitCanvas(cv){ var W=cv.width,H=cv.height,c=cv.getContext("2d"); c.clearRect(0,0,W,H); var sz=Math.max(15,W/42);
-  // rival & neutral orbital presence (colored by owner) so competitors show on the shell too
-  (typeof orbitItems==="function"?orbitItems():[]).forEach(function(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17),fx=((hash*97+idx*131)%1000)/1000,fy=clamp(0.12+((idx*37)%62)/62*0.76,0.05,0.95),a=clamp(0.3+((it.intel==null?100:it.intel)/100)*0.7,0.3,1); c.globalAlpha=a; drawIcon(c,fx*W,fy*H,it.shape,hexCol(it.color),sz*0.8); c.globalAlpha=1; });
-  // your orbital structures, then your units (brightest, on top)
+function paintOrbitCanvas(cv){ var W=cv.width,H=cv.height,c=cv.getContext("2d"); c.clearRect(0,0,W,H); var sz=Math.max(11,W/64);
+  // mirror the orbit map: fx -> longitude around Earth, fy -> latitude/height. Structures sharing a row on the map
+  // therefore land on one latitude ring (a halo); equatorial fy=0.5 sits straight out over the equator.
   (S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; drawIcon(c,((pl.fx||0)%1)*W,clamp(pl.fy==null?0.5:pl.fy,0,1)*H,BSHAPE[pl.id]||"sat",hexCol(PCOLORS[0]),sz); });
-  (S.units||[]).forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; drawIcon(c,((u.fx||0)%1)*W,clamp(u.fy,0,1)*H,BSHAPE[u.type]||"frig",hexCol(u.color||PCOLORS[0]),sz*0.9); }); }
+  (S.units||[]).forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; drawIcon(c,((u.fx||0)%1)*W,clamp(u.fy,0,1)*H,BSHAPE[u.type]||"frig",hexCol(u.color||PCOLORS[0]),sz*0.85); }); }
 function makeOrbitTexture(){ var cv=document.createElement("canvas"); cv.width=1024; cv.height=512; ORBIT_CV=cv; ORBIT_TEX=new THREE.CanvasTexture(cv); paintOrbitCanvas(cv); ORBIT_TEX.needsUpdate=true; return ORBIT_TEX; }
-function orbitTexSig(){ return (S.earthPlacements||[]).filter(function(p){return p.orbit;}).map(function(p){return p.id+(p.fx||0).toFixed(2)+(p.fy||0).toFixed(2);}).join(",")+"|"+(S.units||[]).filter(function(u){return u.side==="p"&&u.hp>0&&u.build<=0;}).map(function(u){return u.type+u.fx.toFixed(2)+u.fy.toFixed(2);}).join(",")+"|"+(S.rivals||[]).filter(function(r){return !r.dead;}).map(function(r){return r.id+Math.round(r.mil/45)+Math.round(Math.sqrt(Math.max(10,r.eco))/90);}).join(",")+"|"+NEUTRAL.map(function(co){return S.neutral[co.id]||"n";}).join(","); }
+function orbitTexSig(){ return (S.earthPlacements||[]).filter(function(p){return p.orbit;}).map(function(p){return p.id+(p.fx||0).toFixed(2)+(p.fy||0).toFixed(2);}).join(",")+"|"+(S.units||[]).filter(function(u){return u.side==="p"&&u.hp>0&&u.build<=0;}).map(function(u){return u.type+u.fx.toFixed(2)+u.fy.toFixed(2);}).join(","); }
 function updateOrbitTexture(force){ if(!ORBIT_CV||!ORBIT_TEX)return; var sig=orbitTexSig(); if(!force&&sig===ORBIT_SIG)return; ORBIT_SIG=sig; paintOrbitCanvas(ORBIT_CV); ORBIT_TEX.needsUpdate=true; }
 function makeMoonTexture(){ var W=512,H=256,cv=document.createElement("canvas"); cv.width=W; cv.height=H; var c=cv.getContext("2d"); c.fillStyle="#8a8b90"; c.fillRect(0,0,W,H);
   (typeof MOON_CRATERS!=="undefined"?MOON_CRATERS:[]).forEach(function(k){ var x=(k.lon+180)/360*W,y=(90-k.lat)/180*H,r=Math.max(2,k.r/360*W),rg=c.createRadialGradient(x,y,r*0.2,x,y,r); if(k.mare){ rg.addColorStop(0,"#5f6066"); rg.addColorStop(1,"#7c7d82"); } else { rg.addColorStop(0,"#a8a9ae"); rg.addColorStop(0.7,"#74757a"); rg.addColorStop(1,"#8a8b90"); } c.fillStyle=rg; c.beginPath(); c.arc(x,y,r,0,6.28); c.fill(); }); return new THREE.CanvasTexture(cv); }
@@ -1099,14 +1098,24 @@ function gridKey(e){ if(e.ctrlKey||e.metaKey||e.altKey)return; if(e.target&&e.ta
   if(paged&&gi===14){ po.gridPage=(pg+1)%pages; render(); e.preventDefault(); return; }
   var cell=g.items[pg*per+gi]; if(cell){ gridArm(cell.id); e.preventDefault(); } }
 document.addEventListener("keydown",gridKey);
+/* RTS edge-scroll: when the cursor rests near a screen edge, pan the map that way (px/sec scaled by edge depth).
+   Horizontal pan wraps in the draw step, so every 2D map circles back on itself; vertical pan is clamped. */
+function mapEdgeScroll(st,dt){ if(!st||st.mx==null||st.overUI)return false; var W=st.canvas.width,H=st.canvas.height,M=Math.max(42,Math.min(W,H)*0.05),sp=Math.max(W,H)*0.9,vx=0,vy=0;
+  if(st.mx<M)vx=-(1-st.mx/M); else if(st.mx>W-M)vx=(1-(W-st.mx)/M);
+  if(st.my<M)vy=(1-st.my/M); else if(st.my>H-M)vy=-(1-(H-st.my)/M);
+  if(!vx&&!vy)return false; st.camX+=vx*sp*dt; st.camY+=vy*sp*dt; return true; }
+function emLoop(){ if(!EM)return; EM.raf=requestAnimationFrame(emLoop); var now=performance.now(),dt=Math.min(0.05,(now-(EM.last||now))/1000); EM.last=now; if(mapEdgeScroll(EM,dt))drawEarthMap(); }
 function openEarthMap(loc){ if(EM)return; loc=loc||"earth"; var d=document.createElement("div"); d.id="earthmap"; d.innerHTML='<canvas id="emcanvas"></canvas>';
   document.body.appendChild(d); var cv=d.querySelector("#emcanvas"); EM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,drag:false,moved:false,tool:null,loc:loc,bw:loc==="moon"?1:2,bh:1,maxZoom:loc==="moon"?1:8};
   EM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; EM.bw=2*cv.height/cv.width; EM.camX=(cv.width*EM.bw*EM.zoom-cv.width)/2; drawEarthMap(); }; window.addEventListener("resize",EM.resize); EM.resize();
   var sx=0,sy=0; cv.addEventListener("pointerdown",function(e){ sx=e.clientX; sy=e.clientY; if(EM.tool){ EM.build={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } else { EM.drag=true; EM.moved=false; cv.style.cursor="grabbing"; } });
   EM.up=function(e){ if(!EM)return; cv.style.cursor=EM.tool?"crosshair":"grab"; if(EM.build){ var a=emCell(EM.build.x0,EM.build.y0),b=emCell(EM.build.x1,EM.build.y1); placeRect(Math.min(a.gx,b.gx),Math.min(a.gy,b.gy),Math.abs(a.gx-b.gx)+1,Math.abs(a.gy-b.gy)+1); EM.build=null; } EM.drag=false; }; window.addEventListener("pointerup",EM.up);
-  cv.addEventListener("pointermove",function(e){ if(!EM)return; if(EM.build){ EM.build.x1=e.clientX; EM.build.y1=e.clientY; drawEarthMap(); return; } if(!EM.drag)return; if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4)EM.moved=true; if(EM.loc!=="moon"){ EM.camX-=(e.clientX-sx); EM.camY+=(e.clientY-sy); } sx=e.clientX; sy=e.clientY; drawEarthMap(); });
-  cv.addEventListener("wheel",function(e){ e.preventDefault(); if(EM.maxZoom<=1)return; var oz=EM.zoom; EM.zoom=clamp(EM.zoom*(e.deltaY<0?1.12:0.89),1,EM.maxZoom); var f=EM.zoom/oz; EM.camX=(e.clientX+EM.camX)*f-e.clientX; EM.camY=e.clientY-(e.clientY-EM.camY)*f; drawEarthMap(); },{passive:false}); render(); }
-function closeEarthMap(){ if(!EM)return; window.removeEventListener("resize",EM.resize); window.removeEventListener("pointerup",EM.up); var d=el("earthmap"); if(d)d.remove(); EM=null; render(); }
+  cv.addEventListener("pointermove",function(e){ if(!EM)return; if(EM.build){ EM.build.x1=e.clientX; EM.build.y1=e.clientY; drawEarthMap(); return; } if(!EM.drag)return; if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4)EM.moved=true; EM.camX-=(e.clientX-sx); EM.camY+=(e.clientY-sy); sx=e.clientX; sy=e.clientY; drawEarthMap(); });
+  cv.addEventListener("wheel",function(e){ e.preventDefault(); if(EM.maxZoom<=1)return; var oz=EM.zoom; EM.zoom=clamp(EM.zoom*(e.deltaY<0?1.12:0.89),1,EM.maxZoom); var f=EM.zoom/oz; EM.camX=(e.clientX+EM.camX)*f-e.clientX; EM.camY=e.clientY-(e.clientY-EM.camY)*f; drawEarthMap(); },{passive:false});
+  EM.track=function(e){ EM.mx=e.clientX; EM.my=e.clientY; EM.overUI=(e.target!==cv); }; window.addEventListener("pointermove",EM.track);
+  EM.leave=function(e){ if(!e.relatedTarget&&!e.toElement)EM.mx=null; }; window.addEventListener("mouseout",EM.leave);
+  EM.last=performance.now(); EM.raf=requestAnimationFrame(emLoop); render(); }
+function closeEarthMap(){ if(!EM)return; if(EM.raf)cancelAnimationFrame(EM.raf); window.removeEventListener("resize",EM.resize); window.removeEventListener("pointerup",EM.up); window.removeEventListener("pointermove",EM.track); window.removeEventListener("mouseout",EM.leave); var d=el("earthmap"); if(d)d.remove(); EM=null; render(); }
 
 /* ============================================================ EARTH ORBIT MAP (2D, wraps) */
 var OM=null;
@@ -1180,7 +1189,7 @@ function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=c
   (OM.en||[]).forEach(function(u){ if(u.hp>0)drawUnit(u,false); });
   if(OM.cmdMark){ c.strokeStyle=OM.cmdMark.enemy?"#ff5050":"#39ff14"; c.lineWidth=2; c.globalAlpha=Math.max(0,OM.cmdMark.t/0.6); c.beginPath(); c.arc(OM.cmdMark.x,OM.cmdMark.y,(1-OM.cmdMark.t/0.6)*14+4,0,6.28); c.stroke(); c.globalAlpha=1; }
   if(OM.box&&OM.selecting){ var x0=Math.min(OM.box.x0,OM.box.x1),y0=Math.min(OM.box.y0,OM.box.y1); c.strokeStyle="rgba(57,255,20,0.8)"; c.lineWidth=1; c.fillStyle="rgba(57,255,20,0.1)"; c.fillRect(x0,y0,Math.abs(OM.box.x1-OM.box.x0),Math.abs(OM.box.y1-OM.box.y0)); c.strokeRect(x0,y0,Math.abs(OM.box.x1-OM.box.x0),Math.abs(OM.box.y1-OM.box.y0)); } }
-function omLoop(){ if(!OM)return; OM.raf=requestAnimationFrame(omLoop); var now=performance.now(),dt=Math.min(0.05,(now-(OM.last||now))/1000); OM.last=now; if(!UI.menu)omStep(dt); drawOrbitMap(); }
+function omLoop(){ if(!OM)return; OM.raf=requestAnimationFrame(omLoop); var now=performance.now(),dt=Math.min(0.05,(now-(OM.last||now))/1000); OM.last=now; if(!UI.menu){ omStep(dt); mapEdgeScroll(OM,dt); } drawOrbitMap(); }
 function orbitKey(e){ if(!OM||(e.target&&e.target.tagName==="INPUT"))return; var k=e.key;
   if(k==="ArrowLeft"){ OM.camX-=90; e.preventDefault(); } else if(k==="ArrowRight"){ OM.camX+=90; e.preventDefault(); } else if(k==="ArrowUp"){ OM.camY+=90; e.preventDefault(); } else if(k==="ArrowDown"){ OM.camY-=90; e.preventDefault(); }
   else if(/^[0-9]$/.test(k)){ if(e.ctrlKey||e.metaKey){ S.groups[k]=(OM.sel||[]).slice(); save(); } else { OM.sel=(S.groups[k]||[]).filter(function(uid){return S.units.some(function(u){return u.uid===uid&&u.hp>0;});}); render(); } e.preventDefault(); }
@@ -1192,13 +1201,15 @@ function mountOrbitMap(){ var d=document.createElement("div"); d.id="orbitmap"; 
   var sx=0,sy=0;
   cv.addEventListener("pointerdown",function(e){ if(e.button!==0)return; sx=e.clientX; sy=e.clientY; if(OM.tool)OM.placing=true; else { OM.selecting=true; OM.box={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } });
   cv.addEventListener("pointermove",function(e){ if(OM.selecting&&OM.box){ OM.box.x1=e.clientX; OM.box.y1=e.clientY; } });
+  OM.track=function(e){ OM.mx=e.clientX; OM.my=e.clientY; OM.overUI=(e.target!==cv); }; window.addEventListener("pointermove",OM.track);
+  OM.leave=function(e){ if(!e.relatedTarget&&!e.toElement)OM.mx=null; }; window.addEventListener("mouseout",OM.leave);
   cv.addEventListener("contextmenu",function(e){ e.preventDefault(); if(!OM.tool)commandSel(e.clientX,e.clientY); });
   OM.up=function(e){ if(!OM)return; cv.style.cursor=OM.tool?"crosshair":"default"; if(OM.placing){ OM.placing=false; placeAtScreenOrbit(sx,sy); } else if(OM.selecting){ OM.selecting=false; var moved=Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>5; if(moved&&OM.box)boxSelect(OM.box,e.shiftKey); else clickSelect(sx,sy,e.shiftKey); OM.box=null; } }; window.addEventListener("pointerup",OM.up);
   cv.addEventListener("wheel",function(e){ e.preventDefault(); var oz=OM.zoom; OM.zoom=clamp(OM.zoom*(e.deltaY<0?1.12:0.89),1,8); var f=OM.zoom/oz; OM.camX=(e.clientX+OM.camX)*f-e.clientX; OM.camY=e.clientY-(e.clientY-OM.camY)*f; },{passive:false});
   window.addEventListener("keydown",orbitKey); OM.key=orbitKey; OM.raf=requestAnimationFrame(omLoop); render();
   if(pendingTool){ OM.tool=pendingTool; pendingTool=null; render(); } if(pendingBattle){ startOrbitBattle(pendingBattle); pendingBattle=null; } }
 function openOrbitMap(){ if(OM||EM)return; var f=el("fade"); if(f)f.style.opacity="1"; if(SC){ SC.transStart=SC.cam0.r; SC.trans={t:0,dur:0.42}; } setTimeout(function(){ mountOrbitMap(); if(f)f.style.opacity="0"; },460); }
-function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; render(); },300); }
+function closeOrbitMap(){ if(!OM)return; var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key); window.removeEventListener("pointermove",OM.track); window.removeEventListener("mouseout",OM.leave); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; render(); },300); }
 
 /* ============================================================ MULTIPLAYER CLIENT (scaffold)
    Inert until Net.connect() is called from the Multiplayer lobby. Offline play is unaffected.
