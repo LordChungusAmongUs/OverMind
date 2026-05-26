@@ -583,7 +583,14 @@ var A={
   repay:function(amt){ amt=Math.max(0,+amt||0); amt=Math.min(amt,S.debt||0,S.resources.capital); if(amt<1)return; S.resources.capital-=amt; S.debt=(S.debt||0)-amt; pushEvent(S,"good","Repaid "+money(amt)+" of debt — "+money(S.debt)+" remaining."); },
   deliver:function(target,res,qty){ target=parseInt(target,10); qty=+qty; if(!PHYS[res]||!(qty>0))return; if(!Net.inMatch())return; var co=Net.company(),myIdx=co?co.index:-1; if(target===myIdx||isNaN(target))return; var have=S.resources[res]||0; if(have<1)return; qty=Math.min(qty,have); if(qty<1)return; S.resources[res]-=qty; if(!S.shipments)S.shipments=[]; S.shipments.push({id:(S.shipSeq=(S.shipSeq||0)+1),dir:"out",peer:target,res:res,qty:qty,rem:SHIP_TRANSIT,tot:SHIP_TRANSIT}); Net.deliverTo(target,res,qty); pushEvent(S,"info","Dispatched "+fmt(qty)+" "+(RESMETA[res]?RESMETA[res].name:res)+" → "+companyName(target)+" (≈4-day transit)."); }
 };
-function doNewGame(){ S=freshState(); UI.menu=null; UI.open=false; UI.sel=null; save(); }
+function doNewGame(){
+  /* fully tear down any leftover view state so the reset always takes without a page refresh */
+  if(OM){ try{ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key); window.removeEventListener("pointermove",OM.track); window.removeEventListener("mouseout",OM.leave); }catch(_){} var od=el("orbitmap"); if(od)od.remove(); OM=null; }
+  if(EM){ try{ if(EM.raf)cancelAnimationFrame(EM.raf); window.removeEventListener("resize",EM.resize); window.removeEventListener("pointerup",EM.up); window.removeEventListener("pointermove",EM.track); window.removeEventListener("mouseout",EM.leave); }catch(_){} var ed=el("earthmap"); if(ed)ed.remove(); EM=null; }
+  S=freshState(); UI.menu=null; UI.open=false; UI.sel=null; UI.tab="ops"; pendingTool=null; pendingBattle=null;
+  if(SC){ SC.focus="earth"; SC.cam0.r=90; SC.cam0.theta=0.7; SC.cam0.phi=1.0; SC.selBody=null; SC.selObj=null; SC.dirtyTex=true; SC.trans=null; }
+  var fd=el("fade"); if(fd)fd.style.opacity="0"; var ee=el("end"); if(ee)ee.innerHTML="";
+  save(); }
 
 /* ============================================================ HUD / UI */
 var UI={ tab:"ops", open:false, sel:null, menu:null, dirty:false };
@@ -980,7 +987,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   var sunMesh=new THREE.Mesh(new THREE.SphereGeometry(SUN_R,48,48),new THREE.MeshBasicMaterial({map:makeSunTexture()})); scene.add(sunMesh);
   var glow=new THREE.Mesh(new THREE.SphereGeometry(SUN_R*1.4,32,32),new THREE.MeshBasicMaterial({color:0xff6a1a,transparent:true,opacity:0.2})); scene.add(glow);
   scene.add(makeLabel("Sun","#ffd27a",40,10).translateY(SUN_R+10));
-  var selRing=new THREE.Mesh(new THREE.TorusGeometry(1,0.03,8,72),new THREE.MeshBasicMaterial({color:0x66f0ff,transparent:true,opacity:0.9,depthWrite:false})); selRing.rotation.x=Math.PI/2; selRing.visible=false; selRing.renderOrder=5; scene.add(selRing);
+  var selRing=new THREE.Mesh(new THREE.TorusGeometry(1,0.03,8,72),new THREE.MeshBasicMaterial({color:0x39ff14,transparent:true,opacity:0.9,depthWrite:false})); selRing.rotation.x=Math.PI/2; selRing.visible=false; selRing.renderOrder=5; scene.add(selRing);
   PLANETS.forEach(function(p){ ringLine(scene,p.au*AU,0x0c3a18); });
   ringLine(scene,2.7*AU,0x3a2a12); ringLine(scene,3.6*AU,0x281240);
   var pick=[],pivots=[],focusObj={},earthGroup,moonPivot,moonMesh;
