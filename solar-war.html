@@ -549,6 +549,7 @@ var A={
   placeEarth:function(id,lon,lat){ var b=BUILDINGS[id]; if(!b||(b.loc!=="earth"&&b.loc!=="moon"))return false; if(b.loc==="earth"&&!terrOK(b,Math.round(lon/GRID_STEP),Math.round(lat/GRID_STEP)))return false; var o=(S.buildings[id]||0)+queued("build",id),q=quoteBuild(b,o,1,{gx:Math.round(lon/GRID_STEP),gy:Math.round(lat/GRID_STEP)}); if(!afford(S.resources,q.pay))return false; spend(q.pay); S.jobs.push({kind:"build",id:id,rem:q.time,tot:q.time}); S.earthPlacements.push({id:id,lon:lon,lat:lat}); return true; },
   placeRect:function(loc,id,gx0,gy0,w,h){ var b=BUILDINGS[id]; if(!b||(b.loc!=="earth"&&b.loc!=="moon")||b.loc!==loc)return 0; w=clamp(w,1,80); h=clamp(h,1,80); var occ=occupiedSet(loc),free=[],gx,gy; for(gx=gx0;gx<gx0+w;gx++)for(gy=gy0;gy<gy0+h;gy++){ if(Math.abs(gy*GRID_STEP)>85)continue; if(occ[gx+","+gy])continue; if(loc==="earth"&&!terrOK(b,gx,gy))continue; free.push([gx,gy]); } var n=free.length; if(!n)return 0; var owned=(S.buildings[id]||0)+queued("build",id),cx=Math.round(gx0+(w-1)/2),cy=Math.round(gy0+(h-1)/2),q=quoteBuild(b,owned,n,{gx:cx,gy:cy}); if(!afford(S.resources,q.pay))return 0; spend(q.pay); free.forEach(function(g){ S.earthPlacements.push({id:id,gx:g[0],gy:g[1],w:1,h:1,lon:g[0]*GRID_STEP,lat:g[1]*GRID_STEP}); }); S.jobs.push({kind:"build",id:id,rem:q.time,tot:q.time,qty:n}); return n; },
   placeOrbit:function(id,sfx,sfy){ var b=BUILDINGS[id]; if(!b||b.loc!=="orbit")return 0; if((S.earthPlacements||[]).some(function(p){ return p.orbit&&Math.abs(fxd(p.fx,sfx))<0.012&&Math.abs(p.fy-sfy)<0.03; }))return 0; var o=(S.buildings[id]||0)+queued("build",id),q=quoteBuild(b,o,1,{}); if(!afford(S.resources,q.pay))return 0; spend(q.pay); S.jobs.push({kind:"build",id:id,rem:q.time,tot:q.time}); S.earthPlacements.push({id:id,orbit:true,fx:sfx,fy:sfy,lon:0,lat:0}); return 1; },
+  placeOrbitRect:function(id,cells){ var b=BUILDINGS[id]; if(!b||b.loc!=="orbit"||!cells||!cells.length)return 0; var free=[],seen={}; cells.forEach(function(cl){ var sfx=((cl.cx%48)+48)%48/48,sfy=clamp(cl.cy/16,0.06,0.94),key=Math.round(sfx*48)+","+Math.round(sfy*16); if(seen[key])return; seen[key]=1; if((S.earthPlacements||[]).some(function(p){ return p.orbit&&Math.abs(fxd(p.fx,sfx))<0.012&&Math.abs(p.fy-sfy)<0.03; }))return; free.push({fx:sfx,fy:sfy}); }); var n=free.length; if(!n)return 0; var o=(S.buildings[id]||0)+queued("build",id),q=quoteBuild(b,o,n,{}); if(!afford(S.resources,q.pay))return 0; spend(q.pay); free.forEach(function(g){ S.earthPlacements.push({id:id,orbit:true,fx:g.fx,fy:g.fy,lon:0,lat:0}); }); S.jobs.push({kind:"build",id:id,rem:q.time,tot:q.time,qty:n}); return n; },
   ship:function(id){ var s=SHIPS[id]; if(!s)return; if(s.req&&S.researched.indexOf(s.req)<0)return; var o=(S.fleet[id]||0)+queued("ship",id),c=scost(s,o); if(!afford(S.resources,c))return; spend(c); var t=stime(s); S.jobs.push({kind:"ship",id:id,rem:t,tot:t}); },
   research:function(id){ var t=TECHS[id]; if(!t||S.researched.indexOf(id)>=0||queued("tech",id)>0)return; if(t.req&&!t.req.every(function(r){return S.researched.indexOf(r)>=0;}))return; var c=tcost(id); if(!afford(S.resources,c))return; spend(c); var tm=ttime(t); S.jobs.push({kind:"tech",id:id,rem:tm,tot:tm}); pushEvent(S,"tech","Started research: "+t.name+"."); },
   lease:function(id){ var st=S.neutral[id]||"none"; if(st==="owned"||queued("acqco",id)>0)return; S.neutral[id]=st==="leased"?"none":"leased"; },
@@ -750,7 +751,8 @@ function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(fu
   if(EM||OM){ var armedB=EM&&EM.tool?BUILDINGS[EM.tool]:null,armedT=armedB?terrInfo(armedB):null,legend=(EM&&EM.loc==="earth")?(armedT?'<span style="color:#ffd27a">'+armedT.glyph+' '+armedT.label+'</span>':'<span class="small" style="color:#9fb6c4">⛰ land · ⚓ coast · 🌊 sea · <span style="color:#ffe6a0">●</span> cities · <span style="color:#e8b34a">◆</span> oil <span style="color:#bcc6d0">◆</span> metals <span style="color:#c08bff">◆</span> rare</span>'):"";
     h+='<div id="mapbar" class="panelglass ui" style="position:absolute;top:62px;left:50%;transform:translateX(-50%);padding:6px 12px;display:flex;gap:10px;align-items:center;max-width:92vw;flex-wrap:wrap;justify-content:center"><b style="color:#9dffb0">'+(EM?(EM.loc==="moon"?"🌑 Moon Surface":"🌍 Earth Surface"):"🛰 Earth Orbit")+'</b>'+(legend?'<span>'+legend+'</span>':"")+'<button class="btn ui sm" style="width:auto" data-act="'+(OM?"orbitmap_close":"earthmap_close")+'">↩ Back to System</button></div>'; }
   if(EM||OM)h+=gridCard();
-  if(OM)h+='<div class="panelglass ui" style="position:absolute;left:150px;top:62px;padding:6px 10px;font-size:11px"><div class="lbl">Selected: <span style="color:#39ff14">'+((OM.sel&&OM.sel.length)||0)+'</span>'+(OM.battleActive?' · <span style="color:#ff7a6b">BATTLE</span>':"")+'</div><div class="small">drag-box select · right-click move/attack · 1-0 groups · Q-T/A-G/Z-B build grid</div></div>';
+  if(EM||OM)h+=infoCard();
+  if(OM)h+='<div class="panelglass ui" style="position:absolute;left:150px;top:62px;padding:6px 10px;font-size:11px"><div class="lbl">Selected: <span style="color:#39ff14">'+((OM.sel&&OM.sel.length)||0)+'</span>'+(OM.battleActive?' · <span style="color:#ff7a6b">BATTLE</span>':"")+'</div><div class="small">click to inspect · drag-box select · right-click: command / deselect · shift: queue / keep building · drag a tool to batch-build · Alt: reveal owners</div></div>';
   if(!UI.open&&!EM&&!OM)h+='<div id="hint">⟲ drag to orbit · scroll to zoom · double-click Earth, the orbit ring, or the Moon · P to pause</div>';
   el("hud").innerHTML=h;
 }
@@ -861,6 +863,7 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="build"){ var bb=BUILDINGS[id]; if(bb&&(bb.loc==="earth"||bb.loc==="moon")&&locUnlocked(bb.loc,S.researched)){ if(!EM||EM.loc!==bb.loc){ if(EM)closeEarthMap(); openEarthMap(bb.loc); } if(EM)EM.tool=id; render(); return; } if(bb&&bb.loc==="orbit"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; } A.build(id); save(); syncScene(); render(); return; }
   if(act==="ship"){ if(!OM){ pendingTool=id; openOrbitMap(); } else { OM.tool=id; render(); } return; }
   if(act==="omtool"){ if(OM){ OM.tool=OM.tool===id?null:id; render(); } return; }
+  if(act==="deselect"){ deselectMap(); return; }
   if(act==="gridcell"){ if(EM)EM.tool=EM.tool===id?null:id; else if(OM)OM.tool=OM.tool===id?null:id; render(); return; }
   if(act==="gridmore"){ var po=EM||OM; if(po){ var g=gridList(),pages=Math.max(1,Math.ceil(g.items.length/14)); po.gridPage=((po.gridPage||0)+1)%pages; render(); } return; }
   if(act==="cfset"){ if(!UI.cf)UI.cf={name:"CorpCoin",consensus:"pow",supply:"fixed",utility:"store"}; var pp=(arg||"").split(":"); if(pp.length===2)UI.cf[pp[0]]=pp[1]; render(); return; }
@@ -1047,8 +1050,8 @@ function rseed(id){ var h=2166136261; for(var i=0;i<id.length;i++){ h^=id.charCo
 function rivalEarthSites(loc){ var out=[],shapes=["dc","hub","solar","mine","station","ai"],alive=S.rivals.filter(function(r){return !r.dead;}).length,capN=clamp(Math.round(120/Math.max(1,alive)),1,12),snap=function(v){return Math.round(v/GRID_STEP)*GRID_STEP;};
   S.rivals.forEach(function(r){ if(r.dead||(r.neutral&&loc==="moon"))return; var rnd=seedRand(rseed(r.id)+(loc==="moon"?99:0)),n=loc==="moon"?clamp(Math.round(Math.log10(Math.max(10,r.eco))-1),0,Math.min(4,capN)):clamp(Math.round(Math.log10(Math.max(10,r.eco))*2.2),1,capN),clon,clat,spread;
     if(r.neutral){ var city=pickCity(rnd); clon=city.lon; clat=city.lat; spread=9; } else { clon=rnd()*340-170; clat=loc==="moon"?(rnd()*120-60):(rnd()*110-55); spread=22; }
-    var rcol=relColor(r); for(var i=0;i<n;i++)out.push({lon:snap(clon+(rnd()*spread*2-spread)),lat:snap(clamp(clat+(rnd()*spread*1.4-spread*0.7),-78,78)),color:rcol,shape:shapes[i%shapes.length],intel:r.intel||0}); });
-  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; if(st==="none"||loc==="moon")return; var rnd=seedRand(rseed(co.id)),city=pickCity(rnd); out.push({lon:snap(city.lon+(rnd()*6-3)),lat:snap(city.lat+(rnd()*5-2.5)),color:st==="owned"?REL_GREEN:REL_GREY,shape:"hub",intel:100}); });
+    var rcol=relColor(r),rrel=r.treaty==="pact"?"ally":r.neutral?"neutral":"enemy"; for(var i=0;i<n;i++)out.push({lon:snap(clon+(rnd()*spread*2-spread)),lat:snap(clamp(clat+(rnd()*spread*1.4-spread*0.7),-78,78)),color:rcol,shape:shapes[i%shapes.length],intel:r.intel||0,owner:r.name,rel:rrel}); });
+  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; if(st==="none"||loc==="moon")return; var rnd=seedRand(rseed(co.id)),city=pickCity(rnd); out.push({lon:snap(city.lon+(rnd()*6-3)),lat:snap(city.lat+(rnd()*5-2.5)),color:st==="owned"?REL_GREEN:REL_GREY,shape:"hub",intel:100,owner:co.name,rel:st==="owned"?"yours":"neutral"}); });
   return out; }
 function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=cv.height,worldW=W*EM.bw*EM.zoom,worldH=H*EM.bh*EM.zoom,lon,lat,moon=EM.loc==="moon";
   if(worldH<=H)EM.camY=(H-worldH)/2; else EM.camY=clamp(EM.camY,H-worldH,0); EM.camX=((EM.camX%worldW)+worldW)%worldW;
@@ -1076,11 +1079,13 @@ function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=c
       var ti=terrInfo(tb),yr=(tb&&tb.dep)?depRichness(gx0*GRID_STEP,gy0*GRID_STEP,tb.dep):0,lx=px(((gx0+w/2-0.5)*GRID_STEP),0),ly=py(gy0*GRID_STEP)-ch/2-6; c.fillStyle="#9dffb0"; c.font="bold 12px monospace"; c.textAlign="center"; c.fillText("×"+(w*h)+" "+(tb?tb.name:"")+(ti?"  "+ti.glyph:"")+(yr>0?"  yield ×"+yr.toFixed(2):""),lx,ly);
       var cnt=0,cgx,cgy; for(cgx=gx0;cgx<gx0+w;cgx++)for(cgy=gy0;cgy<gy0+h;cgy++){ if(!(occ[cgx+","+cgy]||Math.abs(cgy*GRID_STEP)>85||(EM.loc==="earth"&&!terrOK(tb,cgx,cgy))))cnt++; } if(cnt>0&&tb){ var qn=quoteBuild(tb,(S.buildings[EM.tool]||0)+queued("build",EM.tool),cnt,{gx:Math.round(gx0+(w-1)/2),gy:Math.round(gy0+(h-1)/2)}); c.fillStyle="#cfe9d4"; c.font="11px monospace"; c.fillText(money(qn.pay.capital)+" ("+money(qn.unitCap)+"/ea) · "+fmtTime(qn.time)+(qn.brk.off?"":" · "+fmt(qn.brk.distKm)+"km"),lx,ly+14); } }
   }
+  if(ALT_DOWN){ rivalEarthSites(EM.loc).forEach(function(s){ copies.forEach(function(ox){ var x=px(s.lon,ox),y=py(s.lat); if(x<-30||x>W+30||!s.owner)return; drawLogo(c,x,y-13,6.5,s.color,s.owner); ovName(c,x,y-22,s.owner,s.color); }); }); }
+  if(EM.tool&&!EM.build&&EM.mx!=null&&!EM.overUI){ c.globalAlpha=0.5; drawIcon(c,EM.mx,EM.my,BSHAPE[EM.tool]||"hub",hexCol(PCOLORS[0]),12,3); c.globalAlpha=1; }
 }
 function emCell(sx,sy){ var cv=EM.canvas,worldW=cv.width*EM.bw*EM.zoom,worldH=cv.height*EM.bh*EM.zoom,lon=((((sx+EM.camX)%worldW)+worldW)%worldW)/worldW*360-180,lat=90-((sy-EM.camY)/worldH)*180; return {gx:Math.round(lon/GRID_STEP),gy:Math.round(lat/GRID_STEP)}; }
 function emCellOf(pl){ return pl.gx!==undefined?{gx:pl.gx,gy:pl.gy}:{gx:Math.round(pl.lon/GRID_STEP),gy:Math.round(pl.lat/GRID_STEP)}; }
 function occupiedSet(loc){ var s={}; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit)return; var b=BUILDINGS[pl.id]; if(!b||b.loc!==loc)return; var c=emCellOf(pl); s[c.gx+","+c.gy]=1; }); return s; }
-function placeRect(gx0,gy0,w,h){ if(!EM||!EM.tool)return; var b=BUILDINGS[EM.tool]; if(!b||b.loc!==EM.loc)return; A.placeRect(EM.loc,EM.tool,gx0,gy0,w,h); if(!Net.isMirror())save(); drawEarthMap(); render(); }
+function placeRect(gx0,gy0,w,h,shift){ if(!EM||!EM.tool)return; var b=BUILDINGS[EM.tool]; if(!b||b.loc!==EM.loc)return; A.placeRect(EM.loc,EM.tool,gx0,gy0,w,h); if(!shift)EM.tool=null; if(!Net.isMirror())save(); drawEarthMap(); render(); }
 function placeAtScreen(sx,sy){ if(!EM||!EM.tool)return; var c=emCell(sx,sy); placeRect(c.gx,c.gy,1,1); }
 var GRID_KEYS=["q","w","e","r","t","a","s","d","f","g","z","x","c","v","b"];
 function shortName(n){ return n.replace(/\(.*\)/,"").replace(/Communications/,"Comms").replace(/Manufacturing/,"Mfg").replace(/Headquarters/,"HQ").trim(); }
@@ -1103,6 +1108,8 @@ function gridKey(e){ if(e.ctrlKey||e.metaKey||e.altKey)return; if(e.target&&e.ta
   if(paged&&gi===14){ po.gridPage=(pg+1)%pages; render(); e.preventDefault(); return; }
   var cell=g.items[pg*per+gi]; if(cell){ gridArm(cell.id); e.preventDefault(); } }
 document.addEventListener("keydown",gridKey);
+window.addEventListener("keydown",function(e){ if(e.key==="Alt"&&(OM||EM)){ if(!ALT_DOWN){ ALT_DOWN=true; if(EM)drawEarthMap(); } e.preventDefault(); } });
+window.addEventListener("keyup",function(e){ if(e.key==="Alt"&&ALT_DOWN){ ALT_DOWN=false; if(EM)drawEarthMap(); } });
 /* RTS edge-scroll: when the cursor rests near a screen edge, pan the map that way (px/sec scaled by edge depth).
    Horizontal pan wraps in the draw step, so every 2D map circles back on itself; vertical pan is clamped. */
 function mapEdgeScroll(st,dt){ if(!st||st.mx==null||st.overUI)return false; var W=st.canvas.width,H=st.canvas.height,M=Math.max(42,Math.min(W,H)*0.05),sp=Math.max(W,H)*0.9,vx=0,vy=0;
@@ -1111,10 +1118,11 @@ function mapEdgeScroll(st,dt){ if(!st||st.mx==null||st.overUI)return false; var 
   if(!vx&&!vy)return false; st.camX+=vx*sp*dt; st.camY+=vy*sp*dt; return true; }
 function emLoop(){ if(!EM)return; EM.raf=requestAnimationFrame(emLoop); var now=performance.now(),dt=Math.min(0.05,(now-(EM.last||now))/1000); EM.last=now; if(mapEdgeScroll(EM,dt))drawEarthMap(); }
 function openEarthMap(loc){ if(EM)return; loc=loc||"earth"; var d=document.createElement("div"); d.id="earthmap"; d.innerHTML='<canvas id="emcanvas"></canvas>';
-  document.body.appendChild(d); var cv=d.querySelector("#emcanvas"); EM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,drag:false,moved:false,tool:null,loc:loc,bw:loc==="moon"?1:2,bh:1,maxZoom:loc==="moon"?1:8};
+  document.body.appendChild(d); var cv=d.querySelector("#emcanvas"); EM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,drag:false,moved:false,tool:null,inspect:null,loc:loc,bw:loc==="moon"?1:2,bh:1,maxZoom:loc==="moon"?1:8};
   EM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; EM.bw=2*cv.height/cv.width; EM.camX=(cv.width*EM.bw*EM.zoom-cv.width)/2; drawEarthMap(); }; window.addEventListener("resize",EM.resize); EM.resize();
   var sx=0,sy=0; cv.addEventListener("pointerdown",function(e){ sx=e.clientX; sy=e.clientY; if(EM.tool){ EM.build={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } else { EM.drag=true; EM.moved=false; cv.style.cursor="grabbing"; } });
-  EM.up=function(e){ if(!EM)return; cv.style.cursor=EM.tool?"crosshair":"grab"; if(EM.build){ var a=emCell(EM.build.x0,EM.build.y0),b=emCell(EM.build.x1,EM.build.y1); placeRect(Math.min(a.gx,b.gx),Math.min(a.gy,b.gy),Math.abs(a.gx-b.gx)+1,Math.abs(a.gy-b.gy)+1); EM.build=null; } EM.drag=false; }; window.addEventListener("pointerup",EM.up);
+  EM.up=function(e){ if(!EM)return; cv.style.cursor=EM.tool?"crosshair":"grab"; if(EM.build){ var a=emCell(EM.build.x0,EM.build.y0),b=emCell(EM.build.x1,EM.build.y1); placeRect(Math.min(a.gx,b.gx),Math.min(a.gy,b.gy),Math.abs(a.gx-b.gx)+1,Math.abs(a.gy-b.gy)+1,e.shiftKey); EM.build=null; } else if(!EM.tool&&EM.drag&&!EM.moved){ EM.inspect=emPick(e.clientX,e.clientY); render(); drawEarthMap(); } EM.drag=false; }; window.addEventListener("pointerup",EM.up);
+  cv.addEventListener("contextmenu",function(e){ e.preventDefault(); if(EM.tool){ EM.tool=null; render(); } else { EM.inspect=null; render(); } drawEarthMap(); });
   cv.addEventListener("pointermove",function(e){ if(!EM)return; if(EM.build){ EM.build.x1=e.clientX; EM.build.y1=e.clientY; drawEarthMap(); return; } if(!EM.drag)return; if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4)EM.moved=true; EM.camX-=(e.clientX-sx); EM.camY+=(e.clientY-sy); sx=e.clientX; sy=e.clientY; drawEarthMap(); });
   cv.addEventListener("wheel",function(e){ e.preventDefault(); if(EM.maxZoom<=1)return; var oz=EM.zoom; EM.zoom=clamp(EM.zoom*(e.deltaY<0?1.12:0.89),1,EM.maxZoom); var f=EM.zoom/oz; EM.camX=(e.clientX+EM.camX)*f-e.clientX; EM.camY=e.clientY-(e.clientY-EM.camY)*f; drawEarthMap(); },{passive:false});
   EM.track=function(e){ EM.mx=e.clientX; EM.my=e.clientY; EM.overUI=(e.target!==cv); }; window.addEventListener("pointermove",EM.track);
@@ -1152,16 +1160,60 @@ function fxd(a,b){ var d=a-b; if(d>0.5)d-=1; if(d<-0.5)d+=1; return d; }
 function omScreenC(u){ var bw=OM.canvas.width*3*OM.zoom,x=u.fx*bw-OM.camX; x=((x%bw)+bw)%bw; if(x>OM.canvas.width)x-=bw; return x; }
 function omPy(f){ return OM.camY+OM.canvas.height*1.5*OM.zoom*f; }
 function screenToFrac(sx,sy){ var bw=OM.canvas.width*3*OM.zoom,bh=OM.canvas.height*1.5*OM.zoom; return {fx:((((sx+OM.camX)%bw)+bw)%bw)/bw, fy:clamp((sy-OM.camY)/bh,0.04,0.96)}; }
-function placeAtScreenOrbit(sx,sy){ if(!OM||!OM.tool)return; var f=screenToFrac(sx,sy),id=OM.tool;
+function placeAtScreenOrbit(sx,sy,shift){ if(!OM||!OM.tool)return; var f=screenToFrac(sx,sy),id=OM.tool;
   if(SHIPS[id]){ var s=SHIPS[id]; if(s.req&&S.researched.indexOf(s.req)<0)return; var o=(S.fleet[id]||0)+S.units.filter(function(u){return u.type===id&&u.side==="p";}).length,c=scost(s,o); if(!afford(S.resources,c))return; spend(c); S.units.push(spawnUnit(id,f.fx,f.fy,"p",PCOLORS[0],stime(s))); }
   else { var b=BUILDINGS[id]; if(!b||b.loc!=="orbit")return; var sfx=Math.round(f.fx*48)/48,sfy=clamp(Math.round(f.fy*16)/16,0.06,0.94); A.placeOrbit(id,sfx,sfy); }
-  if(!Net.isMirror())save(); render(); }
-function clickSelect(sx,sy,shift){ var hit=null; S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<15&&Math.abs(omPy(u.fy)-sy)<15)hit=u; }); if(!shift)OM.sel=[]; if(hit&&OM.sel.indexOf(hit.uid)<0)OM.sel.push(hit.uid); render(); }
-function boxSelect(b,shift){ if(!shift)OM.sel=[]; var x0=Math.min(b.x0,b.x1),x1=Math.max(b.x0,b.x1),y0=Math.min(b.y0,b.y1),y1=Math.max(b.y0,b.y1); S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; var x=omScreenC(u),y=omPy(u.fy); if(x>=x0&&x<=x1&&y>=y0&&y<=y1&&OM.sel.indexOf(u.uid)<0)OM.sel.push(u.uid); }); render(); }
-function commandSel(sx,sy){ if(!OM.sel||!OM.sel.length)return; var f=screenToFrac(sx,sy),en=null; (OM.en||[]).forEach(function(u){ if(u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<17&&Math.abs(omPy(u.fy)-sy)<17)en=u; });
-  OM.sel.forEach(function(uid){ var u=S.units.find(function(x){return x.uid===uid;}); if(!u||u.build>0)return; if(en){ u.tuid=en.uid; u.moveTo=null; } else { u.moveTo={fx:f.fx,fy:f.fy}; u.tuid=0; } }); OM.cmdMark={x:sx,y:sy,t:0.6,enemy:!!en}; }
+  if(!shift)OM.tool=null; if(!Net.isMirror())save(); render(); }
+/* SimCity-style batch placement on the orbit map: drag a rectangle of grid cells, build them all in one job */
+function omCell(sx,sy){ var f=screenToFrac(sx,sy); return {cx:Math.round(f.fx*48),cy:clamp(Math.round(f.fy*16),1,15)}; }
+function placeOrbitDrag(c0,c1,shift){ if(!OM||!OM.tool||!BUILDINGS[OM.tool])return; var cx0=Math.min(c0.cx,c1.cx),cx1=Math.max(c0.cx,c1.cx),cy0=Math.min(c0.cy,c1.cy),cy1=Math.max(c0.cy,c1.cy),cells=[],cx,cy; for(cx=cx0;cx<=cx1;cx++)for(cy=cy0;cy<=cy1;cy++)cells.push({cx:cx,cy:cy}); A.placeOrbitRect(OM.tool,cells); if(!shift)OM.tool=null; if(!Net.isMirror())save(); render(); }
+/* ===== shared 2D-map selection / inspection / overlays ===== */
+var ALT_DOWN=false;
+function rivalById(id){ id=(id||"").replace(/f$/,""); return (S.rivals||[]).find(function(r){return r.id===id;}); }
+function itemOwnerInfo(it){ if(!it)return {name:"Unknown",rel:"neutral",color:REL_GREY};
+  var oid=(it.owner||"").replace(/f$/,""),r=rivalById(oid); if(r)return {name:r.name,rel:r.treaty==="pact"?"ally":r.neutral?"neutral":"enemy",color:relColor(r)};
+  var co=(typeof NEUTRAL!=="undefined")&&NEUTRAL.find(function(c){return c.id===oid;}); if(co){ var st=S.neutral[co.id]||"none"; return {name:co.name,rel:st==="owned"?"yours":"neutral",color:st==="owned"?REL_GREEN:REL_GREY}; }
+  return {name:"Unknown",rel:"neutral",color:REL_GREY}; }
+function relLabel(rel){ return {yours:"Your Corporation",ally:"Allied",enemy:"Hostile",neutral:"Neutral"}[rel]||rel; }
+function drawLogo(c,x,y,r,color,name){ c.save(); c.beginPath(); c.arc(x,y,r,0,6.28); c.fillStyle="rgba(0,0,0,0.6)"; c.fill(); c.lineWidth=1.5; c.strokeStyle=hexCol(color); c.shadowColor=hexCol(color); c.shadowBlur=4; c.stroke(); c.shadowBlur=0; c.fillStyle=hexCol(color); c.font="bold "+Math.round(r*1.25)+"px monospace"; c.textAlign="center"; c.textBaseline="middle"; c.fillText((name||"?").charAt(0).toUpperCase(),x,y+0.5); c.restore(); c.textBaseline="alphabetic"; }
+function ovHpBar(c,x,y,w,frac,col){ c.fillStyle="rgba(0,0,0,0.65)"; c.fillRect(x,y,w,3); c.fillStyle=col; c.fillRect(x,y,w*clamp(frac,0,1),3); }
+function ovName(c,x,y,name,col){ c.font="9px monospace"; c.textAlign="center"; c.lineWidth=3; c.strokeStyle="rgba(0,0,0,0.8)"; c.strokeText(name,x,y); c.fillStyle=hexCol(col); c.fillText(name,x,y); }
+function omPick(sx,sy){ var hit=null,bw=OM.canvas.width*3*OM.zoom; function sxOf(fx){ var x=fx*bw-OM.camX; x=((x%bw)+bw)%bw; if(x>OM.canvas.width)x-=bw; return x; }
+  S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<15&&Math.abs(omPy(u.fy)-sy)<15)hit={kind:"unit",ref:u}; });
+  if(!hit)(OM.en||[]).forEach(function(u){ if(u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<15&&Math.abs(omPy(u.fy)-sy)<15)hit={kind:"enemyunit",ref:u}; });
+  if(!hit)(S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; if(Math.abs(sxOf(pl.fx)-sx)<14&&Math.abs(omPy(pl.fy)-sy)<14)hit={kind:"pstruct",ref:pl}; });
+  if(!hit)(OM.items||[]).forEach(function(it){ if(Math.abs(sxOf(it.mx||0)-sx)<13&&Math.abs(omPy(it.my==null?0.4:it.my)-sy)<13)hit={kind:"ostruct",ref:it}; });
+  return hit; }
+function emScreenX(lon){ var worldW=EM.canvas.width*EM.bw*EM.zoom,x=(lon+180)/360*worldW-EM.camX; x=((x%worldW)+worldW)%worldW; if(x>EM.canvas.width)x-=worldW; return x; }
+function emScreenY(lat){ var worldH=EM.canvas.height*EM.bh*EM.zoom; return EM.camY+(90-lat)/180*worldH; }
+function emPick(sx,sy){ var hit=null; (S.earthPlacements||[]).forEach(function(pl){ if(pl.orbit||!BUILDINGS[pl.id]||BUILDINGS[pl.id].loc!==EM.loc)return; if(Math.abs(emScreenX(pl.lon)-sx)<13&&Math.abs(emScreenY(pl.lat)-sy)<13)hit={kind:"pstruct",ref:pl}; });
+  if(!hit)rivalEarthSites(EM.loc).forEach(function(s){ if(Math.abs(emScreenX(s.lon)-sx)<12&&Math.abs(emScreenY(s.lat)-sy)<12)hit={kind:"esite",ref:s}; }); return hit; }
+function deselectMap(){ if(OM){ OM.sel=[]; OM.inspect=null; } if(EM)EM.inspect=null; render(); if(EM)drawEarthMap(); }
+function infoCard(){ var ins=OM?OM.inspect:(EM?EM.inspect:null); if(!ins)return ""; var t="",sub="",lines=[],hp=null;
+  if(ins.kind==="group"){ t="Selected fleet"; sub=ins.n+" ships"; }
+  else if(ins.kind==="unit"||ins.kind==="enemyunit"){ var u=ins.ref,s=SHIPS[u.type]; t=s?s.name:u.type; sub=u.side==="p"?"Your Corporation":((OM&&OM.battleRival?(rivalById(OM.battleRival)||{}).name:null)||"Hostile fleet"); lines.push("Class · "+(s?s.cls:"Line")); lines.push("Firepower · "+Math.round(u.fp)); lines.push("Hull · "+Math.round(u.hp)+" / "+Math.round(u.maxhp)); hp={f:u.hp/u.maxhp,col:u.side==="p"?"#39ff14":"#ff5050"}; }
+  else if(ins.kind==="pstruct"){ var b=BUILDINGS[ins.ref.id]; t=b?b.name:ins.ref.id; sub="Your Corporation"; if(b){ lines.push("Class · "+(b.cat||"Structure")); if(b.prod)lines.push("Output · "+Object.keys(b.prod).map(function(k){return fmt(b.prod[k])+" "+k;}).join(", ")); } }
+  else if(ins.kind==="ostruct"){ var info=itemOwnerInfo(ins.ref),sh=ins.ref.shape; t=sh==="station"?"Orbital Station":(sh==="frig"||sh==="corv")?"Warship":"Orbital Asset"; sub=info.name+" · "+relLabel(info.rel); }
+  else if(ins.kind==="esite"){ t="Ground Installation"; sub=(ins.ref.owner||"Unknown")+" · "+relLabel(ins.ref.rel||"neutral"); }
+  var html='<div id="infocard" class="panelglass ui" style="position:absolute;left:12px;bottom:118px;width:210px;padding:9px 11px"><div class="row between"><b style="color:#cdeccf">'+esc(t)+'</b><span class="x" data-act="deselect" style="cursor:pointer;color:#789">✕</span></div><div class="small" style="color:#9fb6c4;margin:2px 0 6px">'+esc(sub)+'</div>';
+  if(hp)html+='<div class="bar" style="margin-bottom:6px"><i style="width:'+Math.round(clamp(hp.f,0,1)*100)+'%;background:'+hp.col+'"></i></div>';
+  html+=lines.map(function(l){return '<div class="small" style="color:#cfe9d4">'+esc(l)+'</div>';}).join("");
+  return html+'</div>'; }
+function clickSelect(sx,sy,shift){ var p=omPick(sx,sy);
+  if(!p){ if(!shift){ OM.sel=[]; OM.inspect=null; } render(); return; }
+  if(p.kind==="unit"){ if(!shift)OM.sel=[]; if(OM.sel.indexOf(p.ref.uid)<0)OM.sel.push(p.ref.uid); OM.inspect=p; }
+  else { if(!shift)OM.sel=[]; OM.inspect=p; }
+  render(); }
+function boxSelect(b,shift){ if(!shift)OM.sel=[]; var x0=Math.min(b.x0,b.x1),x1=Math.max(b.x0,b.x1),y0=Math.min(b.y0,b.y1),y1=Math.max(b.y0,b.y1); S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; var x=omScreenC(u),y=omPy(u.fy); if(x>=x0&&x<=x1&&y>=y0&&y<=y1&&OM.sel.indexOf(u.uid)<0)OM.sel.push(u.uid); });
+  if(OM.sel.length===1){ var su=S.units.find(function(x){return x.uid===OM.sel[0];}); OM.inspect=su?{kind:"unit",ref:su}:null; } else if(OM.sel.length>1)OM.inspect={kind:"group",n:OM.sel.length}; else if(!shift)OM.inspect=null; render(); }
+/* right-click: command selected units (move/attack, queued with shift); with nothing commandable selected, deselect */
+function commandSel(sx,sy,shift){ var sel=(OM.sel||[]).map(function(uid){return S.units.find(function(x){return x.uid===uid;});}).filter(function(u){return u&&u.side==="p"&&u.hp>0&&u.build<=0;});
+  if(!sel.length){ OM.sel=[]; OM.inspect=null; render(); return; }
+  var f=screenToFrac(sx,sy),en=null; (OM.en||[]).forEach(function(u){ if(u.hp<=0)return; if(Math.abs(omScreenC(u)-sx)<17&&Math.abs(omPy(u.fy)-sy)<17)en=u; });
+  sel.forEach(function(u){ if(shift){ u.queue=u.queue||[]; u.queue.push(en?{tuid:en.uid}:{fx:f.fx,fy:f.fy}); } else { u.queue=[]; if(en){ u.tuid=en.uid; u.moveTo=null; } else { u.moveTo={fx:f.fx,fy:f.fy}; u.tuid=0; } } }); OM.cmdMark={x:sx,y:sy,t:0.6,enemy:!!en,q:!!shift}; }
 function omStep(dt){ if(!OM)return; var P=S.units.filter(function(u){return u.side==="p"&&u.hp>0;}),E=OM.en||[];
   function act(u,foes){ if(u.build>0)return; u.fireT=Math.max(0,u.fireT-dt); var tgt=null;
+    if(!u.tuid&&!u.moveTo&&u.queue&&u.queue.length){ var nx=u.queue.shift(); if(nx.tuid)u.tuid=nx.tuid; else u.moveTo={fx:nx.fx,fy:nx.fy}; }
     if(u.tuid){ tgt=foes.find(function(o){return o.uid===u.tuid&&o.hp>0;}); if(!tgt)u.tuid=0; }
     if(!tgt){ var bd=0.28; foes.forEach(function(o){ if(o.hp<=0)return; var d=Math.hypot(fxd(u.fx,o.fx),u.fy-o.fy); if(d<bd){bd=d;tgt=o;} }); }
     if(tgt){ var td=Math.hypot(fxd(u.fx,tgt.fx),u.fy-tgt.fy); if(td>u.range){ var dx=fxd(tgt.fx,u.fx),dy=tgt.fy-u.fy,di=Math.hypot(dx,dy)||1; u.fx=((u.fx+dx/di*u.speed*dt)%1+1)%1; u.fy=clamp(u.fy+dy/di*u.speed*dt,0.04,0.96); } else { tgt.hp-=u.fp*dt*0.5; u.fireT=0.12; u.ftx=tgt.fx; u.fty=tgt.fy; } return; }
@@ -1170,6 +1222,7 @@ function omStep(dt){ if(!OM)return; var P=S.units.filter(function(u){return u.si
   for(var i=S.units.length-1;i>=0;i--){ var u=S.units[i]; if(u.side==="p"&&u.hp<=0){ if(u.build<=0)S.fleet[u.type]=Math.max(0,(S.fleet[u.type]||0)-1); if(OM.sel){ var si=OM.sel.indexOf(u.uid); if(si>=0)OM.sel.splice(si,1); } S.units.splice(i,1); } }
   if(OM.en)for(var j=OM.en.length-1;j>=0;j--)if(OM.en[j].hp<=0)OM.en.splice(j,1);
   if(OM.cmdMark){ OM.cmdMark.t-=dt; if(OM.cmdMark.t<=0)OM.cmdMark=null; }
+  if(OM.inspect&&OM.inspect.ref&&typeof OM.inspect.ref.hp==="number"&&OM.inspect.ref.hp<=0){ OM.inspect=null; render(); }
   if(OM.battleActive){ OM.battleT+=dt; var pa=P.filter(function(u){return u.hp>0&&u.build<=0;}).length; if(OM.en.length===0||OM.battleT>45||pa===0)endOrbitBattle(); } }
 function endOrbitBattle(){ var r=S.rivals.find(function(x){return x.id===OM.battleRival;}),survFp=(OM.en||[]).reduce(function(a,u){return a+u.fp;},0);
   if(r){ r.mil=survFp; r.host=clamp(r.host+25,0,100); r.treaty="none"; r.intel=100; r.crip+=40; if(OM.en.length===0){ r.eco*=0.45; if(r.eco<800*CAP_SCALE){ r.dead=true; r.deadby="destroyed"; pushEvent(S,"war",r.name+" was destroyed in orbital combat."); } else pushEvent(S,"war","You crushed "+r.name+"'s fleet in orbit."); } else pushEvent(S,"war","Orbital battle with "+r.name+" ended."); }
@@ -1193,23 +1246,28 @@ function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=c
   S.units.forEach(function(u){ if(u.side==="p"&&u.hp>0)drawUnit(u,OM.sel&&OM.sel.indexOf(u.uid)>=0); });
   (OM.en||[]).forEach(function(u){ if(u.hp>0)drawUnit(u,false); });
   if(OM.cmdMark){ c.strokeStyle=OM.cmdMark.enemy?"#ff5050":"#39ff14"; c.lineWidth=2; c.globalAlpha=Math.max(0,OM.cmdMark.t/0.6); c.beginPath(); c.arc(OM.cmdMark.x,OM.cmdMark.y,(1-OM.cmdMark.t/0.6)*14+4,0,6.28); c.stroke(); c.globalAlpha=1; }
-  if(OM.box&&OM.selecting){ var x0=Math.min(OM.box.x0,OM.box.x1),y0=Math.min(OM.box.y0,OM.box.y1); c.strokeStyle="rgba(57,255,20,0.8)"; c.lineWidth=1; c.fillStyle="rgba(57,255,20,0.1)"; c.fillRect(x0,y0,Math.abs(OM.box.x1-OM.box.x0),Math.abs(OM.box.y1-OM.box.y0)); c.strokeRect(x0,y0,Math.abs(OM.box.x1-OM.box.x0),Math.abs(OM.box.y1-OM.box.y0)); } }
+  if(OM.box&&OM.selecting){ var x0=Math.min(OM.box.x0,OM.box.x1),y0=Math.min(OM.box.y0,OM.box.y1); c.strokeStyle="rgba(57,255,20,0.8)"; c.lineWidth=1; c.fillStyle="rgba(57,255,20,0.1)"; c.fillRect(x0,y0,Math.abs(OM.box.x1-OM.box.x0),Math.abs(OM.box.y1-OM.box.y0)); c.strokeRect(x0,y0,Math.abs(OM.box.x1-OM.box.x0),Math.abs(OM.box.y1-OM.box.y0)); }
+  if(ALT_DOWN){ S.units.forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; ovHpBar(c,omScreenC(u)-14,py(u.fy)-15,28,u.hp/u.maxhp,"#39ff14"); });
+    (OM.en||[]).forEach(function(u){ if(u.hp<=0)return; var x=omScreenC(u),yy=py(u.fy),rn=(OM.battleRival?(rivalById(OM.battleRival)||{}).name:null)||"Hostile"; drawLogo(c,x,yy-26,7,u.color,rn); ovName(c,x,yy-37,rn,u.color); ovHpBar(c,x-14,yy-15,28,u.hp/u.maxhp,"#ff5050"); });
+    OM.items.forEach(function(it){ var info=itemOwnerInfo(it),x=(it.mx||0)*bw-OM.camX; x=((x%bw)+bw)%bw; if(x>W)x-=bw; if(x<-30||x>W+30)return; var yy=py(it.my==null?0.4:it.my); drawLogo(c,x,yy-12,6,info.color,info.name); ovName(c,x,yy-21,info.name,info.color); }); }
+  if(OM.tool&&OM.mx!=null&&!OM.overUI&&!OM.build){ var ps=BSHAPE[OM.tool]||(SHIPS[OM.tool]?"frig":"sat"); c.globalAlpha=0.5; drawIcon(c,OM.mx,OM.my,ps,hexCol(PCOLORS[0]),10,4); c.globalAlpha=1; }
+  if(OM.build){ var bx0=Math.min(OM.build.x0,OM.build.x1),by0=Math.min(OM.build.y0,OM.build.y1),bw2=Math.abs(OM.build.x1-OM.build.x0),bh2=Math.abs(OM.build.y1-OM.build.y0),c0=omCell(OM.build.x0,OM.build.y0),c1=omCell(OM.build.x1,OM.build.y1),ncols=Math.abs(c0.cx-c1.cx)+1,nrows=Math.abs(c0.cy-c1.cy)+1,nn=ncols*nrows; c.fillStyle="rgba(57,255,20,0.16)"; c.fillRect(bx0,by0,bw2,bh2); c.strokeStyle="rgba(57,255,20,0.85)"; c.lineWidth=1; c.strokeRect(bx0,by0,bw2,bh2); c.fillStyle="#9dffb0"; c.font="bold 12px monospace"; c.textAlign="center"; var tb=BUILDINGS[OM.tool]; c.fillText("×"+nn+" "+(tb?tb.name:""),bx0+bw2/2,by0-6); } }
 function omLoop(){ if(!OM)return; OM.raf=requestAnimationFrame(omLoop); var now=performance.now(),dt=Math.min(0.05,(now-(OM.last||now))/1000); OM.last=now; if(!UI.menu){ omStep(dt); mapEdgeScroll(OM,dt); } drawOrbitMap(); }
 function orbitKey(e){ if(!OM||(e.target&&e.target.tagName==="INPUT"))return; var k=e.key;
   if(k==="ArrowLeft"){ OM.camX-=90; e.preventDefault(); } else if(k==="ArrowRight"){ OM.camX+=90; e.preventDefault(); } else if(k==="ArrowUp"){ OM.camY+=90; e.preventDefault(); } else if(k==="ArrowDown"){ OM.camY-=90; e.preventDefault(); }
   else if(/^[0-9]$/.test(k)){ if(e.ctrlKey||e.metaKey){ S.groups[k]=(OM.sel||[]).slice(); save(); } else { OM.sel=(S.groups[k]||[]).filter(function(uid){return S.units.some(function(u){return u.uid===uid&&u.hp>0;});}); render(); } e.preventDefault(); }
   else if(/^F([1-9]|1[0-2])$/.test(k)){ var key="orbit_"+k; if(e.ctrlKey||e.metaKey){ S.bookmarks[key]={camX:OM.camX,camY:OM.camY,zoom:OM.zoom}; save(); } else { var bm=S.bookmarks[key]; if(bm){ OM.camX=bm.camX; OM.camY=bm.camY; OM.zoom=bm.zoom; } } e.preventDefault(); } }
 function mountOrbitMap(){ var d=document.createElement("div"); d.id="orbitmap"; d.innerHTML='<canvas id="omcanvas"></canvas>';
-  document.body.appendChild(d); var cv=d.querySelector("#omcanvas"); OM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,tool:null,sel:[],box:null,selecting:false,placing:false,en:[],battleActive:false,battleRival:null,battleT:0,cmdMark:null,last:performance.now(),items:orbitItems()};
+  document.body.appendChild(d); var cv=d.querySelector("#omcanvas"); OM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,tool:null,sel:[],inspect:null,box:null,build:null,selecting:false,placing:false,en:[],battleActive:false,battleRival:null,battleT:0,cmdMark:null,last:performance.now(),items:orbitItems()};
   OM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; OM.camX=(cv.width*3*OM.zoom-cv.width)/2; OM.camY=(cv.height-cv.height*1.5*OM.zoom)/2; }; window.addEventListener("resize",OM.resize); OM.resize();
   OM.refresh=setInterval(function(){ if(OM)OM.items=orbitItems(); },1000);
   var sx=0,sy=0;
-  cv.addEventListener("pointerdown",function(e){ if(e.button!==0)return; sx=e.clientX; sy=e.clientY; if(OM.tool)OM.placing=true; else { OM.selecting=true; OM.box={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } });
-  cv.addEventListener("pointermove",function(e){ if(OM.selecting&&OM.box){ OM.box.x1=e.clientX; OM.box.y1=e.clientY; } });
+  cv.addEventListener("pointerdown",function(e){ if(e.button!==0)return; sx=e.clientX; sy=e.clientY; if(OM.tool){ if(BUILDINGS[OM.tool])OM.build={x0:sx,y0:sy,x1:sx,y1:sy}; else OM.placing=true; } else { OM.selecting=true; OM.box={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } });
+  cv.addEventListener("pointermove",function(e){ if(OM.build){ OM.build.x1=e.clientX; OM.build.y1=e.clientY; } else if(OM.selecting&&OM.box){ OM.box.x1=e.clientX; OM.box.y1=e.clientY; } });
   OM.track=function(e){ OM.mx=e.clientX; OM.my=e.clientY; OM.overUI=(e.target!==cv); }; window.addEventListener("pointermove",OM.track);
   OM.leave=function(e){ if(!e.relatedTarget&&!e.toElement)OM.mx=null; }; window.addEventListener("mouseout",OM.leave);
-  cv.addEventListener("contextmenu",function(e){ e.preventDefault(); if(!OM.tool)commandSel(e.clientX,e.clientY); });
-  OM.up=function(e){ if(!OM)return; cv.style.cursor=OM.tool?"crosshair":"default"; if(OM.placing){ OM.placing=false; placeAtScreenOrbit(sx,sy); } else if(OM.selecting){ OM.selecting=false; var moved=Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>5; if(moved&&OM.box)boxSelect(OM.box,e.shiftKey); else clickSelect(sx,sy,e.shiftKey); OM.box=null; } }; window.addEventListener("pointerup",OM.up);
+  cv.addEventListener("contextmenu",function(e){ e.preventDefault(); if(OM.tool){ OM.tool=null; OM.build=null; render(); } else commandSel(e.clientX,e.clientY,e.shiftKey); });
+  OM.up=function(e){ if(!OM)return; cv.style.cursor=OM.tool?"crosshair":"default"; if(OM.build){ placeOrbitDrag(omCell(OM.build.x0,OM.build.y0),omCell(e.clientX,e.clientY),e.shiftKey); OM.build=null; } else if(OM.placing){ OM.placing=false; placeAtScreenOrbit(sx,sy,e.shiftKey); } else if(OM.selecting){ OM.selecting=false; var moved=Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>5; if(moved&&OM.box)boxSelect(OM.box,e.shiftKey); else clickSelect(sx,sy,e.shiftKey); OM.box=null; } }; window.addEventListener("pointerup",OM.up);
   cv.addEventListener("wheel",function(e){ e.preventDefault(); var oz=OM.zoom; OM.zoom=clamp(OM.zoom*(e.deltaY<0?1.12:0.89),1,8); var f=OM.zoom/oz; OM.camX=(e.clientX+OM.camX)*f-e.clientX; OM.camY=e.clientY-(e.clientY-OM.camY)*f; },{passive:false});
   window.addEventListener("keydown",orbitKey); OM.key=orbitKey; OM.raf=requestAnimationFrame(omLoop); render();
   if(pendingTool){ OM.tool=pendingTool; pendingTool=null; render(); } if(pendingBattle){ startOrbitBattle(pendingBattle); pendingBattle=null; } }
@@ -1276,7 +1334,7 @@ var Net=(function(){
   };
 })();
 /* route whitelisted player actions to my company host while mirroring its world */
-(function(){ var NETACT={research:1,trade:1,launchCrypto:1,sellCrypto:1,sabotage:1,steal:1,acqrival:1,buyout:1,restructure:1,formSub:1,dissolveSub:1,pact:1,setSpeed:1,build:1,ship:1,deliver:1,placeRect:1,placeOrbit:1,borrow:1,repay:1},raw={}; Object.keys(NETACT).forEach(function(k){ if(typeof A[k]==="function"){ raw[k]=A[k]; A[k]=function(){ var args=Array.prototype.slice.call(arguments); if(Net.isMirror()){ Net.action({fn:k,args:args}); return; } if(MM.isViewer()){ MM.sendAction({fn:k,args:args}); return; } return raw[k].apply(A,arguments); }; } }); Net._apply=function(a){ if(a&&raw[a.fn])raw[a.fn].apply(A,a.args||[]); }; })();
+(function(){ var NETACT={research:1,trade:1,launchCrypto:1,sellCrypto:1,sabotage:1,steal:1,acqrival:1,buyout:1,restructure:1,formSub:1,dissolveSub:1,pact:1,setSpeed:1,build:1,ship:1,deliver:1,placeRect:1,placeOrbit:1,placeOrbitRect:1,borrow:1,repay:1},raw={}; Object.keys(NETACT).forEach(function(k){ if(typeof A[k]==="function"){ raw[k]=A[k]; A[k]=function(){ var args=Array.prototype.slice.call(arguments); if(Net.isMirror()){ Net.action({fn:k,args:args}); return; } if(MM.isViewer()){ MM.sendAction({fn:k,args:args}); return; } return raw[k].apply(A,arguments); }; } }); Net._apply=function(a){ if(a&&raw[a.fn])raw[a.fn].apply(A,a.args||[]); }; })();
 /* ---- cross-company shared world: real human companies become each other's rivals ---- */
 function mpPub(){ var pm=playerMetrics(S); return {eco:pm.eco,tech:pm.tech,inf:pm.inf,mil:pm.mil,share:Math.max(S.marketShare.consumer,S.marketShare.enterprise,S.marketShare.government),alive:!(S.gameOver.over&&!S.gameOver.won)}; }
 /* In a networked match the MATCH HOST is the world authority: it runs the one canonical AI
