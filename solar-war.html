@@ -910,11 +910,14 @@ function updateEarthTexture(force){ if(!EARTH_CV||!EARTH_TEX)return; var n=(S.ea
 /* Orbit shell: a transparent equirectangular texture showing ONLY your orbital structures & units, wrapped onto a fully
    transparent sphere at the green-ring radius — the orbit map's contents made visible around Earth in system view. */
 var ORBIT_CV=null,ORBIT_TEX=null,ORBIT_SIG="";
-function paintOrbitCanvas(cv){ var W=cv.width,H=cv.height,c=cv.getContext("2d"); c.clearRect(0,0,W,H); var sz=Math.max(7,W/95);
+function paintOrbitCanvas(cv){ var W=cv.width,H=cv.height,c=cv.getContext("2d"); c.clearRect(0,0,W,H); var sz=Math.max(15,W/42);
+  // rival & neutral orbital presence (colored by owner) so competitors show on the shell too
+  (typeof orbitItems==="function"?orbitItems():[]).forEach(function(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17),fx=((hash*97+idx*131)%1000)/1000,fy=clamp(0.12+((idx*37)%62)/62*0.76,0.05,0.95),a=clamp(0.3+((it.intel==null?100:it.intel)/100)*0.7,0.3,1); c.globalAlpha=a; drawIcon(c,fx*W,fy*H,it.shape,hexCol(it.color),sz*0.8); c.globalAlpha=1; });
+  // your orbital structures, then your units (brightest, on top)
   (S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; drawIcon(c,((pl.fx||0)%1)*W,clamp(pl.fy==null?0.5:pl.fy,0,1)*H,BSHAPE[pl.id]||"sat",hexCol(PCOLORS[0]),sz); });
-  (S.units||[]).forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; drawIcon(c,((u.fx||0)%1)*W,clamp(u.fy,0,1)*H,BSHAPE[u.type]||"frig",hexCol(u.color||PCOLORS[0]),sz*0.85); }); }
+  (S.units||[]).forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; drawIcon(c,((u.fx||0)%1)*W,clamp(u.fy,0,1)*H,BSHAPE[u.type]||"frig",hexCol(u.color||PCOLORS[0]),sz*0.9); }); }
 function makeOrbitTexture(){ var cv=document.createElement("canvas"); cv.width=1024; cv.height=512; ORBIT_CV=cv; ORBIT_TEX=new THREE.CanvasTexture(cv); paintOrbitCanvas(cv); ORBIT_TEX.needsUpdate=true; return ORBIT_TEX; }
-function orbitTexSig(){ return (S.earthPlacements||[]).filter(function(p){return p.orbit;}).map(function(p){return p.id+(p.fx||0).toFixed(2)+(p.fy||0).toFixed(2);}).join(",")+"|"+(S.units||[]).filter(function(u){return u.side==="p"&&u.hp>0&&u.build<=0;}).map(function(u){return u.type+u.fx.toFixed(2)+u.fy.toFixed(2);}).join(","); }
+function orbitTexSig(){ return (S.earthPlacements||[]).filter(function(p){return p.orbit;}).map(function(p){return p.id+(p.fx||0).toFixed(2)+(p.fy||0).toFixed(2);}).join(",")+"|"+(S.units||[]).filter(function(u){return u.side==="p"&&u.hp>0&&u.build<=0;}).map(function(u){return u.type+u.fx.toFixed(2)+u.fy.toFixed(2);}).join(",")+"|"+(S.rivals||[]).filter(function(r){return !r.dead;}).map(function(r){return r.id+Math.round(r.mil/45)+Math.round(Math.sqrt(Math.max(10,r.eco))/90);}).join(",")+"|"+NEUTRAL.map(function(co){return S.neutral[co.id]||"n";}).join(","); }
 function updateOrbitTexture(force){ if(!ORBIT_CV||!ORBIT_TEX)return; var sig=orbitTexSig(); if(!force&&sig===ORBIT_SIG)return; ORBIT_SIG=sig; paintOrbitCanvas(ORBIT_CV); ORBIT_TEX.needsUpdate=true; }
 function makeMoonTexture(){ var W=512,H=256,cv=document.createElement("canvas"); cv.width=W; cv.height=H; var c=cv.getContext("2d"); c.fillStyle="#8a8b90"; c.fillRect(0,0,W,H);
   (typeof MOON_CRATERS!=="undefined"?MOON_CRATERS:[]).forEach(function(k){ var x=(k.lon+180)/360*W,y=(90-k.lat)/180*H,r=Math.max(2,k.r/360*W),rg=c.createRadialGradient(x,y,r*0.2,x,y,r); if(k.mare){ rg.addColorStop(0,"#5f6066"); rg.addColorStop(1,"#7c7d82"); } else { rg.addColorStop(0,"#a8a9ae"); rg.addColorStop(0.7,"#74757a"); rg.addColorStop(1,"#8a8b90"); } c.fillStyle=rg; c.beginPath(); c.arc(x,y,r,0,6.28); c.fill(); }); return new THREE.CanvasTexture(cv); }
@@ -984,18 +987,10 @@ function pickAt(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.c
 function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S.buildings)if(BUILDINGS[id]&&BUILDINGS[id].loc===loc)c+=S.buildings[id]; return c; }
   var PC=PCOLORS[0];
   /* only rebuild a group's meshes/labels when its data actually changes — saves the per-tick churn that drove lag */
-  /* system view shows only celestial bodies — built structures are surfaced as the orbit/earth textures, not as 3D clutter */
-  if(!SC.devCleared){ clearGroup(SC.dev.earth); clearGroup(SC.dev.moon); clearGroup(SC.dev.asteroids); clearGroup(SC.dev.deep); clearGroup(SC.dev.orbit); SC.devCleared=true; }
-  var fn=Math.min(milPower(S.fleet).n,18); if(fn!==SC.sigFleet){ SC.sigFleet=fn; clearGroup(SC.fleetGrp); for(var i=0;i<fn;i++){ var g=new THREE.ConeGeometry(1.1,3,5); g.rotateX(Math.PI/2); var mk=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:PC,emissive:PC,emissiveIntensity:0.6})); var an=i/Math.max(1,fn)*Math.PI*2; mk.position.set(Math.cos(an)*16,3,Math.sin(an)*16); SC.fleetGrp.add(mk); } }
-  // rival corporations — all Earth-based, clustered in cislunar space, one colour per player
-  var rivalSig=(S.rivals||[]).map(function(r){ return r.dead?"x":((r.color||0)+"|"+Math.round(Math.sqrt(Math.max(10,r.eco))/55)+"|"+Math.round((r.mil||0)/40)+"|"+r.treaty); }).join(",");
-  if(rivalSig!==SC.sigRivals){ SC.sigRivals=rivalSig; clearGroup(SC.rivalGrp); S.rivals.forEach(function(r,ri){ if(r.dead)return; var col=r.color||0xff3030,base=(ri+1)*1.25,r0=72+ri*16,n=clamp(Math.round(2+Math.sqrt(Math.max(10,r.eco))/55),2,14);
-    var grp=new THREE.Group(); for(var i=0;i<n;i++){ var a=base+i*0.6,rad=r0+(i%4)*16,y=((i%3)-1)*8,s=new THREE.Mesh(new THREE.OctahedronGeometry(2.4),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.5,metalness:0.4,roughness:0.5})); s.position.set(Math.cos(a)*rad,y,Math.sin(a)*rad); grp.add(s); }
-    var ms=r.mil>0?Math.min(Math.round(r.mil/40),8):0; for(var i2=0;i2<ms;i2++){ var a2=base+1+i2*0.5,rad2=r0+30,cone=new THREE.ConeGeometry(1.2,3.2,5); cone.rotateX(Math.PI/2); var sh=new THREE.Mesh(cone,new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:0.7})); sh.position.set(Math.cos(a2)*rad2,6,Math.sin(a2)*rad2); grp.add(sh); }
-    var lab=makeLabel(r.name+(r.treaty==="pact"?" ⚖":""),hexCol(col),64,15); lab.position.set(Math.cos(base)*r0,20,Math.sin(base)*r0); grp.add(lab); SC.rivalGrp.add(grp); }); }
-  // neutral companies — also Earth-based
-  var neutralSig=NEUTRAL.map(function(co){ return S.neutral[co.id]||"none"; }).join(",");
-  if(neutralSig!==SC.sigNeutral){ SC.sigNeutral=neutralSig; clearGroup(SC.neutralGrp); NEUTRAL.forEach(function(co,ci){ var st=S.neutral[co.id]||"none",col=st==="owned"?PC:0xbfc7cf,a=ci*1.02+0.4,rad=56+ci*10,m=new THREE.Mesh(new THREE.BoxGeometry(3,3,3),new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:st==="none"?0.25:0.55})); m.position.set(Math.cos(a)*rad,-12,Math.sin(a)*rad); SC.neutralGrp.add(m); if(st!=="none"){ var lab=makeLabel(co.name.split(" ")[0],hexCol(col),44,11); lab.position.set(Math.cos(a)*rad,-5,Math.sin(a)*rad); SC.neutralGrp.add(lab); } }); }
+  /* system view = clean celestial bodies only. Every structure/unit/company marker that used to float here (player
+     ring marks, orbital marks, the fleet, and the rival/neutral clusters) is removed; orbital contents are surfaced
+     on the transparent orbit shell instead, and surface structures on the Earth texture. */
+  if(!SC.devCleared){ clearGroup(SC.dev.earth); clearGroup(SC.dev.moon); clearGroup(SC.dev.asteroids); clearGroup(SC.dev.deep); clearGroup(SC.dev.orbit); clearGroup(SC.fleetGrp); clearGroup(SC.rivalGrp); clearGroup(SC.neutralGrp); SC.devCleared=true; }
   updateEarthTexture(SC.dirtyTex); updateOrbitTexture(SC.dirtyTex); SC.dirtyTex=false; }
 function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene);
   var gl=SC.renderer.getContext?SC.renderer.getContext():null;
