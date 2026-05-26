@@ -268,6 +268,9 @@ var CO_SUFFIX=["Labs","Systems","Collective","Dynamics","Holdings","Group","Indu
 function companyName(i){ return CO_PREFIX[i%CO_PREFIX.length]+" "+CO_SUFFIX[Math.floor(i/CO_PREFIX.length)%CO_SUFFIX.length]; }
 function hsl2hex(h,s,l){ var c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2,r,g,b; if(h<60){r=c;g=x;b=0;}else if(h<120){r=x;g=c;b=0;}else if(h<180){r=0;g=c;b=x;}else if(h<240){r=0;g=x;b=c;}else if(h<300){r=x;g=0;b=c;}else{r=c;g=0;b=x;} return ((Math.round((r+m)*255)<<16)|(Math.round((g+m)*255)<<8)|Math.round((b+m)*255)); }
 function coColor(i){ return i<PCOLORS.length?PCOLORS[i]:hsl2hex((i*137.508)%360,0.68,0.62); }
+/* allegiance colors for in-world unit/structure markers: owned green, allied yellow, enemy red, neutral grey */
+var REL_GREEN=0x39ff14, REL_YELLOW=0xffd23f, REL_RED=0xff3030, REL_GREY=0xa6aeb8;
+function relColor(r){ if(!r)return REL_GREY; if(r.treaty==="pact")return REL_YELLOW; if(r.neutral)return REL_GREY; return REL_RED; }
 var PERS=["researcher","militarist","influencer","industrialist"];
 var STAGES=[{id:1,name:"AI Startup"},{id:2,name:"Technology Company"},{id:3,name:"Global Corporation"},{id:4,name:"Orbital Conglomerate"},{id:5,name:"Sovereign Space Corporation"},{id:6,name:"Interplanetary Superpower"}];
 var MARKET_GROWTH=0.012,MARKET_MARGIN=0.0026,SHARE_EASE=0.1,RIVAL_GROWTH=0.009,EVENT_INTERVAL=45,REG_TAX_MAX=0.45;
@@ -910,16 +913,15 @@ function updateEarthTexture(force){ if(!EARTH_CV||!EARTH_TEX)return; var n=(S.ea
 /* Orbit shell: a transparent equirectangular texture showing ONLY your orbital structures & units, wrapped onto a fully
    transparent sphere at the green-ring radius — the orbit map's contents made visible around Earth in system view. */
 var ORBIT_CV=null,ORBIT_TEX=null,ORBIT_SIG="";
-function paintOrbitCanvas(cv){ var W=cv.width,H=cv.height,c=cv.getContext("2d"); c.clearRect(0,0,W,H); var sz=Math.max(13,W/52);
-  // mirror the 2D orbit map: fx -> longitude around Earth, fy -> latitude/height. Items sharing a row on the map
-  // land on one latitude ring; equatorial fy=0.5 sits straight out over the equator, higher rows form a halo.
-  // rival/neutral orbital objects use the orbit map's hash-x + altitude-row layout, so they form rings (not scatter).
-  (typeof orbitItems==="function"?orbitItems():[]).forEach(function(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17),fx=((hash*97+idx*131)%1000)/1000,fy=clamp(0.88-Math.min(it.alt,1.25)*0.62+((idx%5)-2)*0.012,0.04,0.96),a=clamp(0.22+((it.intel==null?100:it.intel)/100)*0.78,0.22,1); c.globalAlpha=a; drawIcon(c,fx*W,fy*H,it.shape,hexCol(it.color),sz*0.8); c.globalAlpha=1; });
-  // your orbital structures and units (brightest, on top)
-  (S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; drawIcon(c,((pl.fx||0)%1)*W,clamp(pl.fy==null?0.5:pl.fy,0,1)*H,BSHAPE[pl.id]||"sat",hexCol(PCOLORS[0]),sz); });
-  (S.units||[]).forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; drawIcon(c,((u.fx||0)%1)*W,clamp(u.fy,0,1)*H,BSHAPE[u.type]||"frig",hexCol(u.color||PCOLORS[0]),sz*0.85); }); }
-function makeOrbitTexture(){ var cv=document.createElement("canvas"); cv.width=1024; cv.height=512; ORBIT_CV=cv; ORBIT_TEX=new THREE.CanvasTexture(cv); paintOrbitCanvas(cv); ORBIT_TEX.needsUpdate=true; return ORBIT_TEX; }
-function orbitTexSig(){ return (S.earthPlacements||[]).filter(function(p){return p.orbit;}).map(function(p){return p.id+(p.fx||0).toFixed(2)+(p.fy||0).toFixed(2);}).join(",")+"|"+(S.units||[]).filter(function(u){return u.side==="p"&&u.hp>0&&u.build<=0;}).map(function(u){return u.type+u.fx.toFixed(2)+u.fy.toFixed(2);}).join(",")+"|"+(S.rivals||[]).filter(function(r){return !r.dead;}).map(function(r){return r.id+Math.round(r.mil/45)+Math.round(Math.sqrt(Math.max(10,r.eco))/90);}).join(",")+"|"+NEUTRAL.map(function(co){return S.neutral[co.id]||"n";}).join(","); }
+function paintOrbitCanvas(cv){ var W=cv.width,H=cv.height,c=cv.getContext("2d"); c.clearRect(0,0,W,H); var sz=Math.max(4,W/832),gl=Math.max(1.2,sz*0.5);
+  // mirror the 2D orbit map: fx -> longitude around Earth, fy -> latitude/height. Items keep their orbit-map
+  // position so a row on the map lands on one latitude ring (a halo). Allegiance-colored, intel-faded.
+  (typeof orbitItems==="function"?orbitItems():[]).forEach(function(it){ var a=clamp(0.22+((it.intel==null?100:it.intel)/100)*0.78,0.22,1); c.globalAlpha=a; drawIcon(c,((it.mx||0)%1)*W,clamp(it.my==null?0.4:it.my,0.02,0.98)*H,it.shape,hexCol(it.color),sz*0.85,gl); c.globalAlpha=1; });
+  // your orbital structures and units (green)
+  (S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; drawIcon(c,((pl.fx||0)%1)*W,clamp(pl.fy==null?0.5:pl.fy,0,1)*H,BSHAPE[pl.id]||"sat",hexCol(PCOLORS[0]),sz,gl); });
+  (S.units||[]).forEach(function(u){ if(u.side!=="p"||u.hp<=0||u.build>0)return; drawIcon(c,((u.fx||0)%1)*W,clamp(u.fy,0,1)*H,BSHAPE[u.type]||"frig",hexCol(u.color||PCOLORS[0]),sz*0.9,gl); }); }
+function makeOrbitTexture(){ var cv=document.createElement("canvas"); cv.width=4096; cv.height=2048; ORBIT_CV=cv; ORBIT_TEX=new THREE.CanvasTexture(cv); paintOrbitCanvas(cv); ORBIT_TEX.needsUpdate=true; return ORBIT_TEX; }
+function orbitTexSig(){ return (S.earthPlacements||[]).filter(function(p){return p.orbit;}).map(function(p){return p.id+(p.fx||0).toFixed(2)+(p.fy||0).toFixed(2);}).join(",")+"|"+(S.units||[]).filter(function(u){return u.side==="p"&&u.hp>0&&u.build<=0;}).map(function(u){return u.type+u.fx.toFixed(2)+u.fy.toFixed(2);}).join(",")+"|"+(S.rivals||[]).filter(function(r){return !r.dead;}).map(function(r){return r.id+r.treaty+(r.neutral?"N":"")+Math.round(r.mil/45)+Math.round(Math.sqrt(Math.max(10,r.eco))/90);}).join(",")+"|"+NEUTRAL.map(function(co){return S.neutral[co.id]||"n";}).join(","); }
 function updateOrbitTexture(force){ if(!ORBIT_CV||!ORBIT_TEX)return; var sig=orbitTexSig(); if(!force&&sig===ORBIT_SIG)return; ORBIT_SIG=sig; paintOrbitCanvas(ORBIT_CV); ORBIT_TEX.needsUpdate=true; }
 function makeMoonTexture(){ var W=512,H=256,cv=document.createElement("canvas"); cv.width=W; cv.height=H; var c=cv.getContext("2d"); c.fillStyle="#8a8b90"; c.fillRect(0,0,W,H);
   (typeof MOON_CRATERS!=="undefined"?MOON_CRATERS:[]).forEach(function(k){ var x=(k.lon+180)/360*W,y=(90-k.lat)/180*H,r=Math.max(2,k.r/360*W),rg=c.createRadialGradient(x,y,r*0.2,x,y,r); if(k.mare){ rg.addColorStop(0,"#5f6066"); rg.addColorStop(1,"#7c7d82"); } else { rg.addColorStop(0,"#a8a9ae"); rg.addColorStop(0.7,"#74757a"); rg.addColorStop(1,"#8a8b90"); } c.fillStyle=rg; c.beginPath(); c.arc(x,y,r,0,6.28); c.fill(); }); return new THREE.CanvasTexture(cv); }
@@ -942,10 +944,10 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1)); renderer.setSize(window.innerWidth,window.innerHeight,false); renderer.setClearColor(0x02040a,1);
   var scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,1,4000000);
   scene.add(new THREE.AmbientLight(0x8899bb,0.55)); var sunlight=new THREE.PointLight(0xffffff,2.4,0); scene.add(sunlight);
-  var sg=new THREE.BufferGeometry(),sp=[]; for(var i=0;i<1600;i++){ var R=500000+Math.random()*1800000,th=Math.random()*Math.PI*2,ph=Math.acos(Math.random()*2-1); sp.push(R*Math.sin(ph)*Math.cos(th),R*Math.cos(ph)*0.6,R*Math.sin(ph)*Math.sin(th)); } sg.setAttribute("position",new THREE.Float32BufferAttribute(sp,3)); scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0x6fffa0,size:1.6,sizeAttenuation:false,transparent:true,opacity:0.6})));
-  var sunMesh=new THREE.Mesh(new THREE.SphereGeometry(SUN_R,32,32),new THREE.MeshBasicMaterial({color:0xffcc44})); scene.add(sunMesh);
-  var glow=new THREE.Mesh(new THREE.SphereGeometry(SUN_R*1.4,32,32),new THREE.MeshBasicMaterial({color:0xff8822,transparent:true,opacity:0.16})); scene.add(glow);
-  scene.add(makeLabel("Sun","#ffcc66",40,10).translateY(SUN_R+10));
+  var sg=new THREE.BufferGeometry(),sp=[]; for(var i=0;i<1600;i++){ var R=500000+Math.random()*1800000,th=Math.random()*Math.PI*2,ph=Math.acos(Math.random()*2-1); sp.push(R*Math.sin(ph)*Math.cos(th),R*Math.cos(ph)*0.6,R*Math.sin(ph)*Math.sin(th)); } sg.setAttribute("position",new THREE.Float32BufferAttribute(sp,3)); scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0xffffff,size:1.6,sizeAttenuation:false,transparent:true,opacity:0.7})));
+  var sunMesh=new THREE.Mesh(new THREE.SphereGeometry(SUN_R,32,32),new THREE.MeshBasicMaterial({color:0xffffff})); scene.add(sunMesh);
+  var glow=new THREE.Mesh(new THREE.SphereGeometry(SUN_R*1.4,32,32),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.14})); scene.add(glow);
+  scene.add(makeLabel("Sun","#ffffff",40,10).translateY(SUN_R+10));
   PLANETS.forEach(function(p){ ringLine(scene,p.au*AU,0x0c3a18); });
   ringLine(scene,2.7*AU,0x3a2a12); ringLine(scene,3.6*AU,0x281240);
   var pick=[],pivots=[],focusObj={},earthGroup,moonPivot,moonMesh;
@@ -1045,8 +1047,8 @@ function rseed(id){ var h=2166136261; for(var i=0;i<id.length;i++){ h^=id.charCo
 function rivalEarthSites(loc){ var out=[],shapes=["dc","hub","solar","mine","station","ai"],alive=S.rivals.filter(function(r){return !r.dead;}).length,capN=clamp(Math.round(120/Math.max(1,alive)),1,12),snap=function(v){return Math.round(v/GRID_STEP)*GRID_STEP;};
   S.rivals.forEach(function(r){ if(r.dead||(r.neutral&&loc==="moon"))return; var rnd=seedRand(rseed(r.id)+(loc==="moon"?99:0)),n=loc==="moon"?clamp(Math.round(Math.log10(Math.max(10,r.eco))-1),0,Math.min(4,capN)):clamp(Math.round(Math.log10(Math.max(10,r.eco))*2.2),1,capN),clon,clat,spread;
     if(r.neutral){ var city=pickCity(rnd); clon=city.lon; clat=city.lat; spread=9; } else { clon=rnd()*340-170; clat=loc==="moon"?(rnd()*120-60):(rnd()*110-55); spread=22; }
-    for(var i=0;i<n;i++)out.push({lon:snap(clon+(rnd()*spread*2-spread)),lat:snap(clamp(clat+(rnd()*spread*1.4-spread*0.7),-78,78)),color:r.color,shape:shapes[i%shapes.length],intel:r.intel||0}); });
-  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; if(st==="none"||loc==="moon")return; var rnd=seedRand(rseed(co.id)),city=pickCity(rnd); out.push({lon:snap(city.lon+(rnd()*6-3)),lat:snap(city.lat+(rnd()*5-2.5)),color:st==="owned"?PCOLORS[0]:0xbfc7cf,shape:"hub",intel:100}); });
+    var rcol=relColor(r); for(var i=0;i<n;i++)out.push({lon:snap(clon+(rnd()*spread*2-spread)),lat:snap(clamp(clat+(rnd()*spread*1.4-spread*0.7),-78,78)),color:rcol,shape:shapes[i%shapes.length],intel:r.intel||0}); });
+  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; if(st==="none"||loc==="moon")return; var rnd=seedRand(rseed(co.id)),city=pickCity(rnd); out.push({lon:snap(city.lon+(rnd()*6-3)),lat:snap(city.lat+(rnd()*5-2.5)),color:st==="owned"?REL_GREEN:REL_GREY,shape:"hub",intel:100}); });
   return out; }
 function drawEarthMap(){ if(!EM)return; var cv=EM.canvas,c=EM.ctx,W=cv.width,H=cv.height,worldW=W*EM.bw*EM.zoom,worldH=H*EM.bh*EM.zoom,lon,lat,moon=EM.loc==="moon";
   if(worldH<=H)EM.camY=(H-worldH)/2; else EM.camY=clamp(EM.camY,H-worldH,0); EM.camX=((EM.camX%worldW)+worldW)%worldW;
@@ -1123,12 +1125,12 @@ function closeEarthMap(){ if(!EM)return; if(EM.raf)cancelAnimationFrame(EM.raf);
 /* ============================================================ EARTH ORBIT MAP (2D, wraps) */
 var OM=null;
 function orbitItems(){ var it=[],alive=S.rivals.filter(function(r){return !r.dead;}).length,capS=clamp(Math.round(150/Math.max(1,alive)),1,6);
-  S.rivals.forEach(function(r){ if(r.dead)return; var intel=r.intel||0,ns=clamp(Math.round(Math.sqrt(Math.max(10,r.eco))/90),1,capS),i;
-    for(i=0;i<ns;i++)it.push({shape:"station",alt:0.9,color:r.color,owner:r.id,intel:intel});
-    var nu=clamp(Math.round(r.mil/45),0,Math.min(6,capS)); for(i=0;i<nu;i++)it.push({shape:i%2?"frig":"corv",alt:0.55,color:r.color,owner:r.id+"f",intel:intel}); });
-  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none"; it.push({shape:"station",alt:0.75,color:st==="owned"?PCOLORS[0]:0xbfc7cf,owner:co.id,intel:100}); });
+  S.rivals.forEach(function(r){ if(r.dead)return; var intel=r.intel||0,col=relColor(r),ns=clamp(Math.round(Math.sqrt(Math.max(10,r.eco))/90),1,capS),i,rnd=seedRand(rseed(r.id));
+    for(i=0;i<ns;i++)it.push({shape:"station",color:col,owner:r.id,intel:intel,mx:rnd(),my:0.12+rnd()*0.26});
+    var nu=clamp(Math.round(r.mil/45),0,Math.min(6,capS)); for(i=0;i<nu;i++)it.push({shape:i%2?"frig":"corv",color:col,owner:r.id+"f",intel:intel,mx:rnd(),my:0.40+rnd()*0.24}); });
+  NEUTRAL.forEach(function(co){ var st=S.neutral[co.id]||"none",rnd=seedRand(rseed(co.id)); it.push({shape:"station",color:st==="owned"?REL_GREEN:REL_GREY,owner:co.id,intel:100,mx:rnd(),my:0.20+rnd()*0.26}); });
   return it; }
-function drawIcon(c,x,y,shape,col,s){ c.save(); c.translate(x,y); c.strokeStyle=col; c.fillStyle=col; c.lineWidth=1.4; c.shadowColor=col; c.shadowBlur=6; var i,a,px,py;
+function drawIcon(c,x,y,shape,col,s,glow){ c.save(); c.translate(x,y); c.strokeStyle=col; c.fillStyle=col; c.lineWidth=1.4; c.shadowColor=col; c.shadowBlur=glow==null?6:glow; var i,a,px,py;
   if(shape==="sat"){ c.beginPath(); c.arc(0,0,s*0.5,0,6.28); c.fill(); c.fillRect(-s*1.4,-s*0.16,s*0.7,s*0.32); c.fillRect(s*0.7,-s*0.16,s*0.7,s*0.32); }
   else if(shape==="dc"){ c.strokeRect(-s*0.7,-s*0.5,s*1.4,s); c.beginPath(); for(i=-1;i<2;i++){c.moveTo(-s*0.7,i*s*0.33);c.lineTo(s*0.7,i*s*0.33);} c.stroke(); }
   else if(shape==="solar"){ c.strokeRect(-s*1.3,-s*0.45,s*2.6,s*0.9); c.beginPath(); for(i=-2;i<=2;i++){c.moveTo(i*s*0.5,-s*0.45);c.lineTo(i*s*0.5,s*0.45);} c.stroke(); }
@@ -1172,7 +1174,7 @@ function omStep(dt){ if(!OM)return; var P=S.units.filter(function(u){return u.si
 function endOrbitBattle(){ var r=S.rivals.find(function(x){return x.id===OM.battleRival;}),survFp=(OM.en||[]).reduce(function(a,u){return a+u.fp;},0);
   if(r){ r.mil=survFp; r.host=clamp(r.host+25,0,100); r.treaty="none"; r.intel=100; r.crip+=40; if(OM.en.length===0){ r.eco*=0.45; if(r.eco<800*CAP_SCALE){ r.dead=true; r.deadby="destroyed"; pushEvent(S,"war",r.name+" was destroyed in orbital combat."); } else pushEvent(S,"war","You crushed "+r.name+"'s fleet in orbit."); } else pushEvent(S,"war","Orbital battle with "+r.name+" ended."); }
   OM.battleActive=false; OM.en=[]; OM.battleRival=null; save(); render(); }
-function startOrbitBattle(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r)return; if(!OM){ pendingBattle=id; openOrbitMap(); return; } OM.battleRival=id; OM.battleActive=true; OM.battleT=0; OM.en=[]; var k=clamp(Math.round(r.mil/30),3,16),eF=Math.max(2,r.mil/k),eH=Math.max(20,(r.mil*2.4+40)/k),cx=screenToFrac(OM.canvas.width*0.66,0).fx; for(var i=0;i<k;i++){ var u=spawnUnit("frigate",(cx+Math.random()*0.06)%1,0.3+Math.random()*0.4,"e",r.color,0); u.fp=eF; u.hp=eH; u.maxhp=eH; OM.en.push(u); } pushEvent(S,"war","Engaging "+r.name+" in orbit."); render(); }
+function startOrbitBattle(id){ var r=S.rivals.find(function(x){return x.id===id;}); if(!r)return; if(!OM){ pendingBattle=id; openOrbitMap(); return; } OM.battleRival=id; OM.battleActive=true; OM.battleT=0; OM.en=[]; var k=clamp(Math.round(r.mil/30),3,16),eF=Math.max(2,r.mil/k),eH=Math.max(20,(r.mil*2.4+40)/k),ecol=relColor(r),cx=screenToFrac(OM.canvas.width*0.66,0).fx; for(var i=0;i<k;i++){ var u=spawnUnit("frigate",(cx+Math.random()*0.06)%1,0.3+Math.random()*0.4,"e",ecol,0); u.fp=eF; u.hp=eH; u.maxhp=eH; OM.en.push(u); } pushEvent(S,"war","Engaging "+r.name+" in orbit."); render(); }
 function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=cv.height,bw=W*3*OM.zoom,bh=H*1.5*OM.zoom,i; OM.camX=((OM.camX%bw)+bw)%bw; OM.camY=clamp(OM.camY,Math.min(0,H-bh),0);
   function py(f){ return OM.camY+bh*f; }
   var g=c.createLinearGradient(0,0,0,H); g.addColorStop(0,"#01030a"); g.addColorStop(0.7,"#02060f"); g.addColorStop(1,"#061322"); c.fillStyle=g; c.fillRect(0,0,W,H);
@@ -1183,7 +1185,7 @@ function drawOrbitMap(){ if(!OM)return; var cv=OM.canvas,c=OM.ctx,W=cv.width,H=c
   [["LEO",0.74],["MEO",0.47],["GEO",0.2]].forEach(function(b){ var y=py(b[1]); if(y<-2||y>H+2)return; c.beginPath(); c.moveTo(0,y); c.lineTo(W,y); c.stroke(); c.fillStyle="rgba(0,255,65,0.3)"; c.fillText(b[0],W-8,y-4); });
   var copies=[-bw,0,bw],zs=OM.zoom;
   var oisz=Math.max(1.2,9*zs*0.7/16); /* earth-orbit objects 16× smaller */
-  OM.items.forEach(function(it,idx){ var hash=(it.owner.charCodeAt(0)*53+(it.owner.charCodeAt(1)||7)*17), fx=((hash*97+idx*131)%1000)/1000, y=py(0.88-Math.min(it.alt,1.25)*0.62)+((idx*37)%30-15),a=clamp(0.22+((it.intel==null?100:it.intel)/100)*0.78,0.22,1); copies.forEach(function(ox){ var x=fx*bw-OM.camX+ox; if(x<-40||x>W+40)return; c.globalAlpha=a; drawIcon(c,x,y,it.shape,hexCol(it.color),oisz); c.globalAlpha=1; }); });
+  OM.items.forEach(function(it){ var y=py(it.my==null?0.4:it.my),a=clamp(0.22+((it.intel==null?100:it.intel)/100)*0.78,0.22,1); copies.forEach(function(ox){ var x=(it.mx||0)*bw-OM.camX+ox; if(x<-40||x>W+40)return; c.globalAlpha=a; drawIcon(c,x,y,it.shape,hexCol(it.color),oisz); c.globalAlpha=1; }); });
   (S.earthPlacements||[]).forEach(function(pl){ if(!pl.orbit)return; copies.forEach(function(ox){ var x=pl.fx*bw-OM.camX+ox; if(x<-30||x>W+30)return; drawIcon(c,x,py(pl.fy),BSHAPE[pl.id]||"sat",hexCol(PCOLORS[0]),oisz); }); });
   function beams(arr){ arr.forEach(function(u){ if(u.fireT>0&&u.hp>0){ var x=omScreenC(u),tx=u.ftx*bw-OM.camX; tx=((tx%bw)+bw)%bw; if(tx>W)tx-=bw; c.strokeStyle=hexCol(u.color); c.globalAlpha=0.6; c.beginPath(); c.moveTo(x,py(u.fy)); c.lineTo(tx,py(u.fty)); c.stroke(); c.globalAlpha=1; } }); }
   beams(S.units.filter(function(u){return u.side==="p";})); beams(OM.en||[]);
