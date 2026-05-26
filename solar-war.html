@@ -31,7 +31,6 @@
   #tabbar{ position:absolute; left:12px; top:96px; display:flex; flex-direction:column; gap:6px; }
   .tab{ pointer-events:auto; border:1px solid rgba(0,255,65,.18); background:rgba(2,10,5,.7); color:#2f8f43; font:inherit; font-weight:700; padding:8px 12px; border-radius:9px; cursor:pointer; display:flex; gap:8px; align-items:center; font-size:13px; min-width:128px; }
   .tab:hover{ color:#9dffb0; } .tab.on{ border-color:rgba(0,255,65,.45); background:rgba(0,255,65,.12); color:#9dffb0; }
-  #stage{ position:absolute; left:12px; bottom:12px; max-width:330px; padding:10px 12px; }
   #ticker{ position:absolute; bottom:12px; left:50%; transform:translateX(-50%); padding:6px 12px; font-size:12px; max-width:54vw; text-align:center; }
   #drawer{ position:absolute; top:10px; right:12px; width:min(440px,94vw); max-height:calc(100vh - 20px); overflow:auto; padding:14px; transform:translateX(120%); transition:transform .25s ease; }
   #drawer.open{ transform:translateX(0); }
@@ -63,7 +62,6 @@
   #orbitmap{ position:fixed; inset:0; z-index:1; background:#01040a; }
   #orbitmap canvas{ display:block; width:100%; height:100%; cursor:grab; }
   #fade{ position:fixed; inset:0; z-index:30; background:#000; opacity:0; pointer-events:none; transition:opacity .42s ease; }
-  #hint{ position:absolute; top:54%; left:50%; transform:translate(-50%,-50%); text-align:center; color:#2f8f43; font-size:13px; pointer-events:none; opacity:.8; }
   .reslabel{ text-align:right; font-size:11px; }
   .gridhdr,.gridrow{ display:grid; grid-template-columns:1.6fr .9fr .5fr .8fr .8fr; gap:6px; padding:7px 8px; font-size:12px; }
   .gridhdr{ font-size:9px; text-transform:uppercase; color:#2f8f43; border-bottom:1px solid rgba(0,255,65,.12); }
@@ -297,7 +295,6 @@ function makeCountry(c){ return { id:"nation_"+c[0], code:c[0], name:c[1], count
   lat:c[2], lon:c[3], gdp:c[4], pers:"industrialist", eco:NATION_ECO_BASE*(c[4]/4.5), tech:Math.round(c[4]*1.2),
   inf:Math.round(5+c[4]), mil:c[5], gr:0.6, host:0, crip:0, dead:false, treaty:"none", intel:100, color:factionColor(c[6]) }; }
 function countryRivals(){ return COUNTRIES.map(function(c){ return makeCountry(c); }); }
-var STAGES=[{id:1,name:"AI Startup"},{id:2,name:"Technology Company"},{id:3,name:"Global Corporation"},{id:4,name:"Orbital Conglomerate"},{id:5,name:"Sovereign Space Corporation"},{id:6,name:"Interplanetary Superpower"}];
 var MARKET_GROWTH=0.012,MARKET_MARGIN=0.0026,SHARE_EASE=0.1,RIVAL_GROWTH=0.009,EVENT_INTERVAL=45,REG_TAX_MAX=0.45;
 /* Closed real-economy linkages (circular flow + Phillips curve + Dalio credit machine):
    - LABOR is a finite skilled-workforce pool every company hires from; wages rise with utilization (Phillips curve)
@@ -607,9 +604,6 @@ function milPower(f){ var fp=0,hull=0,n=0; for(var id in f){ var c=f[id]; if(!c)
 function locUnlocked(loc,r){ var d=LOCATIONS.find(function(l){return l.id===loc;}); if(!d||!d.by)return true; return r.indexOf(d.by)>=0; }
 function bUnlocked(b,r){ if(!locUnlocked(b.loc,r))return false; if(b.req&&r.indexOf(b.req)<0)return false; return true; }
 function techStatus(id,r){ var t=TECHS[id]; if(r.indexOf(id)>=0)return "done"; if(t.req&&!t.req.every(function(x){return r.indexOf(x)>=0;}))return "lock"; return "ok"; }
-function currentStage(S){ var techs=S.researched.length,tb=0; for(var b in S.buildings)tb+=S.buildings[b];
-  var orbit=(S.buildings.orbital_solar_array||0)>0||(S.buildings.ai_cluster||0)>0,moon=S.researched.indexOf("lunar_logistics")>=0,deep=S.researched.indexOf("fusion_propulsion")>=0;
-  if(deep&&moon&&techs>=12)return 6; if(moon&&techs>=8)return 5; if(orbit&&techs>=5)return 4; if(techs>=4||S.resources.capital>=250000)return 3; if(techs>=1||tb>=6)return 2; return 1; }
 
 /* ============================================================ WORLD */
 function playerMetrics(S){ var av=0; for(var id in S.buildings){ var b=BUILDINGS[id]; if(b&&b.cost.capital)av+=b.cost.capital*S.buildings[id]; } return {eco:S.resources.capital+av*CAP_SCALE,tech:S.researched.length,inf:S.resources.influence,mil:milPower(S.fleet).fp}; }
@@ -672,8 +666,6 @@ function worldTick(S,dt){ S.worldClock+=dt; pnlTick(S); var pp=milPower(S.fleet)
     else { var nw=playerMetrics(S).eco-(S.debt||0); if(nw<0)S.distress=(S.distress||0)+dt; else S.distress=Math.max(0,(S.distress||0)-dt*1.5);
       if(S.distress>BANKRUPT_SECS)S.gameOver={over:true,won:false,type:"bankrupt",text:"Insolvent — your debts now exceed everything you own, and creditors have called in the loans. The company is bankrupt."}; } }
   if(netMatch&&!S.gameOver.over&&S.worldClock>20&&playerMetrics(S).eco<800*CAP_SCALE&&pp.fp<1){ S.gameOver={over:true,won:false,type:"defeated",text:"Your corporation has been wiped out in the Solar War."}; } }
-function objectives(S){ var pm=playerMetrics(S),st=currentStage(S),ms=Math.max(S.marketShare.consumer,S.marketShare.enterprise,S.marketShare.government),anyN=Object.keys(S.neutral).some(function(k){return S.neutral[k]==="leased"||S.neutral[k]==="owned";}),def=S.rivals.some(function(r){return r.dead;});
-  return [{l:"Reach Stage 3",d:st>=3,p:clamp(st/3,0,1)},{l:"Capture 25% of a market",d:ms>=0.25,p:clamp(ms/0.25,0,1)},{l:"Use a neutral company",d:anyN},{l:"Research AGI",d:S.researched.indexOf("agi")>=0},{l:"War fleet (FP ≥ 200)",d:pm.mil>=200,p:clamp(pm.mil/200,0,1)},{l:"Expand to the Moon",d:S.researched.indexOf("lunar_logistics")>=0},{l:"Defeat a rival",d:def},{l:"Eliminate every rival corporation to win",d:S.rivals.every(function(r){return r.dead||r.neutral;})}]; }
 
 /* ============================================================ STATE + ACTIONS + JOBS */
 var S=freshState();
@@ -1013,13 +1005,13 @@ function ledgerPanel(){ var d=resourceLedger(S),L=d.L,e=d.energy,pct=Math.round(
   return h; }
 function panelHtml(){ return UI.tab==="ledger"?ledgerPanel():UI.tab==="ops"?opsPanel():UI.tab==="industry"?industryPanel():UI.tab==="logistics"?logisticsPanel():UI.tab==="trade"?tradePanel():UI.tab==="bank"?bankPanel():UI.tab==="corp"?corpPanel():UI.tab==="digital"?digitalPanel():UI.tab==="research"?researchPanel():UI.tab==="markets"?marketsPanel():UI.tab==="partners"?partnersPanel():UI.tab==="military"?militaryPanel():intelPanel(); }
 function tabTitle(){ var t=TABS.find(function(x){return x[0]===UI.tab;}); return t?t[1]+" "+t[2]:""; }
-function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(function(o){return o.d;}).length;
+function render(){
   var h='<div id="topbar">'+resBar()+'<div class="panelglass ui" style="padding:5px"><div class="speed" style="display:flex;align-items:center"><span class="lbl" style="margin:0 6px">SPD</span>'+
     [["0","⏸"],["1","1×"],["10","10×"],["100","100×"]].map(function(s){return '<button data-act="speed" data-arg="'+s[0]+'" class="'+(S.speed==s[0]?"on":"")+'">'+s[1]+'</button>';}).join("")+
     '<button class="tool" data-act="menu_open" style="margin-left:6px">☰ Menu</button></div></div>'+
     '<div class="panelglass ui" id="clock" style="padding:6px 11px;display:flex;flex-direction:column;justify-content:center"><div class="lbl">Sol Date <span id="clockday" style="color:#39ff14">Day '+gameClock().day+'</span></div><div id="clocktxt" style="font-size:13px;font-weight:700;color:#9dffb0">'+gameClock().txt+'</div></div>'+(S.freeBuild>0?'<div class="panelglass ui" id="freebuild" style="padding:6px 11px;display:flex;flex-direction:column;justify-content:center;border-color:rgba(255,225,77,.55)"><div class="lbl" style="color:#ffe14d">⚡ Instant Build</div><div id="freebuildtxt" style="font-size:13px;font-weight:700;color:#ffe14d">'+fmtClock(S.freeBuild)+'</div></div>':'')+'</div>';
   h+='<div id="tabbar">'+TABS.map(function(t){ return '<button class="tab ui'+(UI.open&&UI.tab===t[0]?" on":"")+'" data-act="tab" data-arg="'+t[0]+'">'+t[1]+' '+t[2]+(t[0]==="research"?' <span class="small">'+S.researched.length+'/'+Object.keys(TECHS).length+'</span>':"")+'</button>'; }).join("")+'</div>';
-  if(!EM&&!OM){ h+='<div id="stage" class="panelglass ui"><div class="lbl">Stage '+st+'/6 · '+done+'/'+objs.length+' objectives'+(S.jobs.length?' · '+S.jobs.length+' building':"")+'</div><div style="font-size:15px;font-weight:900;color:#9dffb0">'+STAGES[st-1].name+'</div><div class="row" style="gap:4px;margin-top:6px">'+STAGES.map(function(s){return '<div class="bar" style="flex:1"><i style="width:100%;background:'+(s.id<=st?"#39ff14":"transparent")+'"></i></div>';}).join("")+'</div></div>';
+  if(!EM&&!OM){
   h+='<div id="ticker" class="panelglass ui"><span class="lbl">intel</span> <span class="k-'+(S.events[0]?S.events[0].kind:"info")+'">'+(S.events[0]?S.events[0].text:"")+'</span></div>'; }
   h+='<div id="drawer" class="panelglass ui'+(UI.open?" open":"")+(UI.open&&(UI.tab==="research"||UI.tab==="ledger")?" wide":"")+'"><div class="dhead"><b style="color:#9dffb0">'+tabTitle()+(UI.tab==="research"?' <span class="small" style="color:#9fb6c4">· '+S.researched.length+'/'+Object.keys(TECHS).length+' · tiers left→right</span>':"")+'</b><span class="x" data-act="closepanel">✕</span></div><div id="paneltext">'+(UI.open?panelHtml():"")+'</div></div>';
   if(EM||OM){ var armedB=EM&&EM.tool?BUILDINGS[EM.tool]:null,armedT=armedB?terrInfo(armedB):null,legend=(EM&&EM.loc==="earth")?(armedT?'<span style="color:#ffd27a">'+armedT.glyph+' '+armedT.label+'</span>':'<span class="small" style="color:#9fb6c4">⛰ land · ⚓ coast · 🌊 sea · <span style="color:#ffe6a0">●</span> cities · <span style="color:#e8b34a">◆</span> oil <span style="color:#bcc6d0">◆</span> metals <span style="color:#c08bff">◆</span> rare</span>'):"";
@@ -1027,7 +1019,6 @@ function render(){ var st=currentStage(S),objs=objectives(S),done=objs.filter(fu
   if(EM||OM)h+=gridCard();
   if(EM||OM)h+=infoCard();
   if(OM)h+='<div class="panelglass ui" style="position:absolute;left:150px;top:62px;padding:6px 10px;font-size:11px"><div class="lbl">Selected: <span style="color:#39ff14">'+((OM.sel&&OM.sel.length)||0)+'</span>'+(OM.battleActive?' · <span style="color:#ff7a6b">BATTLE</span>':"")+'</div><div class="small">click to inspect · drag-box select · right-click: command / deselect · shift: queue / keep building · drag a tool to batch-build · Alt: reveal owners · Ctrl+1-9 set group · 1-9 recall (double-tap to jump)</div></div>';
-  if(!UI.open&&!EM&&!OM)h+='<div id="hint">⟲ drag to orbit · scroll to zoom · double-click Earth, the orbit ring, or the Moon · P to pause</div>';
   el("hud").innerHTML=h;
 }
 function patch(){ var r=rates(S); STOCKS.forEach(function(k){ var v=el("res-"+k); if(v)v.textContent=k==="capital"?money(S.resources[k]):fmt(S.resources[k]); var rt=el("rate-"+k); if(rt){ rt.textContent=fmtRate(r.net[k]); rt.style.color=r.net[k]>0?"#2f8f43":r.net[k]<0?"#ff5d8f":"#456"; } });
