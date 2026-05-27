@@ -1186,10 +1186,10 @@ var SHIP_TRANSIT=DAY_SECONDS*4; /* physical delivery between companies takes ~4 
 /* realistic relative orbit distances (AU), planet-size ratios, and orbital PERIODS (real days).
    Sun size and Moon distance are compressed; a literal 1:1 scale makes planets invisible specks. */
 var PLANETS=[
-  {id:"mercury",au:0.387,r:2.3,col:0x9a8478,period:88},
-  {id:"venus",au:0.723,r:5.7,col:0xd9b38c,period:224.7},
-  {id:"earth",au:1.0,r:EARTH_R,col:0x2f7fff,period:365.25},
-  {id:"mars",au:1.524,r:3.2,col:0xc1440e,period:687}
+  {id:"mercury",au:0.387,r:2.3,col:0x9a8478,period:88,rot:58.646},
+  {id:"venus",au:0.723,r:5.7,col:0xd9b38c,period:224.7,rot:-243.025},
+  {id:"earth",au:1.0,r:EARTH_R,col:0x2f7fff,period:365.25,rot:0.99727},
+  {id:"mars",au:1.524,r:3.2,col:0xc1440e,period:687,rot:1.02596}
 ];
 var EARTH_CV=null,EARTH_TEX=null,EARTH_PN=-1;
 /* Paint the 3D globe from the same equirectangular data as the surface map, including built structures. */
@@ -1266,7 +1266,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
     var g=new THREE.Group(); g.position.set(p.au*AU,0,0); piv.add(g);
     var emat=p.id==="earth"?new THREE.MeshStandardMaterial({map:makeEarthTexture(),roughness:0.9,metalness:0.05}):new THREE.MeshStandardMaterial({color:p.col,emissive:p.col,emissiveIntensity:0.15,roughness:0.75,metalness:0.15});
     var mesh=new THREE.Mesh(new THREE.SphereGeometry(p.r,p.id==="earth"?48:28,p.id==="earth"?32:28),emat); g.add(mesh);
-    pivots.push({piv:piv,phase:piv.rotation.y,omega:2*Math.PI/(p.period*DAY_SECONDS),spin:(p.id==="earth"?2*Math.PI/DAY_SECONDS:2*Math.PI/(p.period*DAY_SECONDS)*3),mesh:mesh}); focusObj[p.id]=g;
+    pivots.push({piv:piv,phase:piv.rotation.y,omega:2*Math.PI/(p.period*DAY_SECONDS),spin:2*Math.PI/(p.rot*DAY_SECONDS),mesh:mesh}); focusObj[p.id]=g;
     markBody(g,0,0,0,p.id==="earth"?0x2f7fff:p.col,p.id.charAt(0).toUpperCase()+p.id.slice(1),p.id,pick,focusObj,markers);
     if(p.id==="earth"){ earthGroup=g; focusObj.orbit=g;
       moonPivot=new THREE.Group(); moonPivot.rotation.y=Math.random()*6.28; g.add(moonPivot);
@@ -1277,7 +1277,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
       var orbitShell=new THREE.Mesh(new THREE.SphereGeometry(STATION_R,48,32),new THREE.MeshBasicMaterial({map:makeOrbitTexture(),transparent:true,depthWrite:false,side:THREE.DoubleSide})); g.add(orbitShell); orbitShell.userData.loc="orbit"; pick.push(orbitShell);
     }
     if(p.id==="mars"){ /* Phobos & Deimos — visual moons; inner one orbits much faster (real periods) */
-      [{name:"Phobos",dist:8.8,r:0.55,period:0.319},{name:"Deimos",dist:22.1,r:0.30,period:1.262}].forEach(function(mo){
+      [{name:"Phobos",dist:8.8,r:0.0106,period:0.319},{name:"Deimos",dist:22.1,r:0.0058,period:1.262}].forEach(function(mo){
         var mpiv=new THREE.Group(); mpiv.rotation.y=Math.random()*6.28; g.add(mpiv);
         var mm=new THREE.Mesh(new THREE.DodecahedronGeometry(mo.r),new THREE.MeshStandardMaterial({color:0x8a7a6a,emissive:0x2a2420,emissiveIntensity:0.2,roughness:0.95,metalness:0.0})); mm.position.set(mo.dist,0,0); mpiv.add(mm);
         markBody(mpiv,mo.dist,0,0,0x9a8478,mo.name,mo.name.toLowerCase(),pick,focusObj,markers);
@@ -1326,7 +1326,7 @@ function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene);
   var c=SC.cam0; SC.t+=0.016;
   if(SC.trans){ SC.trans.t+=0.016; var tk=Math.min(1,SC.trans.t/SC.trans.dur); c.r=SC.transStart+(26-SC.transStart)*tk; if(tk>=1)SC.trans=null; }
   var wc=S.worldClock; SC.pivots.forEach(function(p){ p.piv.rotation.y=p.phase+p.omega*wc; p.mesh.rotation.y=p.spin*wc; }); if(SC.moonPivot)SC.moonPivot.rotation.y=SC.moonPhase+SC.moonOmega*wc; SC.fleetGrp.rotation.y+=0.012; if(SC.glow)SC.glow.material.opacity=0.18+Math.sin(SC.t*2)*0.05;
-  paintSun(SC.t*3); if(SC.sunMesh)SC.sunMesh.rotation.y+=0.01;
+  paintSun(SC.t*3); if(SC.sunMesh)SC.sunMesh.rotation.y=(2*Math.PI/(25.38*DAY_SECONDS))*wc;
   if(SC.markers)SC.markers.forEach(function(mk){ mk.getWorldPosition(SC.tmp2); var d=SC.tmp2.distanceTo(SC.cam.position),s=Math.max(d*0.003,0.0005); mk.scale.set(s,s,s); });
   if(SC.selRing){ if(SC.selBody&&SC.selObj){ SC.selObj.getWorldPosition(SC.tmp2); SC.selRing.position.copy(SC.tmp2); var dd=SC.tmp2.distanceTo(SC.cam.position),sr=Math.max(SC.selR||10,dd*0.026); SC.selRing.scale.set(sr,sr,sr); SC.selRing.visible=true; SC.selRing.material.opacity=0.55+Math.sin(SC.t*5)*0.35; } else SC.selRing.visible=false; }
   var obj=SC.focusObj[SC.focus]||SC.earthGroup; obj.getWorldPosition(SC.tmp); c.tx=SC.tmp.x; c.ty=SC.tmp.y; c.tz=SC.tmp.z;
