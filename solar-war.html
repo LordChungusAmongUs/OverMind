@@ -1069,6 +1069,15 @@ function openTab(t){ if(UI.open&&UI.tab===t)UI.open=false; else{ UI.tab=t; UI.op
 
 /* ---- pause / settings / main menu ---- */
 function menuBtn(act,label,cls){ return '<button class="btn ui '+(cls||"")+'" data-act="'+act+'" style="margin:6px 0">'+label+'</button>'; }
+/* Opening splash: solid black, the logo (drop logo.png next to this file; a styled text logo shows until it exists),
+   and PLAY. PLAY requests fullscreen (where the browser allows it from a click) and drops into the lobby. */
+function splashHtml(){ return '<div class="ui" style="position:fixed;inset:0;background:#000;z-index:90;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:30px;text-align:center;padding:20px">'
+  +'<img src="logo.png" alt="Solar War 2040" style="max-width:min(74vw,560px);max-height:48vh;object-fit:contain" onerror="this.style.display=\'none\';var f=this.parentNode.querySelector(\'#logofallback\');if(f)f.style.display=\'block\';">'
+  +'<div id="logofallback" style="display:none"><div style="font-size:clamp(34px,9vw,76px);font-weight:900;letter-spacing:.04em;line-height:1;background:linear-gradient(90deg,#00ff41,#39ff14,#00cc33,#ff1a1a,#ff6600,#00ff41);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">SOLAR WAR</div><div style="font-size:clamp(22px,6vw,46px);color:#39ff14;font-weight:900;letter-spacing:.6em;margin-top:6px;text-indent:.6em">2040</div></div>'
+  +'<button class="btn ui" data-act="play" style="width:auto;min-width:220px;font-size:21px;padding:15px 52px;letter-spacing:.2em">▶ PLAY</button>'
+  +'</div>'; }
+var BOOT_HADSAVE=false;
+function goFullscreen(){ try{ var d=document.documentElement,fn=d.requestFullscreen||d.webkitRequestFullscreen||d.msRequestFullscreen; if(fn){ var p=fn.call(d); if(p&&p.catch)p.catch(function(){}); } }catch(e){} }
 function multiplayerHtml(){ var mp=UI.mp,st=mp.status,err=mp.error?'<div class="small" style="color:#ff7a6b;margin:6px 0">'+mp.error+'</div>':"";
   var head='<div class="modal glass" style="max-width:480px;text-align:left"><div class="row between" style="align-items:center"><h1 style="font-size:22px">🌐 Multiplayer <span class="small" style="color:#8fd6ff">Beta</span></h1><button class="btn ui sm" style="width:auto" data-act="mp_back">↩ Menu</button></div>';
   // 1) SIGN IN
@@ -1113,10 +1122,10 @@ function setupHtml(){ var maxR=MAX_COMPANIES-1-COUNTRIES.length,nR=clamp(SETTING
     '<div class="row between" style="margin-top:8px;border-top:1px solid rgba(0,255,65,.15);padding-top:8px"><span class="small">You <b style="color:'+hexCol(PCOLORS[0])+'">●</b> + '+nR+' rivals + '+COUNTRIES.length+' nations</span><b style="color:#39ff14">'+total+'/'+MAX_COMPANIES+'</b></div>'+
     '<div class="small" style="margin-top:6px;color:#5f8e68">Rival corporations start equal to you and fight for the Solar System. The '+COUNTRIES.length+' nation-states begin pre-built — cities and military at their real capitals, sized by today\'s economies, split into <span style="color:'+hexCol(factionColor("W"))+'">Allied</span>, <span style="color:'+hexCol(factionColor("E"))+'">Eastern</span> &amp; <span style="color:'+hexCol(factionColor("N"))+'">Non-Aligned</span> blocs. They build &amp; defend but never attack.</div></div>'+
     menuBtn("setup_start","▶ Start Game")+menuBtn("menu_settings","⚙ Settings")+'</div>'; }
-function renderMenu(){ var m=el("menu"); if(!UI.menu){ m.innerHTML=""; return; } var h='<div class="overlay" style="z-index:70">';
+function renderMenu(){ var m=el("menu"); if(!UI.menu){ m.innerHTML=""; return; } if(UI.menu==="splash"){ m.innerHTML=splashHtml(); return; } var h='<div class="overlay" style="z-index:70">';
   if(UI.menu==="setup")h+=setupHtml();
   else if(UI.menu==="settings")h+=settingsHtml();
-  else if(UI.menu==="main")h+='<div class="modal glass" style="max-width:340px;text-align:center"><h1 style="font-size:26px">SOLAR WAR 2040</h1><div class="small" style="margin:6px 0 16px">main menu</div>'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_new","✦ New Game")+menuBtn("menu_mp","🌐 Multiplayer (Beta)","cyan")+menuBtn("menu_multimon","🖥 Multi-Monitor")+menuBtn("menu_settings","⚙ Settings")+'</div>';
+  else if(UI.menu==="main")h+='<div class="modal glass" style="max-width:340px;text-align:center"><h1 style="font-size:26px">SOLAR WAR 2040</h1><div class="small" style="margin:6px 0 16px">Lobby</div>'+(BOOT_HADSAVE?menuBtn("menu_continue","▶ Continue"):"")+menuBtn("menu_new","🎮 Solo Game")+menuBtn("menu_mp","🌐 Multiplayer (Beta)","cyan")+menuBtn("menu_multimon","🖥 Multi-Monitor")+menuBtn("menu_settings","⚙ Settings")+'</div>';
   else if(UI.menu==="mp")h+=multiplayerHtml();
   else if(UI.menu==="multimon")h+=multiMonitorHtml();
   else h+='<div class="modal glass" style="max-width:320px;text-align:center"><h1 style="font-size:24px">PAUSED</h1><div style="margin-top:14px">'+menuBtn("menu_continue","▶ Continue")+menuBtn("menu_multimon","🖥 Multi-Monitor")+menuBtn("menu_settings","⚙ Settings")+menuBtn("menu_restart","↺ Restart")+menuBtn("menu_quit","⏏ Quit to Menu","red")+'</div><div class="lbl" style="margin-top:12px">UI scale</div><div class="row" style="gap:4px;justify-content:center;margin-top:5px;flex-wrap:wrap">'+UISCALES.map(function(u){ var on=Math.abs((SETTINGS.uiScale||0.9)-u[1])<0.001; return '<button class="btn ui sm" style="width:auto;padding:4px 7px;'+(on?"background:rgba(0,255,65,.28);border-color:rgba(0,255,65,.6);color:#9dffb0":"")+'" data-act="uiscale" data-arg="'+u[1]+'">'+u[0]+'</button>'; }).join("")+'</div>';
@@ -1125,6 +1134,7 @@ function renderMenu(){ var m=el("menu"); if(!UI.menu){ m.innerHTML=""; return; }
 document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-act]"); if(!b)return; var act=b.getAttribute("data-act"),id=b.getAttribute("data-id"),arg=b.getAttribute("data-arg");
   if(act==="tab"){ openTab(arg); return; } if(act==="closepanel"){ UI.open=false; render(); return; } if(act==="ops_all"){ UI.sel=null; render(); return; }
   if(act==="speed"){ A.setSpeed(parseInt(arg,10)); render(); return; }
+  if(act==="play"){ goFullscreen(); UI.menu="main"; renderMenu(); return; }
   if(act==="menu_open"){ UI.menu="pause"; renderMenu(); return; }
   if(act==="earthmap"){ openEarthMap(); return; }
   if(act==="earthmap_close"){ closeEarthMap(); return; }
@@ -1952,7 +1962,7 @@ function multiMonitorHtml(){ var v=MM.view(); return '<div class="modal glass" s
   (MM.isActive()?'<div style="margin-top:6px">'+menuBtn("mm_disable","Disable multi-monitor","red")+'</div>':"")+'</div>'; }
 
 /* ============================================================ BOOT */
-loadSettings(); applyUIScale(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); UI.menu=hadSave?"main":"setup"; initScene(); render(); renderMenu();
+loadSettings(); applyUIScale(); var hadSave=false; try{ hadSave=!!localStorage.getItem(SAVE_KEY); }catch(e){} load(); BOOT_HADSAVE=hadSave; UI.menu="splash"; initScene(); render(); renderMenu();
 (function(){ var mv=(location.hash.match(/mm=(system|earth|orbit|moon)/)||[])[1]; MM._init(mv); if(mv){ UI.menu=null; renderMenu(); render(); } })();
 setInterval(function(){ if(S.speed>0&&!UI.menu&&!Net.isMirror()&&!MM.isViewer()){ var total=0.2*S.speed,steps=Math.min(40,Math.max(1,Math.ceil(total/1.0))),dt=total/steps,k; for(k=0;k<steps;k++){ if(S.freeBuild>0)S.freeBuild=Math.max(0,S.freeBuild-dt); S.resources=advance(S,dt); haulTick(S,dt); shipTick(S,dt); econTick(S,dt); dealTick(S,dt); if(processJobs(dt))UI.dirty=true; if(S.units)S.units.forEach(function(u){ if(u.build>0){ u.build-=dt; if(u.build<=0)S.fleet[u.type]=(S.fleet[u.type]||0)+1; } }); worldTick(S,dt); if(Net.inMatch()&&Net.isMatchHost()&&WORLD.on())WORLD.tick(dt); } } patch();
   if(UI.dirty&&UI.open&&!S.battleTarget){ var pt=el("paneltext"); if(pt)pt.innerHTML=panelHtml(); UI.dirty=false; }
