@@ -68,6 +68,19 @@
   .gridrow{ border-bottom:1px solid rgba(0,255,65,.06); align-items:center; } .gridrow.me{ background:rgba(0,255,65,.1); } .gridrow.dead{ opacity:.4; }
   input{ background:rgba(0,0,0,.5); border:1px solid rgba(0,255,65,.25); color:#cdeccf; border-radius:5px; padding:4px 6px; font:inherit; font-size:12px; }
   ::-webkit-scrollbar{ width:7px; } ::-webkit-scrollbar-thumb{ background:rgba(0,255,65,.3); border-radius:4px; }
+  canvas{ touch-action:none; }   /* the game handles pan/pinch itself — stop the browser from scrolling/zooming the page over canvases */
+  /* Touch / small-screen layout: keep panels on-screen, finger-sized tap targets, and 16px inputs so iOS doesn't zoom on focus. */
+  @media (max-width:820px), (pointer:coarse){
+    input,select,textarea{ font-size:16px !important; }
+    .res{ min-width:60px; } .res .v{ font-size:14px; } .res .r{ font-size:9px; }
+    #topbar{ gap:6px 8px; }
+    #tabbar{ top:auto; bottom:0; left:0; right:0; flex-direction:row; flex-wrap:nowrap; overflow-x:auto; gap:6px; padding:7px 8px calc(7px + env(safe-area-inset-bottom,0px)); background:rgba(2,8,4,.85); justify-content:flex-start; -webkit-overflow-scrolling:touch; }
+    .tab{ min-width:0; flex:0 0 auto; white-space:nowrap; padding:9px 12px; font-size:12px; }
+    #ticker{ display:none; }
+    .btn{ padding:10px 9px; }
+    .x{ font-size:20px; padding:4px 10px; }
+    #drawer{ width:min(440px,96vw); right:2vw; }
+  }
 </style>
 </head>
 <body>
@@ -1317,10 +1330,12 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   syncScene(); loopScene();
 }
 function onResize(){ if(!SC)return; SC.renderer.setSize(window.innerWidth,window.innerHeight,false); SC.cam.aspect=window.innerWidth/window.innerHeight; SC.cam.updateProjectionMatrix(); }
-function attachControls(canvas){ var c=SC.cam0,px=0,py=0,moved=false;
-  canvas.addEventListener("pointerdown",function(e){ SC.drag=true; moved=false; px=e.clientX; py=e.clientY; canvas.style.cursor="grabbing"; });
-  window.addEventListener("pointerup",function(e){ canvas.style.cursor="grab"; if(SC.drag&&!moved)pickAt(e); SC.drag=false; });
-  window.addEventListener("pointermove",function(e){ if(!SC.drag)return; if(Math.abs(e.clientX-px)+Math.abs(e.clientY-py)>4)moved=true; c.theta-=(e.clientX-px)*0.006; c.phi=clamp(c.phi-(e.clientY-py)*0.006,0.2,Math.PI-0.2); px=e.clientX; py=e.clientY; });
+function attachControls(canvas){ var c=SC.cam0,px=0,py=0,moved=false,ptrs={},pinchD=0;
+  function np(){ return Object.keys(ptrs); }
+  function pdist(){ var k=np(); if(k.length<2)return 0; var a=ptrs[k[0]],b=ptrs[k[1]]; return Math.hypot(a.x-b.x,a.y-b.y); }
+  canvas.addEventListener("pointerdown",function(e){ ptrs[e.pointerId]={x:e.clientX,y:e.clientY}; if(np().length>=2){ pinchD=pdist(); SC.drag=false; } else { SC.drag=true; moved=false; px=e.clientX; py=e.clientY; } canvas.style.cursor="grabbing"; });
+  window.addEventListener("pointerup",function(e){ if(!(e.pointerId in ptrs)){ if(np().length===0){ canvas.style.cursor="grab"; if(SC.drag&&!moved)pickAt(e); SC.drag=false; } return; } delete ptrs[e.pointerId]; if(np().length>=2){ pinchD=pdist(); return; } if(np().length===1){ var k=np()[0]; px=ptrs[k].x; py=ptrs[k].y; pinchD=0; SC.drag=true; moved=true; return; } canvas.style.cursor="grab"; if(SC.drag&&!moved)pickAt(e); SC.drag=false; });
+  window.addEventListener("pointermove",function(e){ if(e.pointerId in ptrs){ ptrs[e.pointerId].x=e.clientX; ptrs[e.pointerId].y=e.clientY; } if(np().length>=2){ var d=pdist(); if(pinchD>0&&d>0)c.r=clamp(c.r*(pinchD/d),14,1200000); pinchD=d; moved=true; return; } if(!SC.drag)return; if(Math.abs(e.clientX-px)+Math.abs(e.clientY-py)>4)moved=true; c.theta-=(e.clientX-px)*0.006; c.phi=clamp(c.phi-(e.clientY-py)*0.006,0.2,Math.PI-0.2); px=e.clientX; py=e.clientY; });
   canvas.addEventListener("wheel",function(e){ e.preventDefault(); c.r=clamp(c.r+e.deltaY*(c.r*0.0014+0.5),14,1200000); },{passive:false}); }
 /* The orbit shell (radius 40) envelops Earth (radius ~6), so the ray hits it first. Prefer the nearest
    SOLID body (earth/moon/planet) over the transparent orbit shell; fall back to orbit only if nothing solid is hit. */
@@ -1491,11 +1506,14 @@ function emLoop(){ if(!EM)return; EM.raf=requestAnimationFrame(emLoop); var now=
 function openEarthMap(loc){ if(EM)return; loc=loc||"earth"; var d=document.createElement("div"); d.id="earthmap"; d.innerHTML='<canvas id="emcanvas"></canvas>';
   document.body.appendChild(d); var cv=d.querySelector("#emcanvas"); EM={canvas:cv,ctx:cv.getContext("2d"),camX:0,camY:0,zoom:1,moved:false,selecting:false,box:null,tool:null,inspect:null,sel:[],loc:loc,bw:2,bh:1,maxZoom:8};
   EM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; EM.bw=2*cv.height/cv.width; EM.camX=(cv.width*EM.bw*EM.zoom-cv.width)/2; drawEarthMap(); }; window.addEventListener("resize",EM.resize); EM.resize();
-  var sx=0,sy=0; cv.addEventListener("pointerdown",function(e){ if(e.button!==0)return; sx=e.clientX; sy=e.clientY; EM.moved=false; if(EM.tool){ EM.build={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } else { EM.selecting=true; EM.box={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } });
-  EM.up=function(e){ if(!EM)return; cv.style.cursor="crosshair"; if(EM.build){ var a=emCell(EM.build.x0,EM.build.y0),b=emCell(EM.build.x1,EM.build.y1); placeRect(Math.min(a.gx,b.gx),Math.min(a.gy,b.gy),Math.abs(a.gx-b.gx)+1,Math.abs(a.gy-b.gy)+1,e.shiftKey); EM.build=null; } else if(EM.selecting){ EM.selecting=false; if(EM.moved&&EM.box)emBoxSelect(EM.box,e.shiftKey); else emClickSelect(e.clientX,e.clientY,e.shiftKey); EM.box=null; } }; window.addEventListener("pointerup",EM.up);
+  var sx=0,sy=0; EM.ptrs={};
+  function emPinchDist(){ var k=Object.keys(EM.ptrs); if(k.length<2)return 0; var a=EM.ptrs[k[0]],b=EM.ptrs[k[1]]; return Math.hypot(a.x-b.x,a.y-b.y); }
+  function emPinchMid(){ var k=Object.keys(EM.ptrs),a=EM.ptrs[k[0]],b=EM.ptrs[k[1]]; return {x:(a.x+b.x)/2,y:(a.y+b.y)/2}; }
+  cv.addEventListener("pointerdown",function(e){ if(e.button!==0)return; EM.ptrs[e.pointerId]={x:e.clientX,y:e.clientY}; if(Object.keys(EM.ptrs).length>=2){ EM.build=null; EM.selecting=false; EM.box=null; EM.pinchD=emPinchDist(); cv.style.cursor="default"; return; } sx=e.clientX; sy=e.clientY; EM.moved=false; if(EM.tool){ EM.build={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } else { EM.selecting=true; EM.box={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } });
+  EM.up=function(e){ if(!EM)return; if(e.pointerId in EM.ptrs)delete EM.ptrs[e.pointerId]; var n=Object.keys(EM.ptrs).length; if(n>=2){ EM.pinchD=emPinchDist(); return; } if(n===1){ EM.pinchD=0; EM.moved=true; EM.build=null; EM.selecting=false; EM.box=null; return; } cv.style.cursor="crosshair"; if(EM.build){ var a=emCell(EM.build.x0,EM.build.y0),b=emCell(EM.build.x1,EM.build.y1); placeRect(Math.min(a.gx,b.gx),Math.min(a.gy,b.gy),Math.abs(a.gx-b.gx)+1,Math.abs(a.gy-b.gy)+1,e.shiftKey); EM.build=null; } else if(EM.selecting){ EM.selecting=false; if(EM.moved&&EM.box)emBoxSelect(EM.box,e.shiftKey); else emClickSelect(e.clientX,e.clientY,e.shiftKey); EM.box=null; } }; window.addEventListener("pointerup",EM.up);
   cv.addEventListener("contextmenu",function(e){ e.preventDefault(); if(EM.tool){ EM.tool=null; render(); drawEarthMap(); } else if(!emSetRally(e.clientX,e.clientY)){ EM.inspect=null; render(); drawEarthMap(); } });
   cv.addEventListener("dblclick",function(e){ if(!EM.tool)emDblSelect(e.clientX,e.clientY); });
-  cv.addEventListener("pointermove",function(e){ if(!EM)return; if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4)EM.moved=true; if(EM.build){ EM.build.x1=e.clientX; EM.build.y1=e.clientY; drawEarthMap(); return; } if(EM.selecting&&EM.box){ EM.box.x1=e.clientX; EM.box.y1=e.clientY; drawEarthMap(); } });
+  cv.addEventListener("pointermove",function(e){ if(!EM)return; if(e.pointerId in EM.ptrs){ EM.ptrs[e.pointerId].x=e.clientX; EM.ptrs[e.pointerId].y=e.clientY; } if(Object.keys(EM.ptrs).length>=2){ if(EM.maxZoom>1){ var d=emPinchDist(),mid=emPinchMid(); if(EM.pinchD>0&&d>0){ var oz=EM.zoom; EM.zoom=clamp(EM.zoom*(d/EM.pinchD),1,EM.maxZoom); var f=EM.zoom/oz; EM.camX=(mid.x+EM.camX)*f-mid.x; EM.camY=mid.y-(mid.y-EM.camY)*f; drawEarthMap(); } EM.pinchD=d; } EM.moved=true; return; } if(Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>4)EM.moved=true; if(EM.build){ EM.build.x1=e.clientX; EM.build.y1=e.clientY; drawEarthMap(); return; } if(EM.selecting&&EM.box){ EM.box.x1=e.clientX; EM.box.y1=e.clientY; drawEarthMap(); } });
   cv.addEventListener("wheel",function(e){ e.preventDefault(); if(EM.maxZoom<=1)return; var oz=EM.zoom; EM.zoom=clamp(EM.zoom*(e.deltaY<0?1.12:0.89),1,EM.maxZoom); var f=EM.zoom/oz; EM.camX=(e.clientX+EM.camX)*f-e.clientX; EM.camY=e.clientY-(e.clientY-EM.camY)*f; drawEarthMap(); },{passive:false});
   EM.track=function(e){ EM.mx=e.clientX; EM.my=e.clientY; EM.overUI=(e.target!==cv); }; window.addEventListener("pointermove",EM.track);
   EM.leave=function(e){ if(!e.relatedTarget&&!e.toElement)EM.mx=null; }; window.addEventListener("mouseout",EM.leave);
@@ -1781,14 +1799,16 @@ function mountOrbitMap(body){ body=body||"earth"; var d=document.createElement("
   document.body.appendChild(d); var cv=d.querySelector("#omcanvas"); OM={canvas:cv,ctx:cv.getContext("2d"),body:body,camX:0,camY:0,zoom:1,tool:null,sel:[],selStructs:[],inspect:null,box:null,build:null,selecting:false,placing:false,en:[],battleActive:false,battleRival:null,battleT:0,cmdMark:null,last:performance.now(),items:body==="earth"?orbitItems():[]};
   OM.resize=function(){ cv.width=window.innerWidth; cv.height=window.innerHeight; OM.camX=(cv.width*3*OM.zoom-cv.width)/2; OM.camY=(cv.height-cv.height*1.5*OM.zoom)/2; }; window.addEventListener("resize",OM.resize); OM.resize();
   OM.refresh=setInterval(function(){ if(OM)OM.items=orbitItems(); },1000);
-  var sx=0,sy=0;
-  cv.addEventListener("pointerdown",function(e){ if(e.button!==0)return; sx=e.clientX; sy=e.clientY; if(OM.tool){ if(BUILDINGS[OM.tool])OM.build={x0:sx,y0:sy,x1:sx,y1:sy}; else OM.placing=true; } else { OM.selecting=true; OM.box={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } });
-  cv.addEventListener("pointermove",function(e){ if(OM.build){ OM.build.x1=e.clientX; OM.build.y1=e.clientY; } else if(OM.selecting&&OM.box){ OM.box.x1=e.clientX; OM.box.y1=e.clientY; } });
+  var sx=0,sy=0; OM.ptrs={};
+  function omPinchDist(){ var k=Object.keys(OM.ptrs); if(k.length<2)return 0; var a=OM.ptrs[k[0]],b=OM.ptrs[k[1]]; return Math.hypot(a.x-b.x,a.y-b.y); }
+  function omPinchMid(){ var k=Object.keys(OM.ptrs),a=OM.ptrs[k[0]],b=OM.ptrs[k[1]]; return {x:(a.x+b.x)/2,y:(a.y+b.y)/2}; }
+  cv.addEventListener("pointerdown",function(e){ if(e.button!==0)return; OM.ptrs[e.pointerId]={x:e.clientX,y:e.clientY}; if(Object.keys(OM.ptrs).length>=2){ OM.build=null; OM.placing=false; OM.selecting=false; OM.box=null; OM.pinchD=omPinchDist(); return; } sx=e.clientX; sy=e.clientY; if(OM.tool){ if(BUILDINGS[OM.tool])OM.build={x0:sx,y0:sy,x1:sx,y1:sy}; else OM.placing=true; } else { OM.selecting=true; OM.box={x0:sx,y0:sy,x1:sx,y1:sy}; cv.style.cursor="crosshair"; } });
+  cv.addEventListener("pointermove",function(e){ if(e.pointerId in OM.ptrs){ OM.ptrs[e.pointerId].x=e.clientX; OM.ptrs[e.pointerId].y=e.clientY; } if(Object.keys(OM.ptrs).length>=2){ var d=omPinchDist(),mid=omPinchMid(); if(OM.pinchD>0&&d>0){ var oz=OM.zoom; OM.zoom=clamp(OM.zoom*(d/OM.pinchD),1,8); var f=OM.zoom/oz; OM.camX=(mid.x+OM.camX)*f-mid.x; OM.camY=mid.y-(mid.y-OM.camY)*f; } OM.pinchD=d; return; } if(OM.build){ OM.build.x1=e.clientX; OM.build.y1=e.clientY; } else if(OM.selecting&&OM.box){ OM.box.x1=e.clientX; OM.box.y1=e.clientY; } });
   OM.track=function(e){ OM.mx=e.clientX; OM.my=e.clientY; OM.overUI=(e.target!==cv); }; window.addEventListener("pointermove",OM.track);
   OM.leave=function(e){ if(!e.relatedTarget&&!e.toElement)OM.mx=null; }; window.addEventListener("mouseout",OM.leave);
   cv.addEventListener("contextmenu",function(e){ e.preventDefault(); if(OM.tool){ OM.tool=null; OM.build=null; render(); } else commandSel(e.clientX,e.clientY,e.shiftKey); });
   cv.addEventListener("dblclick",function(e){ if(!OM.tool)dblSelect(e.clientX,e.clientY); });
-  OM.up=function(e){ if(!OM)return; cv.style.cursor=OM.tool?"crosshair":"default"; if(OM.build){ placeOrbitDrag(omCell(OM.build.x0,OM.build.y0),omCell(e.clientX,e.clientY),e.shiftKey); OM.build=null; } else if(OM.placing){ OM.placing=false; placeAtScreenOrbit(sx,sy,e.shiftKey); } else if(OM.selecting){ OM.selecting=false; var moved=Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>5; if(moved&&OM.box)boxSelect(OM.box,e.shiftKey); else clickSelect(sx,sy,e.shiftKey); OM.box=null; } }; window.addEventListener("pointerup",OM.up);
+  OM.up=function(e){ if(!OM)return; if(e.pointerId in OM.ptrs)delete OM.ptrs[e.pointerId]; var n=Object.keys(OM.ptrs).length; if(n>=2){ OM.pinchD=omPinchDist(); return; } if(n===1){ OM.pinchD=0; OM.build=null; OM.placing=false; OM.selecting=false; OM.box=null; return; } cv.style.cursor=OM.tool?"crosshair":"default"; if(OM.build){ placeOrbitDrag(omCell(OM.build.x0,OM.build.y0),omCell(e.clientX,e.clientY),e.shiftKey); OM.build=null; } else if(OM.placing){ OM.placing=false; placeAtScreenOrbit(sx,sy,e.shiftKey); } else if(OM.selecting){ OM.selecting=false; var moved=Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy)>5; if(moved&&OM.box)boxSelect(OM.box,e.shiftKey); else clickSelect(sx,sy,e.shiftKey); OM.box=null; } }; window.addEventListener("pointerup",OM.up);
   cv.addEventListener("wheel",function(e){ e.preventDefault(); var oz=OM.zoom; OM.zoom=clamp(OM.zoom*(e.deltaY<0?1.12:0.89),1,8); var f=OM.zoom/oz; OM.camX=(e.clientX+OM.camX)*f-e.clientX; OM.camY=e.clientY-(e.clientY-OM.camY)*f; },{passive:false});
   window.addEventListener("keydown",orbitKey); OM.key=orbitKey; OM.raf=requestAnimationFrame(omLoop); render();
   if(pendingTool){ OM.tool=pendingTool; pendingTool=null; render(); } if(pendingBattle){ startOrbitBattle(pendingBattle); pendingBattle=null; } if(pendingGroupCb){ var _gcb=pendingGroupCb; pendingGroupCb=null; _gcb(); } }
