@@ -1406,7 +1406,7 @@ function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S
      on the transparent orbit shell instead, and surface structures on the Earth texture. */
   if(!SC.devCleared){ clearGroup(SC.dev.earth); clearGroup(SC.dev.moon); clearGroup(SC.dev.asteroids); clearGroup(SC.dev.orbit); clearGroup(SC.fleetGrp); clearGroup(SC.rivalGrp); clearGroup(SC.neutralGrp); SC.devCleared=true; }
   updateEarthTexture(SC.dirtyTex); updateOrbitTexture(SC.dirtyTex); SC.dirtyTex=false; }
-var CAMK=0.3; /* camera damping per frame: higher = snappier, lower = floatier */
+var CAMTAU=0.13; /* camera smoothing time constant (seconds): higher = floatier/smoother, lower = snappier */
 function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene);
   var gl=SC.renderer.getContext?SC.renderer.getContext():null;
   if(SC.lost){ if(gl&&!gl.isContextLost()){ SC.lost=false; SC.dirtyTex=true; } else return; }      /* skip while context is gone; auto-resume even if the restore event was missed */
@@ -1420,7 +1420,7 @@ function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene);
   if(SC.markers)SC.markers.forEach(function(mk){ mk.getWorldPosition(SC.tmp2); var d=SC.tmp2.distanceTo(SC.cam.position),s=Math.max(d*0.003,0.0005); mk.scale.set(s,s,s); });
   if(SC.selRing){ if(SC.selBody&&SC.selObj){ SC.selObj.getWorldPosition(SC.tmp2); SC.selRing.position.copy(SC.tmp2); var dd=SC.tmp2.distanceTo(SC.cam.position),sr=Math.max(SC.selR||10,dd*0.026); SC.selRing.scale.set(sr,sr,sr); SC.selRing.visible=true; SC.selRing.material.opacity=0.55+Math.sin(SC.t*5)*0.35; } else SC.selRing.visible=false; }
   var obj=SC.focusObj[SC.focus]||SC.earthGroup; obj.getWorldPosition(SC.tmp); c.tx=SC.tmp.x; c.ty=SC.tmp.y; c.tz=SC.tmp.z;
-  c.theta+=(c.thetaT-c.theta)*CAMK; c.phi+=(c.phiT-c.phi)*CAMK; c.r+=(c.rT-c.r)*CAMK; /* ease toward input targets so bursty touch samples render as smooth motion, not steps */
+  var _nw=performance.now(),_dt=SC._lt?Math.min(0.1,(_nw-SC._lt)/1000):0.016; SC._lt=_nw; var _kf=1-Math.exp(-_dt/CAMTAU); c.theta+=(c.thetaT-c.theta)*_kf; c.phi+=(c.phiT-c.phi)*_kf; c.r+=(c.rT-c.r)*_kf; /* frame-rate-independent ease toward input targets so sparse touch samples render as continuous motion, not steps */
   SC.cam.position.set(c.tx+Math.sin(c.phi)*Math.cos(c.theta)*c.r,c.ty+Math.cos(c.phi)*c.r,c.tz+Math.sin(c.phi)*Math.sin(c.theta)*c.r); SC.cam.lookAt(c.tx,c.ty,c.tz); try{ SC.renderer.render(SC.scene,SC.cam); }catch(e){ if(gl&&gl.isContextLost())SC.lost=true; } }
 
 
