@@ -788,7 +788,7 @@ function doNewGame(){
   if(OM){ try{ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key); window.removeEventListener("pointermove",OM.track); window.removeEventListener("mouseout",OM.leave); }catch(_){} var od=el("orbitmap"); if(od)od.remove(); OM=null; }
   if(EM){ try{ if(EM.raf)cancelAnimationFrame(EM.raf); window.removeEventListener("resize",EM.resize); window.removeEventListener("pointerup",EM.up); window.removeEventListener("pointermove",EM.track); window.removeEventListener("mouseout",EM.leave); }catch(_){} var ed=el("earthmap"); if(ed)ed.remove(); EM=null; }
   S=freshState(); UI.menu=null; UI.open=false; UI.sel=null; UI.tab="ops"; pendingTool=null; pendingBattle=null;
-  if(SC){ SC.focus="earth"; SC.cam0.r=90; SC.cam0.theta=0.7; SC.cam0.phi=1.0; SC.selBody=null; SC.selObj=null; SC.dirtyTex=true; SC.trans=null; }
+  if(SC){ SC.focus="earth"; SC.cam0.r=SC.cam0.rT=90; SC.cam0.theta=SC.cam0.thetaT=0.7; SC.cam0.phi=SC.cam0.phiT=1.0; SC.selBody=null; SC.selObj=null; SC.dirtyTex=true; SC.trans=null; }
   var fd=el("fade"); if(fd)fd.style.opacity="0"; var ee=el("end"); if(ee)ee.innerHTML="";
   MUSIC.play("game"); save(); }
 
@@ -1373,7 +1373,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   var dev={earth:new THREE.Group(),moon:new THREE.Group(),asteroids:new THREE.Group(),orbit:new THREE.Group()};
   earthGroup.add(dev.earth); moonMesh.add(dev.moon); ast.add(dev.asteroids); earthGroup.add(dev.orbit);
   var rivalGrp=new THREE.Group(); earthGroup.add(rivalGrp); var neutralGrp=new THREE.Group(); earthGroup.add(neutralGrp);
-  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,sunMesh:sunMesh,earthGroup:earthGroup,ast:ast,markers:markers,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),tmp2:new THREE.Vector3(),selRing:selRing,selBody:null,selObj:null,selR:10,focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,tx:AU,ty:0,tz:0},drag:false,t:0,lost:false};
+  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,sunMesh:sunMesh,earthGroup:earthGroup,ast:ast,markers:markers,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),tmp2:new THREE.Vector3(),selRing:selRing,selBody:null,selObj:null,selR:10,focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,rT:90,thetaT:0.7,phiT:1.0,tx:AU,ty:0,tz:0},drag:false,t:0,lost:false};
   attachControls(canvas); window.addEventListener("resize",onResize);
   document.addEventListener("visibilitychange",function(){ if(!document.hidden&&SC){ SC.dirtyTex=true; try{ SC.renderer.render(SC.scene,SC.cam); }catch(_){} } });
   canvas.addEventListener("dblclick",function(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false),best=bestHit(hit); if(best){ var lc=best.object.userData.loc; if(lc==="earth")openEarthMap(); else if(lc==="orbit")openOrbitMap(); else if(lc==="moon")openEarthMap("moon"); else if(lc==="sun")openOrbitMap("sun"); else if(isColony(lc))openEarthMap(lc); } });
@@ -1386,8 +1386,8 @@ function attachControls(canvas){ var c=SC.cam0,px=0,py=0,moved=false,ptrs={},pin
   canvas.addEventListener("pointerdown",function(e){ ptrs[e.pointerId]={x:e.clientX,y:e.clientY}; if(np().length>=2){ pinchD=pdist(); SC.drag=false; } else { SC.drag=true; moved=false; px=e.clientX; py=e.clientY; } canvas.style.cursor="grabbing"; });
   window.addEventListener("pointerup",function(e){ if(!(e.pointerId in ptrs)){ if(np().length===0){ canvas.style.cursor="grab"; if(SC.drag&&!moved)pickAt(e); SC.drag=false; } return; } delete ptrs[e.pointerId]; if(np().length>=2){ pinchD=pdist(); return; } if(np().length===1){ var k=np()[0]; px=ptrs[k].x; py=ptrs[k].y; pinchD=0; SC.drag=true; moved=true; return; } canvas.style.cursor="grab"; if(SC.drag&&!moved)pickAt(e); SC.drag=false; });
   window.addEventListener("pointercancel",function(e){ if(!(e.pointerId in ptrs))return; delete ptrs[e.pointerId]; var k=np(); if(k.length>=2){ pinchD=pdist(); } else if(k.length===1){ px=ptrs[k[0]].x; py=ptrs[k[0]].y; pinchD=0; SC.drag=true; moved=true; } else { pinchD=0; SC.drag=false; canvas.style.cursor="grab"; } });
-  window.addEventListener("pointermove",function(e){ if(e.pointerId in ptrs){ ptrs[e.pointerId].x=e.clientX; ptrs[e.pointerId].y=e.clientY; } if(np().length>=2){ var d=pdist(); if(pinchD>0&&d>0)c.r=clamp(c.r*(pinchD/d),14,1200000); pinchD=d; moved=true; return; } if(!SC.drag)return; if(Math.abs(e.clientX-px)+Math.abs(e.clientY-py)>4)moved=true; c.theta-=(e.clientX-px)*0.006; c.phi=clamp(c.phi-(e.clientY-py)*0.006,0.2,Math.PI-0.2); px=e.clientX; py=e.clientY; });
-  canvas.addEventListener("wheel",function(e){ e.preventDefault(); c.r=clamp(c.r+e.deltaY*(c.r*0.0014+0.5),14,1200000); },{passive:false}); }
+  window.addEventListener("pointermove",function(e){ if(e.pointerId in ptrs){ ptrs[e.pointerId].x=e.clientX; ptrs[e.pointerId].y=e.clientY; } if(np().length>=2){ var d=pdist(); if(pinchD>0&&d>0)c.rT=clamp(c.rT*(pinchD/d),14,1200000); pinchD=d; moved=true; return; } if(!SC.drag)return; if(Math.abs(e.clientX-px)+Math.abs(e.clientY-py)>4)moved=true; c.thetaT-=(e.clientX-px)*0.006; c.phiT=clamp(c.phiT-(e.clientY-py)*0.006,0.2,Math.PI-0.2); px=e.clientX; py=e.clientY; });
+  canvas.addEventListener("wheel",function(e){ e.preventDefault(); c.rT=clamp(c.rT+e.deltaY*(c.rT*0.0014+0.5),14,1200000); },{passive:false}); }
 /* The orbit shell (radius 40) envelops Earth (radius ~6), so the ray hits it first. Prefer the nearest
    SOLID body (earth/moon/planet) over the transparent orbit shell; fall back to orbit only if nothing solid is hit. */
 function bestHit(hits){ var orbit=null,i; for(i=0;i<hits.length;i++){ var lc=hits[i].object.userData.loc; if(lc==="orbit"){ if(!orbit)orbit=hits[i]; } else return hits[i]; } return orbit; }
@@ -1396,7 +1396,7 @@ function pickAt(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.c
   var loc=best.object.userData.loc,gameplay=["earth","orbit","moon"];
   if(gameplay.indexOf(loc)>=0||isColony(loc)){ UI.tab="ops"; UI.open=true; UI.sel=locUnlocked(loc,S.researched)?loc:null; SC.focus=(loc==="orbit"?"earth":loc);
     SC.selBody=loc; SC.selObj=SC.focusObj[loc==="orbit"?"earth":loc]||SC.earthGroup; SC.selR=loc==="orbit"?STATION_R:loc==="moon"?MOON_R+2.5:loc==="earth"?9:12;
-    if(loc==="asteroids")SC.cam0.r=90; render(); }
+    if(loc==="asteroids")SC.cam0.r=SC.cam0.rT=90; render(); }
   else { SC.focus=loc; SC.selBody=loc; SC.selObj=best.object; SC.selR=12; render(); } }
 function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S.buildings)if(BUILDINGS[id]&&BUILDINGS[id].loc===loc)c+=S.buildings[id]; return c; }
   var PC=PCOLORS[0];
@@ -1406,11 +1406,12 @@ function syncScene(){ if(!SC)return; function cnt(loc){ var c=0; for(var id in S
      on the transparent orbit shell instead, and surface structures on the Earth texture. */
   if(!SC.devCleared){ clearGroup(SC.dev.earth); clearGroup(SC.dev.moon); clearGroup(SC.dev.asteroids); clearGroup(SC.dev.orbit); clearGroup(SC.fleetGrp); clearGroup(SC.rivalGrp); clearGroup(SC.neutralGrp); SC.devCleared=true; }
   updateEarthTexture(SC.dirtyTex); updateOrbitTexture(SC.dirtyTex); SC.dirtyTex=false; }
+var CAMK=0.3; /* camera damping per frame: higher = snappier, lower = floatier */
 function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene);
   var gl=SC.renderer.getContext?SC.renderer.getContext():null;
   if(SC.lost){ if(gl&&!gl.isContextLost()){ SC.lost=false; SC.dirtyTex=true; } else return; }      /* skip while context is gone; auto-resume even if the restore event was missed */
   var c=SC.cam0; SC.t+=0.016;
-  if(SC.trans){ SC.trans.t+=0.016; var tk=Math.min(1,SC.trans.t/SC.trans.dur); c.r=SC.transStart+(26-SC.transStart)*tk; if(tk>=1)SC.trans=null; }
+  if(SC.trans){ SC.trans.t+=0.016; var tk=Math.min(1,SC.trans.t/SC.trans.dur); c.r=c.rT=SC.transStart+(26-SC.transStart)*tk; if(tk>=1)SC.trans=null; }
   var wc=S.worldClock,VPH=window.innerHeight||800,PXK=2*Math.tan(55*Math.PI/360)/VPH; /* world radius per 1px screen-radius at the body's distance (fov 55) — keeps each body >= ~1px so it never vanishes */
   function minScale(m,r){ m.getWorldPosition(SC.tmp2); return Math.max(1,(PXK*SC.tmp2.distanceTo(SC.cam.position))/r); }
   SC.pivots.forEach(function(p){ p.piv.rotation.y=p.phase+p.omega*wc; p.mesh.rotation.y=p.spin*wc; if(p.minPx)p.mesh.scale.setScalar(minScale(p.mesh,p.r)); });
@@ -1419,6 +1420,7 @@ function loopScene(){ if(!SC)return; requestAnimationFrame(loopScene);
   if(SC.markers)SC.markers.forEach(function(mk){ mk.getWorldPosition(SC.tmp2); var d=SC.tmp2.distanceTo(SC.cam.position),s=Math.max(d*0.003,0.0005); mk.scale.set(s,s,s); });
   if(SC.selRing){ if(SC.selBody&&SC.selObj){ SC.selObj.getWorldPosition(SC.tmp2); SC.selRing.position.copy(SC.tmp2); var dd=SC.tmp2.distanceTo(SC.cam.position),sr=Math.max(SC.selR||10,dd*0.026); SC.selRing.scale.set(sr,sr,sr); SC.selRing.visible=true; SC.selRing.material.opacity=0.55+Math.sin(SC.t*5)*0.35; } else SC.selRing.visible=false; }
   var obj=SC.focusObj[SC.focus]||SC.earthGroup; obj.getWorldPosition(SC.tmp); c.tx=SC.tmp.x; c.ty=SC.tmp.y; c.tz=SC.tmp.z;
+  c.theta+=(c.thetaT-c.theta)*CAMK; c.phi+=(c.phiT-c.phi)*CAMK; c.r+=(c.rT-c.r)*CAMK; /* ease toward input targets so bursty touch samples render as smooth motion, not steps */
   SC.cam.position.set(c.tx+Math.sin(c.phi)*Math.cos(c.theta)*c.r,c.ty+Math.cos(c.phi)*c.r,c.tz+Math.sin(c.phi)*Math.sin(c.theta)*c.r); SC.cam.lookAt(c.tx,c.ty,c.tz); try{ SC.renderer.render(SC.scene,SC.cam); }catch(e){ if(gl&&gl.isContextLost())SC.lost=true; } }
 
 
@@ -1541,9 +1543,9 @@ function gridKey(e){ if(e.ctrlKey||e.metaKey||e.altKey)return; if(e.target&&e.ta
 document.addEventListener("keydown",gridKey);
 /* system-view keyboard camera: +/- zoom, arrows orbit around the selected body (focus), default Earth */
 window.addEventListener("keydown",function(e){ if(!SC||EM||OM||UI.menu||(e.target&&e.target.tagName==="INPUT"))return; var c=SC.cam0,k=e.key,st=0.18,zf=1.14,hit=true;
-  if(k==="ArrowUp")c.phi=clamp(c.phi-st,0.2,Math.PI-0.2); else if(k==="ArrowDown")c.phi=clamp(c.phi+st,0.2,Math.PI-0.2);
-  else if(k==="ArrowLeft")c.theta-=st; else if(k==="ArrowRight")c.theta+=st;
-  else if(k==="+"||k==="=")c.r=clamp(c.r/zf,14,1200000); else if(k==="-"||k==="_")c.r=clamp(c.r*zf,14,1200000);
+  if(k==="ArrowUp")c.phiT=clamp(c.phiT-st,0.2,Math.PI-0.2); else if(k==="ArrowDown")c.phiT=clamp(c.phiT+st,0.2,Math.PI-0.2);
+  else if(k==="ArrowLeft")c.thetaT-=st; else if(k==="ArrowRight")c.thetaT+=st;
+  else if(k==="+"||k==="=")c.rT=clamp(c.rT/zf,14,1200000); else if(k==="-"||k==="_")c.rT=clamp(c.rT*zf,14,1200000);
   else hit=false; if(hit)e.preventDefault(); });
 window.addEventListener("keydown",function(e){ if(e.key==="Alt"&&(OM||EM)){ if(!ALT_DOWN){ ALT_DOWN=true; if(EM)drawEarthMap(); } e.preventDefault(); } });
 window.addEventListener("keyup",function(e){ if(e.key==="Alt"&&ALT_DOWN){ ALT_DOWN=false; if(EM)drawEarthMap(); } });
@@ -1866,7 +1868,7 @@ function mountOrbitMap(body){ body=body||"earth"; var d=document.createElement("
   window.addEventListener("keydown",orbitKey); OM.key=orbitKey; OM.raf=requestAnimationFrame(omLoop); render();
   if(pendingTool){ OM.tool=pendingTool; pendingTool=null; render(); } if(pendingBattle){ startOrbitBattle(pendingBattle); pendingBattle=null; } if(pendingGroupCb){ var _gcb=pendingGroupCb; pendingGroupCb=null; _gcb(); } }
 function openOrbitMap(body){ if(OM||EM)return; var f=el("fade"); if(f)f.style.opacity="1"; if(SC){ SC.transStart=SC.cam0.r; SC.trans={t:0,dur:0.42}; } setTimeout(function(){ mountOrbitMap(body); if(f)f.style.opacity="0"; },460); }
-function closeOrbitMap(cb){ if(!OM){ if(cb)cb(); return; } var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key); window.removeEventListener("pointermove",OM.track); window.removeEventListener("mouseout",OM.leave); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=90; if(f)f.style.opacity="0"; render(); if(cb)cb(); },300); }
+function closeOrbitMap(cb){ if(!OM){ if(cb)cb(); return; } var f=el("fade"); if(f)f.style.opacity="1"; setTimeout(function(){ if(OM){ if(OM.raf)cancelAnimationFrame(OM.raf); clearInterval(OM.refresh); window.removeEventListener("resize",OM.resize); window.removeEventListener("pointerup",OM.up); window.removeEventListener("keydown",OM.key); window.removeEventListener("pointermove",OM.track); window.removeEventListener("mouseout",OM.leave); var d=el("orbitmap"); if(d)d.remove(); OM=null; } if(SC)SC.cam0.r=SC.cam0.rT=90; if(f)f.style.opacity="0"; render(); if(cb)cb(); },300); }
 
 /* ============================================================ MULTIPLAYER CLIENT (scaffold)
    Inert until Net.connect() is called from the Multiplayer lobby. Offline play is unaffected.
