@@ -93,6 +93,7 @@
 </style>
 </head>
 <body>
+<input type="file" id="texupload" accept="image/*" style="display:none">
 <canvas id="scene"></canvas>
 <div id="hud"></div>
 <div id="menu"></div>
@@ -373,7 +374,7 @@ function maxSubs(){ return curStruct().maxSubs||2; }
 function buyoutPrice(r){ return Math.max(0,r.eco||0)*1.4*corpMod().maPrice; } /* friendly premium over valuation; holding-co discount applies */
 function restructureFee(){ return Math.max(2e9,playerMetrics(S).eco*0.02); } /* reorg ≈ 2% of valuation, min $2B */
 function subCost(){ var n=(S&&S.subs?S.subs.length:0); return {capital:Math.max(1e9,playerMetrics(S).eco*0.01)*(1+n*0.5),influence:30+n*20}; }
-var SAVE_KEY="solarwar.standalone.v1", SET_KEY="solarwar.settings.v1";
+var SAVE_KEY="solarwar.standalone.v1", SET_KEY="solarwar.settings.v1", TEX_KEY="solarwar.textures.v1";
 var FREE_BUILD_SECS=3600; /* 1-hour grace window: construction is instant and paid in pure cash */
 var BANKRUPT_SECS=180;     /* sustained insolvency (game-seconds) before creditors force bankruptcy */
 var AI_START_ECO=2e9;      /* rival corporations begin as ~$2B startups (decoupled from the player's empty start) */
@@ -400,6 +401,42 @@ function nudgeUIScale(dir){ var i=0,best=9,cur=SETTINGS.uiScale||0.9; UISCALES.f
 var SETTINGS=defaultSettings();
 function loadSettings(){ try{ var raw=localStorage.getItem(SET_KEY); if(!raw)return; var p=JSON.parse(raw),k; if(p.startRes)for(k in SETTINGS.startRes){ if(typeof p.startRes[k]==="number")SETTINGS.startRes[k]=p.startRes[k]; } if(p.costMult)for(k in SETTINGS.costMult){ if(typeof p.costMult[k]==="number")SETTINGS.costMult[k]=p.costMult[k]; } if(typeof p.timeMult==="number")SETTINGS.timeMult=p.timeMult; if(typeof p.rivalCount==="number")SETTINGS.rivalCount=clamp(Math.round(p.rivalCount),0,MAX_COMPANIES-1); else if(typeof p.aiCount==="number")SETTINGS.rivalCount=clamp(Math.round(p.aiCount),0,MAX_COMPANIES-1); if(typeof p.neutralCount==="number")SETTINGS.neutralCount=clamp(Math.round(p.neutralCount),0,MAX_COMPANIES-1-SETTINGS.rivalCount); if(typeof p.uiScale==="number")SETTINGS.uiScale=clamp(p.uiScale,0.6,1.6); if(typeof p.musicVolume==="number")SETTINGS.musicVolume=clamp(p.musicVolume,0,1); if(typeof p.musicEnabled==="boolean")SETTINGS.musicEnabled=p.musicEnabled; if(typeof p.gameTrack==="string")SETTINGS.gameTrack=p.gameTrack; }catch(e){} }
 function saveSettings(){ try{ localStorage.setItem(SET_KEY,JSON.stringify(SETTINGS)); }catch(e){} }
+var _texTarget=null;
+function loadTextures(){ try{ return JSON.parse(localStorage.getItem(TEX_KEY)||"{}"); }catch(e){ return {}; } }
+function saveTexture(id,url){ var t=loadTextures(); t[id]=url; try{ localStorage.setItem(TEX_KEY,JSON.stringify(t)); }catch(e){} }
+function clearTexture(id){ var t=loadTextures(); delete t[id]; try{ localStorage.setItem(TEX_KEY,JSON.stringify(t)); }catch(e){} }
+var TEX_BODIES=[
+  {id:"sun",label:"☀ Sun"},
+  {id:"mercury",label:"🔴 Mercury"},
+  {id:"venus",label:"🟡 Venus"},
+  {id:"earth",label:"🌍 Earth"},
+  {id:"moon",label:"🌑 Moon"},
+  {id:"mars",label:"🟠 Mars"}
+];
+function applyPlanetTexture(id,url){
+  if(!SC||!SC.planetMeshes)return;
+  var mesh=SC.planetMeshes[id]; if(!mesh)return;
+  new THREE.TextureLoader().load(url,function(tex){
+    tex.wrapS=tex.wrapT=THREE.RepeatWrapping;
+    mesh.material.map=tex; mesh.material.color.set(0xffffff); mesh.material.needsUpdate=true;
+  });
+}
+function clearPlanetTexture(id){
+  if(!SC||!SC.planetMeshes)return;
+  var mesh=SC.planetMeshes[id]; if(!mesh)return;
+  if(id==="earth"){ mesh.material.map=EARTH_TEX||makeEarthTexture(); mesh.material.color.set(0xffffff); mesh.material.needsUpdate=true; }
+  else if(id==="moon"){ mesh.material.map=makeMoonTexture(); mesh.material.color.set(0xffffff); mesh.material.needsUpdate=true; }
+  else if(id==="sun"){ mesh.material.map=SUN_TEX||makeSunTexture(); mesh.material.color.set(0xffffff); mesh.material.needsUpdate=true; }
+  else{ var p=PLANETS.find(function(x){return x.id===id;}); if(!p)return; mesh.material.map=null; mesh.material.color.set(p.col); mesh.material.emissive.set(p.col); mesh.material.needsUpdate=true; }
+}
+function applyStoredTextures(){ var t=loadTextures(); Object.keys(t).forEach(function(k){ applyPlanetTexture(k,t[k]); }); }
+(function(){ var inp=document.getElementById("texupload"); if(!inp)return;
+  inp.addEventListener("change",function(){
+    var f=this.files&&this.files[0]; if(!f||!_texTarget)return;
+    var id=_texTarget; _texTarget=null; this.value="";
+    var r=new FileReader(); r.onload=function(e){ var url=e.target.result; saveTexture(id,url); applyPlanetTexture(id,url); renderMenu(); }; r.readAsDataURL(f);
+  });
+})();
 /* ============================================================ MUSIC
    Soundtrack scaffolding. Drop audio files in an ./audio/ folder next to this game and they play
    automatically by context. Until the files exist every call no-ops silently (no errors, no audio).
@@ -1179,6 +1216,20 @@ function settingsHtml(){ var s=SETTINGS,h='<div class="modal glass" style="max-w
   h+='<label class="small" style="display:flex;align-items:center;gap:10px;margin-top:8px">Volume<input type="range" min="0" max="100" value="'+Math.round(MUSIC.vol()*100)+'" data-music="vol" style="flex:1"><b style="min-width:40px;text-align:right;color:#9dffb0">'+Math.round(MUSIC.vol()*100)+'%</b></label>';
   h+='<div class="small" style="margin-top:10px">In-game track</div><div class="row" style="gap:5px;margin-top:5px;flex-wrap:wrap">'+MUSIC.list("game").map(function(t){ var on=(s.gameTrack||"game1")===t.id; return '<button class="btn ui sm" style="width:auto;'+(on?"background:rgba(0,255,65,.28);border-color:rgba(0,255,65,.6);color:#9dffb0":"")+'" data-act="music_track" data-arg="'+t.id+'">'+t.name+'</button>'; }).join("")+'</div>';
   h+='<div class="small" style="margin-top:6px;opacity:.7">Drop tracks in an <b>audio/</b> folder next to the game: lobby.mp3, game1&ndash;3.mp3, victory.mp3, defeat.mp3. Music stays silent until those files exist.</div>';
+  h+='<div class="lbl" style="margin-top:14px">Planet Textures</div>';
+  h+='<div class="small" style="margin-top:4px;opacity:.7">Upload any image as a planet or body texture. Saved in your browser — persists across sessions.</div>';
+  var storedTex=loadTextures();
+  h+='<div style="margin-top:8px">';
+  TEX_BODIES.forEach(function(b){
+    var has=!!storedTex[b.id];
+    h+='<div class="row between" style="margin:5px 0;align-items:center">';
+    h+='<span class="small">'+b.label+(has?' <span style="color:#39ff14;font-size:10px">● custom</span>':'')+'</span>';
+    h+='<div class="row" style="gap:5px">';
+    h+='<button class="btn ui sm" style="width:auto" data-act="tex_upload" data-arg="'+b.id+'">📁 Upload</button>';
+    if(has) h+='<button class="btn ui sm" style="width:auto;border-color:rgba(255,80,80,.5);color:#ff8080" data-act="tex_clear" data-arg="'+b.id+'">✕ Clear</button>';
+    h+='</div></div>';
+  });
+  h+='</div>';
   h+='<button class="btn ui" data-act="settings_default" style="margin-top:16px">Reset settings to defaults</button></div>'; return h; }
 function setupHtml(){ var maxR=MAX_COMPANIES-1-COUNTRIES.length,nR=clamp(SETTINGS.rivalCount,0,maxR),total=1+nR+COUNTRIES.length;
   var step=function(kind,label,val,col){ return '<div class="row between" style="margin:8px 0"><span class="lbl" style="color:'+col+'">'+label+'</span><div class="row" style="gap:5px;align-items:center"><button class="btn ui sm" style="width:auto;padding:4px 8px" data-act="cnt" data-arg="'+kind+':-5">−5</button><button class="btn ui sm" style="width:auto;padding:4px 9px" data-act="cnt" data-arg="'+kind+':-1">−</button><b style="min-width:30px;text-align:center;color:'+col+'">'+val+'</b><button class="btn ui sm" style="width:auto;padding:4px 9px" data-act="cnt" data-arg="'+kind+':1">+</button><button class="btn ui sm" style="width:auto;padding:4px 8px" data-act="cnt" data-arg="'+kind+':5">+5</button></div></div>'; };
@@ -1218,6 +1269,8 @@ document.addEventListener("click",function(ev){ var b=ev.target.closest("[data-a
   if(act==="music_toggle"){ MUSIC.setEnabled(SETTINGS.musicEnabled===false); renderMenu(); return; }
   if(act==="music_track"){ MUSIC.setGameTrack(arg); renderMenu(); return; }
   if(act==="uiscale"){ setUIScale(parseFloat(arg)); renderMenu(); return; }
+  if(act==="tex_upload"){ _texTarget=arg; var inp=document.getElementById("texupload"); if(inp)inp.click(); return; }
+  if(act==="tex_clear"){ clearTexture(arg); clearPlanetTexture(arg); renderMenu(); return; }
   if(act==="cnt"){ var pp=(arg||"").split(":"),d=parseInt(pp[1],10)||0; if(pp[0]==="rival")SETTINGS.rivalCount=clamp(SETTINGS.rivalCount+d,0,MAX_COMPANIES-1-COUNTRIES.length); else SETTINGS.neutralCount=clamp(SETTINGS.neutralCount+d,0,MAX_COMPANIES-1); saveSettings(); renderMenu(); return; }
   if(act==="setup_start"){ doNewGame(); syncScene(); renderMenu(); render(); return; }
   if(act==="menu_restart"||act==="menu_new"){ UI.menu="setup"; renderMenu(); return; }
@@ -1368,6 +1421,7 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   scene.add(new THREE.AmbientLight(0x8899bb,0.55)); var sunlight=new THREE.PointLight(0xffffff,2.4,0); scene.add(sunlight);
   var sg=new THREE.BufferGeometry(),sp=[]; for(var i=0;i<1600;i++){ var R=500000+Math.random()*1800000,th=Math.random()*Math.PI*2,ph=Math.acos(Math.random()*2-1); sp.push(R*Math.sin(ph)*Math.cos(th),R*Math.cos(ph)*0.6,R*Math.sin(ph)*Math.sin(th)); } sg.setAttribute("position",new THREE.Float32BufferAttribute(sp,3)); scene.add(new THREE.Points(sg,new THREE.PointsMaterial({color:0xffffff,size:1.6,sizeAttenuation:false,transparent:true,opacity:0.7})));
   var sunMesh=new THREE.Mesh(new THREE.SphereGeometry(SUN_R,48,48),new THREE.MeshBasicMaterial({map:makeSunTexture()})); scene.add(sunMesh);
+  var meshMap={sun:sunMesh};
   var glow=new THREE.Mesh(new THREE.SphereGeometry(SUN_R*1.4,32,32),new THREE.MeshBasicMaterial({color:0xff6a1a,transparent:true,opacity:0.2})); scene.add(glow);
   var pick=[],pivots=[],focusObj={},markers=[],earthGroup,moonPivot,moonMesh;
   markBody(scene,0,0,0,0xffd27a,"Sun","sun",pick,focusObj,markers);
@@ -1377,12 +1431,12 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   PLANETS.forEach(function(p){ var piv=new THREE.Group(); piv.rotation.y=Math.random()*6.28; scene.add(piv);
     var g=new THREE.Group(); g.position.set(p.au*AU,0,0); piv.add(g);
     var emat=p.id==="earth"?new THREE.MeshStandardMaterial({map:makeEarthTexture(),roughness:0.9,metalness:0.05}):new THREE.MeshStandardMaterial({color:p.col,emissive:p.col,emissiveIntensity:0.15,roughness:0.75,metalness:0.15});
-    var mesh=new THREE.Mesh(new THREE.SphereGeometry(p.r,p.id==="earth"?48:28,p.id==="earth"?32:28),emat); g.add(mesh);
+    var mesh=new THREE.Mesh(new THREE.SphereGeometry(p.r,p.id==="earth"?48:28,p.id==="earth"?32:28),emat); g.add(mesh); meshMap[p.id]=mesh;
     pivots.push({piv:piv,phase:piv.rotation.y,omega:2*Math.PI/(p.period*DAY_SECONDS),spin:2*Math.PI/(p.rot*DAY_SECONDS),mesh:mesh,r:p.r,minPx:1}); focusObj[p.id]=g;
     markBody(g,0,0,0,p.id==="earth"?0x2f7fff:p.col,p.id.charAt(0).toUpperCase()+p.id.slice(1),p.id,pick,focusObj,markers);
     if(p.id==="earth"){ earthGroup=g; focusObj.orbit=g;
       moonPivot=new THREE.Group(); moonPivot.rotation.y=Math.random()*6.28; g.add(moonPivot);
-      moonMesh=new THREE.Mesh(new THREE.SphereGeometry(MOON_R,28,28),new THREE.MeshStandardMaterial({map:makeMoonTexture(),roughness:0.95,metalness:0.0})); moonMesh.position.set(MOON_DIST,0,0); moonPivot.add(moonMesh);
+      moonMesh=new THREE.Mesh(new THREE.SphereGeometry(MOON_R,28,28),new THREE.MeshStandardMaterial({map:makeMoonTexture(),roughness:0.95,metalness:0.0})); moonMesh.position.set(MOON_DIST,0,0); moonPivot.add(moonMesh); meshMap.moon=moonMesh;
       focusObj.moon=moonMesh; markBody(moonPivot,MOON_DIST,0,0,0xccd2da,"Moon","moon",pick,focusObj,markers);
       var mr=[]; for(var ma=0;ma<=96;ma++){ var maa=ma/96*Math.PI*2; mr.push(new THREE.Vector3(Math.cos(maa)*MOON_DIST,0,Math.sin(maa)*MOON_DIST)); } g.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(mr),new THREE.LineBasicMaterial({color:0x9fb6c4,transparent:true,opacity:0.25})));
       var oring=new THREE.Mesh(new THREE.TorusGeometry(STATION_R,0.11,8,64),new THREE.MeshBasicMaterial({color:0x9aa3ad,transparent:true,opacity:0.5})); oring.rotation.x=Math.PI/2; g.add(oring); oring.userData.loc="orbit"; pick.push(oring);
@@ -1405,7 +1459,8 @@ function initScene(){ if(typeof THREE==="undefined")return; var canvas=el("scene
   var dev={earth:new THREE.Group(),moon:new THREE.Group(),asteroids:new THREE.Group(),orbit:new THREE.Group()};
   earthGroup.add(dev.earth); moonMesh.add(dev.moon); ast.add(dev.asteroids); earthGroup.add(dev.orbit);
   var rivalGrp=new THREE.Group(); earthGroup.add(rivalGrp); var neutralGrp=new THREE.Group(); earthGroup.add(neutralGrp);
-  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,sunMesh:sunMesh,earthGroup:earthGroup,ast:ast,markers:markers,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),tmp2:new THREE.Vector3(),selRing:selRing,selBody:null,selObj:null,selR:10,focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,rT:90,thetaT:0.7,phiT:1.0,tx:AU,ty:0,tz:0},drag:false,t:0,lost:false};
+  SC={renderer:renderer,scene:scene,cam:cam,glow:glow,pivots:pivots,moonPivot:moonPivot,moonOmega:2*Math.PI/(MOON_PERIOD*DAY_SECONDS),moonPhase:moonPivot.rotation.y,moonMesh:moonMesh,sunMesh:sunMesh,earthGroup:earthGroup,ast:ast,markers:markers,fleetGrp:fleetGrp,dev:dev,rivalGrp:rivalGrp,neutralGrp:neutralGrp,focusObj:focusObj,pick:pick,ray:new THREE.Raycaster(),tmp:new THREE.Vector3(),tmp2:new THREE.Vector3(),selRing:selRing,selBody:null,selObj:null,selR:10,focus:"earth",cam0:{r:90,theta:0.7,phi:1.0,rT:90,thetaT:0.7,phiT:1.0,tx:AU,ty:0,tz:0},drag:false,t:0,lost:false,planetMeshes:meshMap};
+  applyStoredTextures();
   attachControls(canvas); window.addEventListener("resize",onResize);
   document.addEventListener("visibilitychange",function(){ if(!document.hidden&&SC){ SC.dirtyTex=true; try{ SC.renderer.render(SC.scene,SC.cam); }catch(_){} } });
   canvas.addEventListener("dblclick",function(e){ if(!SC||UI.menu||EM||OM)return; var m=new THREE.Vector2((e.clientX/window.innerWidth)*2-1,-(e.clientY/window.innerHeight)*2+1); SC.ray.setFromCamera(m,SC.cam); var hit=SC.ray.intersectObjects(SC.pick,false),best=bestHit(hit); if(best){ var lc=best.object.userData.loc; if(lc==="earth")openEarthMap(); else if(lc==="orbit")openOrbitMap(); else if(lc==="moon")openEarthMap("moon"); else if(lc==="sun")openOrbitMap("sun"); else if(isColony(lc))openEarthMap(lc); } });
