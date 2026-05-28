@@ -16,6 +16,7 @@ import {
   Shirt,
   Wallet,
   CalendarDays,
+  Rocket,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ const nav = [
   { href: "/stylist",    label: "Stylist",    icon: Shirt,           exact: false },
   { href: "/budget",     label: "Budget",     icon: Wallet,          exact: false },
   { href: "/planner",    label: "Planner",    icon: CalendarDays,    exact: false },
+  { href: "/solar-war",  label: "Solar War",  icon: Rocket,          exact: false },
   { href: "/roadmap",    label: "Roadmap",    icon: Map,             exact: false },
   { href: "/settings",   label: "Settings",   icon: Settings,        exact: false },
 ];
